@@ -33,7 +33,7 @@ If the window stays blank under a virtual display, set `WEBKIT_DISABLE_DMABUF_RE
 
 Windows needs two things, both found out on the CI runners:
 
-- A test build that opens WebView2's debugging port. The Edge driver normally asks WebView2 for that port through the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable, but the app's WebView2 (156 and 157 on the runners) did not apply it, and every session ended in "DevToolsActivePort file doesn't exist". So the build asks for the port itself, the tests start the app, and the driver attaches to it. Only this test build has the port; the shipped config is untouched.
+- A test build that opens WebView2's debugging port. The Edge driver normally asks WebView2 for that port through the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable, but the app's WebView2 (156 and 157 on the runners) did not apply it, and every session ended in "DevToolsActivePort file doesn't exist". So the build asks for the port itself, the tests start the app, and the driver attaches to it. Only this test build has the port; the shipped config is untouched. **Not working yet:** the port opens and lists the app's page, but the attached driver session only shows a blank page (`about:blank`), so `app.test.mjs` still fails on Windows. The self-test passes there.
 - `msedgedriver.exe` with exactly the version of the WebView2 the app loads, which is not always the newest one installed. The self-test prints that version and writes it to `W_WEBVIEW_VERSION_FILE` if set. Download the driver from `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip` and name it in `W_NATIVE_DRIVER`, or put it on the `PATH`.
 
 ```

@@ -201,12 +201,15 @@ jobs:
             test-results
           if-no-files-found: ignore
           retention-days: 7
-      - run: pnpm exec vite build
-      # Unsigned .app, no installer and no updater archive.
-      - run: |
+      # The self-test does not depend on the WebKit run, so it reports even when that fails.
+      - name: Build the app (unsigned .app, no installer, no updater archive)
+        if: ${{ !cancelled() }}
+        run: |
+          pnpm exec vite build
           node e2e-desktop/ci-config.mjs > tauri.test.json
           pnpm tauri build --debug --bundles app --config tauri.test.json
       - name: Self-test of the built app
+        if: ${{ !cancelled() }}
         run: |
           binary=$(find target/debug/bundle/macos -path '*.app/Contents/MacOS/*' -type f | head -n 1)
           test -n "$binary"
