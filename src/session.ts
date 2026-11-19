@@ -49,6 +49,7 @@ import {
   maskDigest,
   makeCode,
   parseInvite,
+  renamePeer,
   userColor,
   type PeerMessage,
   type SegmentInfo,
@@ -59,6 +60,8 @@ import { indexToWorld } from './viewer/geometry';
 import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
+import { makeSample } from './sample';
+import { cleanName, setSetting } from './state/settings';
 
 let image: VolumeData | null = null;
 let mask: VolumeData | null = null;
@@ -896,6 +899,8 @@ let incoming: { meta: Extract<PeerMessage, { t: 'snapshot' }>; assembler: Assemb
 let awaitingSnapshot = false;
 let queuedPatches: Uint8Array[] = [];
 let hostingLocally = false;
+/** True once the name differs from the one the room server was given, so newcomers need telling. */
+let renamed = false;
 
 export async function startRoom(name: string): Promise<{ code: string; link: string } | string> {
   if (!image) return 'Open an image first.';
@@ -926,6 +931,7 @@ function connect(server: string, code: string, name: string, starting: boolean):
       resolve(value);
     };
     const link = inviteLink(server, code);
+    renamed = false;
     const client = new RoomClient(server, code, name, {
       onStatus: (status) => {
         const r = get().room;
@@ -942,7 +948,8 @@ function connect(server: string, code: string, name: string, starting: boolean):
           return;
         }
         set({
-          room: { status: 'online', code, link, selfId: msg.id, name, hosting: hostingLocally },
+          // After a reconnect the name may have changed since this connection was first made.
+          room: { status: 'online', code, link, selfId: msg.id, name: get().room?.name ?? name, hosting: hostingLocally },
           peers: msg.peers.map((p) => ({ ...p, color: userColor(p.id) })),
         });
         if (msg.peers.length > 0) {
@@ -960,6 +967,9 @@ function connect(server: string, code: string, name: string, starting: boolean):
       onJoin: (id, peerName) => {
         set((s) => ({ peers: [...s.peers.filter((p) => p.id !== id), { id, name: peerName, color: userColor(id) }] }));
         toast('info', `${peerName} joined`);
+        // The server introduced us by the name we connected with.
+        const self = get().room;
+        if (renamed && self) client.send({ t: 'rename', name: self.name });
       },
       onLeave: (id) => {
         const peer = get().peers.find((p) => p.id === id);
@@ -990,6 +1000,26 @@ function connect(server: string, code: string, name: string, starting: boolean):
   });
 }
 
+/**
+ * Changes the name others see. It is saved as the name for future rooms and,
+ * in a room, sent to everyone straight away.
+ */
+export function setDisplayName(name: string): void {
+  const clean = cleanName(name);
+  setSetting('displayName', clean);
+  const r = get().room;
+  if (!room || !r || !clean || clean === r.name) return;
+  renamed = true;
+  room.setName(clean);
+  set({ room: { ...r, name: clean } });
+  room.send({ t: 'rename', name: clean });
+}
+
+/** Opens the built-in synthetic image and mask used by the welcome tour. */
+export async function openSample(): Promise<void> {
+  await openFiles(makeSample());
+}
+
 export function leaveRoom(silent = false): void {
   if (!room) return;
   room.close();
@@ -1012,6 +1042,9 @@ async function onPeerMessage(client: RoomClient, msg: PeerMessage): Promise<void
       }));
       break;
     }
+    case 'rename':
+      set((s) => ({ peers: renamePeer(s.peers, msg) }));
+      break;
     case 'segments': {
       const s = get();
       const active = msg.list.some((x) => x.index === s.activeSegment) ? s.activeSegment : (msg.list[0]?.index ?? 0);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, parseSettings } from './settings';
+import { DEFAULT_SETTINGS, applyReduceMotion, cleanName, parseSettings } from './settings';
 
 describe('parseSettings', () => {
   it('returns the defaults for nothing or for garbage', () => {
@@ -15,5 +15,29 @@ describe('parseSettings', () => {
     expect(s.autosave).toBe(true);
     expect(s.displayName).toBe('Mina');
     expect('extra' in s).toBe(false);
+  });
+});
+
+describe('cleanName', () => {
+  it('trims and keeps at most 24 characters', () => {
+    expect(cleanName('  Mina  ')).toBe('Mina');
+    expect(cleanName('a'.repeat(40))).toHaveLength(24);
+  });
+  it('gives an empty name for anything that is not text', () => {
+    expect(cleanName(undefined)).toBe('');
+    expect(cleanName(12)).toBe('');
+  });
+});
+
+describe('applyReduceMotion', () => {
+  it('sets and removes data-reduce-motion on the root element', () => {
+    const calls: string[] = [];
+    const root = {
+      setAttribute: (name: string, value: string) => calls.push(`set ${name}=${value}`),
+      removeAttribute: (name: string) => calls.push(`remove ${name}`),
+    };
+    applyReduceMotion(root, true);
+    applyReduceMotion(root, false);
+    expect(calls).toEqual(['set data-reduce-motion=true', 'remove data-reduce-motion']);
   });
 });

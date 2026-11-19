@@ -1,7 +1,20 @@
 import type { Page } from '@playwright/test';
 
 /** Loads a small synthetic CT-like image and a two-label mask through the app's normal open path. */
+/**
+ * The welcome tour is for first launches, so tests start as someone who has
+ * seen it. playwright.config.ts does the same for every context; this covers a
+ * page whose storage was cleared. Saved settings are left alone.
+ */
+export async function skipTour(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const key = 'w-annotator:settings';
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify({ tourSeen: true }));
+  });
+}
+
 export async function openPhantom(page: Page, withMask = true): Promise<void> {
+  await skipTour(page);
   await page.goto('/');
   await page.waitForFunction(() => '__w' in window);
   await page.evaluate(async (withMask) => {

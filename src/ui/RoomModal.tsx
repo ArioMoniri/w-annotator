@@ -1,12 +1,18 @@
 import { X } from 'lucide-react';
 import { useState } from 'react';
 import { formatCode } from '../collab/protocol';
-import { copyText, isTauri, saveName, saveServer, savedName, savedServer } from '../platform';
+import { SERVER_HELP, copyText, isTauri, saveName, saveServer, savedName, savedServer } from '../platform';
 import { joinRoom, startRoom } from '../session';
 import { set, toast, useStore } from '../state/store';
 import { Modal } from './common';
 
+/** Mounted afresh each time it opens, so the name and server always come from Settings. */
 export function RoomModal() {
+  const open = useStore((s) => !!s.roomModal);
+  return open ? <RoomDialog /> : null;
+}
+
+function RoomDialog() {
   const mode = useStore((s) => s.roomModal);
   const hasImage = useStore((s) => !!s.image);
   const [name, setName] = useState(savedName());
@@ -132,11 +138,7 @@ export function RoomModal() {
               disabled={working}
               onChange={(e) => setServer(e.target.value)}
             />
-            <span className="help">
-              {isTauri
-                ? 'Leave empty to host the room on this computer for people on the same network. Enter a room server address to work over the internet.'
-                : 'Address of the room server.'}
-            </span>
+            <span className="help">{SERVER_HELP}</span>
           </label>
         </details>
         <div className="footer" style={{ marginTop: 8 }}>

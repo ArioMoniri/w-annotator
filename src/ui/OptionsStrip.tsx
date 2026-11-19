@@ -204,6 +204,7 @@ export function OptionsStrip() {
           <span className="hint">Shift-drag erases.</span>
           <button
             className="btn secondary"
+            data-tour="interpolate"
             data-tip="Paint every few slices, then fill the gaps  I"
             data-tip-side="bottom"
             onClick={fillBetweenSlices}
@@ -267,7 +268,7 @@ export function OptionsStrip() {
   }
 
   return (
-    <div className="strip" data-strip={tool} data-compact={compact}>
+    <div className="strip" data-strip={tool} data-compact={compact} data-tour="options">
       <span className="toolname">{name}</span>
       <div className="options" key={tool} ref={optionsRef}>
         {body}

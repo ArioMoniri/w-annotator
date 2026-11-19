@@ -97,10 +97,12 @@ test('saving downloads a NIfTI mask that reopens with the same voxels', async ({
   expect(count).toBeGreaterThan(0);
 });
 
-test('shortcut sheet opens with ?', async ({ page }) => {
+test('the shortcut list opens with ?', async ({ page }) => {
   await openPhantom(page);
   await page.keyboard.press('?');
-  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+  // The list lives in Settings now, under Shortcuts.
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Shortcuts' })).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
@@ -301,7 +303,7 @@ test('undoing a segment delete brings back its name and colour', async ({ page }
   await expect(page.locator('.segrow').first()).toContainText('Liver');
 });
 
-test('a shortcut can be changed from the sheet and is remembered', async ({ page }) => {
+test('a shortcut can be changed in Settings and is remembered', async ({ page }) => {
   await openPhantom(page);
   await page.keyboard.press('?');
   await page.locator('[data-action="tool.brush"]').click();
@@ -312,7 +314,8 @@ test('a shortcut can be changed from the sheet and is remembered', async ({ page
   await page.locator('[data-action="tool.pan"]').click();
   await page.keyboard.press('e');
   await expect(page.locator('[data-action="tool.eraser"]')).toHaveText('—');
-  await page.getByRole('button', { name: 'Done' }).click();
+  // Settings apply as they are made; there is no Done button, only Close.
+  await page.getByRole('button', { name: 'Close' }).click();
 
   await page.keyboard.press('b');
   await expect(page.locator('[data-tool="brush"]')).toHaveAttribute('aria-checked', 'false');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Assembler, FrameKind, chunk, maskDigest, formatCode, frame, initials, makeCode, parseFrame, parseInvite, roomUrl } from './protocol';
+import { Assembler, FrameKind, chunk, maskDigest, formatCode, frame, initials, makeCode, parseFrame, parseInvite, renamePeer, roomUrl, type PeerMessage } from './protocol';
 
 describe('room codes', () => {
   it('makes 6 character codes without look-alike characters', () => {
@@ -104,5 +104,31 @@ describe('maskDigest', () => {
     const c = a.slice();
     c[10] = 3;
     expect(maskDigest(a)).not.toBe(maskDigest(c));
+  });
+});
+
+describe('rename', () => {
+  const peers = [
+    { id: 1, name: 'Mina' },
+    { id: 2, name: 'Ario' },
+  ];
+  it('changes only the name of the person who sent it', () => {
+    const msg: PeerMessage = { t: 'rename', from: 2, name: 'Ario M' };
+    expect(renamePeer(peers, msg)).toEqual([
+      { id: 1, name: 'Mina' },
+      { id: 2, name: 'Ario M' },
+    ]);
+  });
+  it('trims the name and keeps at most 24 characters', () => {
+    expect(renamePeer(peers, { t: 'rename', from: 1, name: `  ${'x'.repeat(40)} ` })[0].name).toBe('x'.repeat(24));
+  });
+  it('ignores an empty or malformed name and an unknown sender', () => {
+    expect(renamePeer(peers, { t: 'rename', from: 1, name: '   ' })).toEqual(peers);
+    expect(renamePeer(peers, { t: 'rename', from: 1, name: 5 as unknown as string })).toEqual(peers);
+    expect(renamePeer(peers, { t: 'rename', from: 9, name: 'Zed' })).toEqual(peers);
+  });
+  it('carries nothing but the name', () => {
+    const msg: PeerMessage = { t: 'rename', from: 2, name: 'Ario' };
+    expect(Object.keys(msg).sort()).toEqual(['from', 'name', 't']);
   });
 });

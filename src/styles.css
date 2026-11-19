@@ -2095,3 +2095,530 @@ button.avatar {
 .strip[data-compact='3'] .chip span:last-child {
   display: none;
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   Settings dialog and welcome tour (issue #7). Everything for both lives
+   in this one block.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Reduce motion, as a setting ──────────────────
+   The same overrides as the prefers-reduced-motion block near the top. */
+
+:root[data-reduce-motion] {
+  --dur-instant: 0ms;
+  --dur-fast: 0ms;
+  --dur-base: 0ms;
+  --dur-slow: 0ms;
+}
+
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-iteration-count: 1 !important;
+}
+
+:root[data-reduce-motion] .spinner {
+  animation: none;
+  border: 0;
+  width: auto;
+  height: auto;
+}
+
+:root[data-reduce-motion] .spinner::after {
+  content: '…';
+}
+
+:root[data-reduce-motion] .rcursor {
+  transition: none;
+}
+
+/* ── Empty state links ────────────────────────── */
+
+.empty .links {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Switch ───────────────────────────────────── */
+
+.switch {
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--bg-active);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+  transition: background var(--dur-instant) linear;
+}
+
+.switch i {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform var(--dur-fast) var(--ease-in-out), background var(--dur-instant) linear;
+}
+
+.switch[aria-checked='true'] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.switch[aria-checked='true'] i {
+  background: var(--text-on-accent);
+  transform: translateX(16px);
+}
+
+/* ── Settings ─────────────────────────────────── */
+
+.modal.settings {
+  width: 720px;
+  height: 500px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.modal.settings nav {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 8px 8px;
+  overflow: auto;
+}
+
+.modal.settings nav h2 {
+  margin: 0 8px 12px;
+}
+
+.modal.settings [role='tablist'] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modal.settings [role='tab'] {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-2);
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.modal.settings [role='tab']:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.modal.settings [role='tab'][aria-selected='true'] {
+  background: var(--bg-active);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.modal.settings .pane {
+  padding: 20px 24px 24px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.modal.settings .pane h3 {
+  font: 600 15px/22px var(--font-ui);
+  margin: 0;
+  /* Clear of the close button. */
+  padding-right: 32px;
+}
+
+.modal.settings .pane p {
+  margin: 0;
+}
+
+.modal.settings .form input[type='text'] {
+  max-width: 320px;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 28px;
+}
+
+.setting .text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.setting .help {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.modal.settings .pane p.sheet-help {
+  margin: -12px 0 -8px;
+  min-height: 20px;
+}
+
+.shortcuts h4 {
+  grid-column: 1 / -1;
+  font: 600 12px/16px var(--font-ui);
+  color: var(--text-3);
+  margin: 8px 0 2px;
+}
+
+.pane-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.linklist {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.modal.settings .pane p.about {
+  margin-top: auto;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (max-width: 640px) {
+  .modal.settings {
+    grid-template-columns: 132px minmax(0, 1fr);
+  }
+  .shortcuts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* In a narrow window the brush strip keeps the number field and drops the slider,
+   as the threshold strip does, so "Fill between slices" is not cut off. */
+@media (max-width: 1279px) {
+  .strip[data-strip='brush'] input[aria-label='Brush size'] {
+    display: none;
+  }
+}
+
+/* ── Welcome tour ─────────────────────────────────
+   A dimming layer with a hole around the control being explained. The layer
+   is four panels and four corner pieces that only ever move with transform,
+   inside one group whose opacity dims the window once however they overlap.
+   Nothing here touches a viewport: the image is only seen through the layer. */
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  /* The panels reach past the window. Clip rather than hide, so focus can never scroll the layer. */
+  overflow: hidden;
+  overflow: clip;
+  --tour-shade: #000000;
+  --tour-dim: 0.6;
+}
+
+:root[data-theme='light'] .tour {
+  --tour-shade: #0f1114;
+  --tour-dim: 0.44;
+}
+
+.tour-dim {
+  position: absolute;
+  inset: 0;
+  opacity: var(--tour-dim);
+  animation: fade-in var(--dur-base) linear;
+}
+
+.tour-dim i,
+.tour-dim b {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: transform var(--dur-slow) var(--ease-in-out);
+}
+
+.tour-dim i {
+  width: 100vw;
+  height: 100vh;
+  background: var(--tour-shade);
+}
+
+.tour-dim b[data-corner='tl'] {
+  background: radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--tour-shade) 100%);
+}
+
+.tour-dim b[data-corner='tr'] {
+  background: radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--tour-shade) 100%);
+}
+
+.tour-dim b[data-corner='bl'] {
+  background: radial-gradient(circle farthest-side at 100% 0, transparent 96%, var(--tour-shade) 100%);
+}
+
+.tour-dim b[data-corner='br'] {
+  background: radial-gradient(circle farthest-side at 0 0, transparent 96%, var(--tour-shade) 100%);
+}
+
+/* A hairline around the hole. It appears in place once the hole has arrived. */
+.tour-hole {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36);
+  pointer-events: none;
+  animation: fade-in var(--dur-fast) linear var(--dur-slow) backwards;
+}
+
+.tour-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 304px;
+  max-width: calc(100vw - 24px);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-3);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  transition: transform var(--dur-slow) var(--ease-in-out);
+  animation: fade-in var(--dur-base) linear;
+}
+
+.tour-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fade-in var(--dur-base) linear;
+}
+
+.tour-card h2 {
+  font: 600 15px/22px var(--font-ui);
+  margin: 0;
+}
+
+.tour-card p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tour-head .btn.text {
+  margin: 0 -8px 0 0;
+  flex: none;
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tour-foot.end {
+  justify-content: flex-end;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 4px;
+  margin-right: auto;
+}
+
+.tour-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-control);
+  opacity: 0.5;
+}
+
+.tour-dots i[data-on='true'] {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.tour-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tour-choices .btn {
+  justify-content: center;
+}
+
+.tour-choices .btn.text {
+  align-self: center;
+}
+
+/* The drawing in a card. Its resting state is the finished picture. */
+.tour-hint {
+  display: block;
+  width: 100%;
+  height: 62px;
+  margin-bottom: 4px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+}
+
+.tour-hint .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.tour-hint .faint-line {
+  stroke: var(--border-control);
+  stroke-width: 1;
+}
+
+.tour-hint .solid {
+  fill: currentColor;
+}
+
+.tour-hint .faint {
+  fill: var(--border-strong);
+}
+
+.tour-hint .accent {
+  fill: var(--accent);
+}
+
+.tour-hint .cover {
+  fill: var(--bg-surface);
+}
+
+.tour-hint .hint-wheel {
+  animation: hint-wheel 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-slice {
+  animation: hint-slice 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-cover {
+  transform: translateX(150px);
+  animation: hint-cover 2s linear infinite;
+}
+
+.tour-hint .hint-brush {
+  animation: hint-brush 2s linear infinite;
+}
+
+.tour-hint .hint-fill {
+  animation: hint-fill 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-cursor-a {
+  animation: hint-cursor-a 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-cursor-b {
+  animation: hint-cursor-b 2s var(--ease-in-out) infinite;
+}
+
+@keyframes hint-wheel {
+  0%,
+  100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+@keyframes hint-slice {
+  0%,
+  100% {
+    transform: translateY(-8px);
+  }
+  50% {
+    transform: translateY(8px);
+  }
+}
+
+@keyframes hint-cover {
+  0%,
+  10% {
+    transform: translateX(0);
+  }
+  70%,
+  100% {
+    transform: translateX(150px);
+  }
+}
+
+@keyframes hint-brush {
+  0%,
+  10% {
+    transform: translate(-116px, 18px);
+  }
+  70%,
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes hint-fill {
+  0%,
+  25% {
+    opacity: 0;
+  }
+  60%,
+  100% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes hint-cursor-a {
+  0%,
+  100% {
+    transform: translate(-46px, 8px);
+  }
+  50% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes hint-cursor-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-44px, -6px);
+  }
+}
+
+/* Reduced motion: the drawings stand still, and the hole and card cut to their place. */
+@media (prefers-reduced-motion: reduce) {
+  .tour-hint * {
+    animation: none !important;
+  }
+}
+
+:root[data-reduce-motion] .tour-hint * {
+  animation: none !important;
+}
+
+/* ══ End of settings dialog and welcome tour ══ */
