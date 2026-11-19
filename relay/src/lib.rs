@@ -93,7 +93,7 @@ impl Shared {
         let real = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        real + self.cfg.faults.as_ref().map_or(0, Faults::clock_offset_ms)
+        real.saturating_add(self.cfg.faults.as_ref().map_or(0, Faults::clock_offset_ms))
     }
 }
 

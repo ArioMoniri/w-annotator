@@ -141,10 +141,9 @@ async fn a_second_connection_of_the_same_member_replaces_the_first() {
     host.send_frame(PATCH, 0, 1, b"x").await;
     assert_eq!(new.frame().await.1, b"x");
     host.sync().await;
-    assert!(matches!(
-        tokio::time::timeout(QUIET, host.text("presence")).await,
-        Err(_)
-    ));
+    assert!(tokio::time::timeout(QUIET, host.text("presence"))
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -629,10 +628,9 @@ async fn members_and_rooms_lapse_after_thirty_idle_days() {
         .advance_clock(30 * DAY - Duration::from_secs(60));
     relay.faults.sweep();
     host.sync().await;
-    assert!(matches!(
-        tokio::time::timeout(QUIET, host.text("roster")).await,
-        Err(_)
-    ));
+    assert!(tokio::time::timeout(QUIET, host.text("roster"))
+        .await
+        .is_err());
 
     relay.faults.advance_clock(Duration::from_secs(60));
     relay.faults.sweep();

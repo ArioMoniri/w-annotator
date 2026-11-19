@@ -275,7 +275,9 @@ async fn connection(state: AppState, room_id: String, mut socket: WebSocket, _sl
     };
     let me = entered.member;
     let host_view = entered.kind == RoomType::HostView;
-    let (ping_every, idle) = if host_view {
+    // Only the host of a view-through-host room is watched closely: the room
+    // must end within seconds of losing it. Everyone else gets the slow ping.
+    let (ping_every, idle) = if host_view && entered.is_host {
         (timing.host_ping_interval, timing.host_timeout)
     } else {
         (timing.ping_interval, timing.idle_timeout)

@@ -234,10 +234,7 @@ async fn unknown_frame_kinds_and_message_types_are_ignored_not_fatal() {
     guest.sync().await;
     host.no_frames().await;
     // No error either: unknown is simply not ours to judge.
-    assert!(matches!(
-        tokio::time::timeout(QUIET, guest.event()).await,
-        Err(_)
-    ));
+    assert!(tokio::time::timeout(QUIET, guest.event()).await.is_err());
 
     guest.send_frame(PATCH, 0, 2, b"still here").await;
     assert_eq!(host.frame().await.1, b"still here");
