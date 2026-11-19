@@ -4,9 +4,9 @@
  * no driver for WKWebView, so this suite does not run there (see README.md).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync } from 'node:fs';
 import { connect } from 'node:net';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { remote } from 'webdriverio';
 import { APP } from './app.mjs';
@@ -69,7 +69,30 @@ export async function launch({ args = [], env = {} } = {}) {
     console.error(`Could not start ${DRIVER}: ${err.message}`);
   });
 
+  // Attach mode (W_ATTACH=1): start the app here with WebView2's debugging port open and let
+  // the Edge driver connect to it, instead of having the driver start the app.
+  const attach = process.env.W_ATTACH === '1' && process.platform === 'win32';
+  let app = null;
+  let capabilities = { 'tauri:options': { application: APP, args } };
+  if (attach) {
+    const debugPort = PORT + 1000;
+    const dataDir = mkdtempSync(join(tmpdir(), 'w-webview2-'));
+    app = spawn(APP, args, {
+      env: { ...process.env, ...env, WEBVIEW2_USER_DATA_FOLDER: dataDir, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` },
+      stdio: 'inherit',
+    });
+    capabilities = { browserName: 'webview2', 'ms:edgeOptions': { debuggerAddress: `127.0.0.1:${debugPort}` } };
+    await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then((r) => r.ok), Boolean, { timeout: 60_000, what: 'WebView2 to open its debugging port' }).catch(
+      (err) => {
+        spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+        driver.kill();
+        throw err;
+      },
+    );
+  }
+
   const stop = async () => {
+    if (app) spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
     if (!exited) {
       // On Windows a plain kill would leave msedgedriver and the app behind.
       if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(driver.pid), '/T', '/F'], { stdio: 'ignore' });
@@ -86,7 +109,7 @@ export async function launch({ args = [], env = {} } = {}) {
       logLevel: 'error',
       connectionRetryCount: 0,
       connectionRetryTimeout: 120_000,
-      capabilities: { 'tauri:options': { application: APP, args } },
+      capabilities,
     });
     await until(() => browser.execute(() => '__w' in window), Boolean, { timeout: 60_000, what: 'the app to load' });
     return {
