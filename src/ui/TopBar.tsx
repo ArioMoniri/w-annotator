@@ -5,7 +5,8 @@ import { set, toast, useStore } from '../state/store';
 import { closeImage, leaveRoom, saveMask } from '../session';
 import { copyText } from '../platform';
 import { jumpTo } from '../viewer/engine';
-import { MOD, useDismiss } from './common';
+import { formatCombo, useShortcuts } from '../state/shortcuts';
+import { MOD, isMac, useDismiss } from './common';
 import { pickDicomFolder, pickImage, pickMask } from './files';
 import { ThemeControl } from './ThemeControl';
 
@@ -14,6 +15,7 @@ function FileMenu() {
   const maskName = useStore((s) => s.maskName);
   const dirty = useStore((s) => s.dirty);
   const update = useStore((s) => s.update);
+  const settingsKey = useShortcuts((s) => s.bindings['app.settings']);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const ref = useDismiss<HTMLDivElement>(open, close);
@@ -25,6 +27,7 @@ function FileMenu() {
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
       <button
         className="filebtn"
+        data-tour="file"
         aria-haspopup="menu"
         aria-expanded={open}
         title={maskName ? `${image?.name} · ${maskName}` : image?.name}
@@ -51,8 +54,8 @@ function FileMenu() {
             Save mask… <kbd>{MOD}+S</kbd>
           </button>
           <hr />
-          <button className="item" role="menuitem" onClick={run(() => set({ shortcutsOpen: true }))}>
-            Keyboard shortcuts <kbd>?</kbd>
+          <button className="item" role="menuitem" onClick={run(() => set({ settings: 'profile' }))}>
+            Settings… {settingsKey && <kbd>{formatCombo(settingsKey, isMac)}</kbd>}
           </button>
           <div className="row">
             Appearance
@@ -88,6 +91,7 @@ function RoomButton() {
     return (
       <button
         className="btn secondary"
+        data-tour="share"
         data-tip="Start or join a room"
         data-tip-align="end"
         onClick={() => set({ roomModal: hasImage ? 'start' : 'join' })}
@@ -101,7 +105,7 @@ function RoomButton() {
     if (await copyText(text)) toast('success', done);
   };
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} data-tour="share" style={{ position: 'relative' }}>
       <div className="avatars" style={{ display: 'inline-flex', marginRight: 8, verticalAlign: 'middle' }}>
         {peers.slice(0, 4).map((p) => (
           <button

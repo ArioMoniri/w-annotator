@@ -60,3 +60,12 @@ describe('formatCombo', () => {
     expect(formatCombo('', false)).toBe('—');
   });
 });
+
+describe('settings shortcut', () => {
+  it('opens settings with mod+, by default and can be rebound', () => {
+    expect(defaultBindings()['app.settings']).toBe('mod+,');
+    expect(actionFor(defaultBindings(), comboFromEvent({ key: ',', ctrlKey: true, metaKey: false, shiftKey: false, altKey: false })!)).toBe('app.settings');
+    const { bindings } = rebind(defaultBindings(), 'app.settings', 'mod+shift+p');
+    expect(actionFor(bindings, 'mod+shift+p')).toBe('app.settings');
+  });
+});

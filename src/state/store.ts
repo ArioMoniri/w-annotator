@@ -16,6 +16,8 @@ export type ToolId =
 
 export const EDIT_TOOLS: ToolId[] = ['brush', 'eraser', 'threshold', 'scissors', 'fill'];
 
+export type SettingsSection = 'profile' | 'appearance' | 'shortcuts' | 'files' | 'help';
+
 export type ViewId = 'axial' | 'sagittal' | 'coronal' | 'volume3d';
 
 export const SEGMENT_COLORS = [
@@ -100,10 +102,11 @@ interface State {
   room: RoomState | null;
   peers: Peer[];
   roomModal: 'start' | 'join' | null;
-  shortcutsOpen: boolean;
+  /** The settings dialog and the section it shows; null when closed. */
+  settings: SettingsSection | null;
   /** The report dialog, opened on the bug or the idea form. */
   report: 'bug' | 'idea' | null;
-  /** True while the shortcut sheet is waiting for a new key, so nothing else reacts to it. */
+  /** True while the shortcut list is waiting for a new key, so nothing else reacts to it. */
   capturingShortcut: boolean;
   confirm: ConfirmRequest | null;
   toasts: Toast[];
@@ -147,7 +150,7 @@ export const useStore = create<State>(() => ({
   room: null,
   peers: [],
   roomModal: null,
-  shortcutsOpen: false,
+  settings: null,
   report: null,
   capturingShortcut: false,
   confirm: null,

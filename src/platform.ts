@@ -10,6 +10,11 @@ export const saveName = (name: string) => setSetting('displayName', name);
 export const savedServer = () => getSettings().server;
 export const saveServer = (url: string) => setSetting('server', url.trim());
 
+/** Shown under the room server field, in the room dialog and in Settings. */
+export const SERVER_HELP = isTauri
+  ? 'Leave empty to host the room on this computer for people on the same network. Enter a room server address to work over the internet.'
+  : 'Address of the room server.';
+
 /** The room server to use, or null when this computer should host. */
 export function relayServer(): string | null {
   const saved = savedServer();

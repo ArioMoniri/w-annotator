@@ -373,7 +373,7 @@ export function SegmentsPanel() {
   }, [segments]);
 
   return (
-    <aside className="panel" aria-label="Segments">
+    <aside className="panel" aria-label="Segments" data-tour="segments">
       <header>
         <span>Segments</span>
         <button className="iconbtn" aria-label="Add segment" data-tip="Add segment  N" data-tip-side="left" onClick={addSegment}>

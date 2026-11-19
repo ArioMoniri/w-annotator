@@ -33,6 +33,7 @@ export const ACTIONS = [
   { id: 'file.openMask', label: 'Open mask', group: 'View and file', key: 'mod+shift+o' },
   { id: 'file.save', label: 'Save mask', group: 'View and file', key: 'mod+s' },
   { id: 'help.shortcuts', label: 'Keyboard shortcuts', group: 'View and file', key: '?' },
+  { id: 'app.settings', label: 'Settings', group: 'View and file', key: 'mod+,' },
 ] as const;
 
 export type ActionId = (typeof ACTIONS)[number]['id'];

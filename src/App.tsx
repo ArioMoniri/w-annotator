@@ -7,15 +7,20 @@ import { initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
 import { ReportDialog } from './ui/ReportDialog';
 import { OptionsStrip } from './ui/OptionsStrip';
-import { Busy, ConfirmDialog, ShortcutsSheet, Toasts, UpdateBanner } from './ui/Overlays';
+import { Busy, ConfirmDialog, Toasts, UpdateBanner } from './ui/Overlays';
 import { MeasurementsSheet } from './ui/Measurements';
 import { RoomModal } from './ui/RoomModal';
+import { SettingsDialog } from './ui/Settings';
 import { SegmentsPanel } from './ui/SegmentsPanel';
 import { StatusBar } from './ui/StatusBar';
 import { ToolRail } from './ui/ToolRail';
 import { TopBar } from './ui/TopBar';
 import { Viewports } from './ui/Viewports';
 import { droppedFiles, pickImage, pickMask, toInputFiles } from './ui/files';
+import { getSettings } from './state/settings';
+import { Tour } from './tour/Tour';
+import { startTour } from './tour/state';
+import { shouldShowTour } from './tour/steps';
 
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -74,10 +79,11 @@ function useHotkeys() {
       'file.openImage': () => pickImage(),
       'file.openMask': () => pickMask(),
       'file.save': () => void session.saveMask(),
-      'help.shortcuts': () => set({ shortcutsOpen: !get().shortcutsOpen }),
+      'help.shortcuts': () => set({ settings: get().settings === 'shortcuts' ? null : 'shortcuts' }),
+      'app.settings': () => set({ settings: get().settings ? null : 'profile' }),
     };
     // These work with nothing open; the rest need an image.
-    const always = new Set<ActionId>(['file.openImage', 'help.shortcuts']);
+    const always = new Set<ActionId>(['file.openImage', 'help.shortcuts', 'app.settings']);
 
     const onKey = (e: KeyboardEvent) => {
       const s = get();
@@ -92,12 +98,12 @@ function useHotkeys() {
       }
       const action = actionFor(useShortcuts.getState().bindings, combo);
       if (action) {
-        if (s.shortcutsOpen && action !== 'help.shortcuts') return;
+        if (s.settings && !action.endsWith('shortcuts') && action !== 'app.settings') return;
         if (!s.image && !always.has(action)) return;
         e.preventDefault();
         return run[action]();
       }
-      if (!s.image || s.shortcutsOpen) return;
+      if (!s.image || s.settings) return;
       if (e.key >= '1' && e.key <= '9' && combo.length === 1) return session.selectSegment(Number(e.key));
       if (e.key === 'Escape') {
         if (s.maximized) return set({ maximized: null });
@@ -165,6 +171,7 @@ export function App() {
       if (files.length) void session.openFiles(files);
     });
     void findUpdate().then((update) => update && set({ update }));
+    if (shouldShowTour(getSettings().tourSeen, location.search)) startTour();
     const warn = (e: BeforeUnloadEvent) => {
       if (get().dirty) e.preventDefault();
     };
@@ -193,8 +200,9 @@ export function App() {
       <RoomModal />
       <ReportDialog />
       <ConfirmDialog />
-      <ShortcutsSheet />
       <MeasurementsSheet />
+      <SettingsDialog />
+      <Tour />
     </div>
   );
 }

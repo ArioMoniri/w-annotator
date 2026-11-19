@@ -14,6 +14,11 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: `http://localhost:${port}`,
+    // Every test starts as someone who has already seen the welcome tour; e2e/tour.spec.ts opts out.
+    storageState: {
+      cookies: [],
+      origins: [{ origin: `http://localhost:${port}`, localStorage: [{ name: 'w-annotator:settings', value: '{"tourSeen":true}' }] }],
+    },
     viewport: { width: 1280, height: 800 },
     launchOptions: { args: gl },
     trace: 'off',
