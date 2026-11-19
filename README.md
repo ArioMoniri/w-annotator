@@ -20,7 +20,7 @@ A desktop app for macOS, Windows and Linux that opens 3D medical images and lets
 
 <br><br>
 
-<a href="docs/assets/launch.mp4"><img src="docs/assets/launch.webp" width="720" alt="Preview of the tour: opening an image and a mask, painting, filling between slices and editing with a second person"></a>
+<a href="docs/assets/launch.mp4"><img src="docs/assets/launch.webp" width="720" alt="Preview of the tour: opening an image and a mask, painting a correction, filling between slices, growing a segment and editing with a second person"></a>
 
 <sub><a href="docs/assets/launch.mp4">Watch the 30-second tour</a></sub>
 
@@ -31,10 +31,10 @@ A desktop app for macOS, Windows and Linux that opens 3D medical images and lets
 W Annotator shows a volume in axial, sagittal and coronal views with a 3D view of the mask, and lets you fix the mask by hand. The image and the mask can be in different formats; a mask on another grid is resampled to the image.
 
 <p align="center">
-  <img src="docs/assets/features.webp" width="720" alt="Four screenshots in turn: an image and its mask in four views, a brush correction on a lung edge, the menu of a segment, and two people editing in a room">
+  <img src="docs/assets/features.webp" width="720" alt="Five screenshots in turn: two people correcting one lung mask, a segment before and after filling between slices, smoothing a segment with the volumes listed, an image and its mask in four views, and the dark and light themes">
 </p>
 
-<p align="center"><sub>A chest CT with a lung mask: the four views, a brush correction, the segment menu, and a room with two people.</sub></p>
+<p align="center"><sub>A chest CT with a lung mask: two people in one mask, fill between slices, refining a segment, the four views, and the two themes.</sub></p>
 
 - Editing tools: brush and eraser (circle or sphere, size in mm), threshold brush, scissors and fill. The brush can paint over everything or only empty voxels.
 - Fill between slices: paint every few slices and the app fills the gaps.
