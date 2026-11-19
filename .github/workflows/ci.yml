@@ -93,3 +93,142 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Unsigned, no installers: checks that the app compiles and the config is valid.
       - run: pnpm tauri build --debug --no-bundle
+
+  # Drives the real desktop app through WebDriver (tauri-driver). See e2e-desktop/README.md.
+  desktop-e2e:
+    name: Desktop app e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Software rendering on the runners; without this WebKitGTK can come up blank.
+      WEBKIT_DISABLE_DMABUF_RENDERER: 1
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux dependencies, the WebKit driver and a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS webkit2gtk-driver xvfb
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-e2e
+      - run: pnpm install --frozen-lockfile
+      # The web job owns lint and types; here only the bundle is needed.
+      - run: pnpm exec vite build
+      - run: pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+      - name: Install the Edge driver that matches WebView2
+        if: runner.os == 'Windows'
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          mkdir -p "$RUNNER_TEMP/edgedriver"
+          cd "$RUNNER_TEMP/edgedriver"
+          "$HOME/.cargo/bin/msedgedriver-tool.exe"
+          echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
+      - name: Desktop e2e (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a pnpm e2e:desktop
+      - name: Desktop e2e (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm e2e:desktop
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a pnpm selftest:desktop
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm selftest:desktop
+
+  # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
+  # WebKit, and the built app testing itself (W_SELFTEST).
+  macos-webkit-and-selftest:
+    name: macOS (WebKit e2e, app self-test)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-e2e
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install webkit
+      - name: Web e2e in WebKit
+        run: pnpm e2e
+        env:
+          W_E2E_BROWSER: webkit
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-webkit
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7
+      - run: pnpm exec vite build
+      # Unsigned .app, no installer and no updater archive.
+      - run: pnpm tauri build --debug --bundles app --config src-tauri/tauri.ci.conf.json
+      - name: Self-test of the built app
+        run: |
+          binary=$(find target/debug/bundle/macos -path '*.app/Contents/MacOS/*' -type f | head -n 1)
+          test -n "$binary"
+          pnpm selftest:desktop "$binary"
+
+  # One real, openly licensed scan (LUNA16, CC BY 4.0), fetched once and cached.
+  # The data never enters the repository. See docs/reviews/real-data.md.
+  real-data:
+    name: Real data (one LUNA16 case)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: relay
+      - name: Restore the case
+        id: case
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/realdata
+          key: realdata-luna16-${{ hashFiles('e2e/fetch-real-case.py') }}
+      - name: Fetch the case from Zenodo
+        if: steps.case.outputs.cache-hit != 'true'
+        run: |
+          python3 -m pip install --user remotezip==0.12.6
+          python3 e2e/fetch-real-case.py "$RUNNER_TEMP/realdata"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Real-data checks
+        run: W_REALDATA_DIR="$RUNNER_TEMP/realdata" pnpm e2e e2e/real-data.spec.ts

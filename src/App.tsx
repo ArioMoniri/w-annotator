@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { findUpdate, launchFiles } from './platform';
+import { findUpdate, launchFiles, selfTestRequested } from './platform';
 import * as session from './session';
 import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/shortcuts';
 import { EDIT_TOOLS, get, set, useStore, type ToolId } from './state/store';
@@ -159,8 +159,10 @@ export function App() {
 
   useEffect(() => {
     void initEngine();
-    void launchFiles().then((files) => {
-      if (files.length) void session.openFiles(files);
+    void launchFiles().then(async (files) => {
+      if (files.length) await session.openFiles(files);
+      // Test hook, off unless the app was launched with W_SELFTEST.
+      if (await selfTestRequested()) void (await import('./selftest')).run();
     });
     void findUpdate().then((update) => update && set({ update }));
     const warn = (e: BeforeUnloadEvent) => {

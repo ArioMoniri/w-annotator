@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- When the app hosts a room, the host now connects to it over this computer's own address, so a firewall cannot keep the host out of its own room. The invite link still carries the network address.
+- If the computer has no network address, the invite link uses `127.0.0.1` and the dialog says it only works on this computer.
+- Joining with a bare code when no room server is set now asks for the invite link.
+
+### Added
+
+- End-to-end tests of the built desktop app on Linux and Windows (WebDriver), a self-test of the built app on all three systems, the web tests in WebKit on macOS, and a check against one openly licensed chest CT.
+
 ## [0.1.0] - 2026-11-19
 
 First release.

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS 15 and later ask before an app may reach other computers on the local network.
+         Joining a room hosted on a colleague's computer needs it; this is the text of that question. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>W Annotator connects to rooms that people on your network host on their computers.</string>
+</dict>
+</plist>

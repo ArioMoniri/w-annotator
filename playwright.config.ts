@@ -6,8 +6,19 @@ const relayPort = Number(process.env.W_RELAY_PORT ?? 8787);
 
 const gl = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
+// Chromium by default. W_E2E_BROWSER=webkit runs the same tests in WebKit instead: on macOS
+// that is the closest stand-in for the desktop app's WKWebView, which has no WebDriver.
+const project =
+  process.env.W_E2E_BROWSER === 'webkit'
+    ? { name: 'webkit', use: { browserName: 'webkit' as const } }
+    : { name: 'chromium', use: { browserName: 'chromium' as const, launchOptions: { args: gl } } };
+
+// The real-data checks need a downloaded case, so they are only part of the run when asked for.
+const realData = process.env.W_REALDATA_DIR ? [] : ['**/real-data.spec.ts'];
+
 export default defineConfig({
   testDir: 'e2e',
+  testIgnore: realData,
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,
@@ -15,9 +26,9 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     viewport: { width: 1280, height: 800 },
-    launchOptions: { args: gl },
     trace: 'off',
   },
+  projects: [project],
   webServer: [
     {
       command: `pnpm vite --port ${port} --strictPort`,
