@@ -139,9 +139,12 @@ The self-test expects an image and a mask with at least two segments on the comm
   "ok": true,
   "steps": [{ "name": "files opened", "ok": true, "detail": "…" }],
   "saved": { "file": "phantom_seg.nii.gz", "voxels": 839 },
-  "userAgent": "…"
+  "userAgent": "…",
+  "webview": "156.0.3900.12"
 }
 ```
+
+`webview` is the exact WebView2 version on Windows and `null` elsewhere. CI uses it to fetch the Edge driver that matches the WebView2 the app really loads, which is not always the newest one installed.
 
 Two commands serve the self-test: `selftest_enabled` returns whether `W_SELFTEST` was set, and `selftest_finish({ report })` writes the report and quits. Without the variable `selftest_finish` rejects and writes nothing, and the web side never loads the self-test code.
 

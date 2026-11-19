@@ -83,6 +83,18 @@ async function botVisit(link: string): Promise<string> {
   return `guest joined through ${link} and left`;
 }
 
+/** The exact WebView2 version on Windows, so a test run can fetch the matching Edge driver. Null elsewhere. */
+async function webviewVersion(): Promise<string | null> {
+  type Brands = { fullVersionList?: { brand: string; version: string }[] };
+  const data = (navigator as unknown as { userAgentData?: { getHighEntropyValues(hints: string[]): Promise<Brands> } }).userAgentData;
+  try {
+    const list = (await data?.getHighEntropyValues(['fullVersionList']))?.fullVersionList ?? [];
+    return list.find((b) => b.brand.includes('Edge'))?.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function run(): Promise<void> {
   const steps: SelfTestStep[] = [];
   const step = async (name: string, body: () => Promise<string>) => {
@@ -123,5 +135,6 @@ export async function run(): Promise<void> {
     return `${saved.file}, ${saved.voxels} voxels`;
   });
 
-  await finishSelfTest(JSON.stringify({ ok: steps.every((s) => s.ok), steps, saved, userAgent: navigator.userAgent }, null, 2));
+  const report = { ok: steps.every((s) => s.ok), steps, saved, userAgent: navigator.userAgent, webview: await webviewVersion() };
+  await finishSelfTest(JSON.stringify(report, null, 2));
 }

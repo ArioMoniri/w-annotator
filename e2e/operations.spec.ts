@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { drag, maskVoxels, openPhantom } from './helpers';
+import { copiedText, drag, maskVoxels, openPhantom } from './helpers';
 
 const dump = (page: Page) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -168,10 +168,10 @@ test('each segment shows its volume, which follows the edits', async ({ page }) 
   const sheet = page.getByRole('dialog', { name: 'Measurements' });
   await expect(sheet.getByRole('row', { name: /Segment 2/ })).toContainText(`${await maskVoxels(page, 2)} mm³`);
   await expect(sheet.getByRole('row', { name: /Segment 2/ })).toContainText('±');
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const readCopied = await copiedText(page);
   await sheet.getByRole('button', { name: 'Copy as CSV' }).click();
   await expect(page.locator('.toast')).toContainText('Measurements copied');
-  const csv = await page.evaluate(() => navigator.clipboard.readText());
+  const csv = await readCopied();
   expect(csv.split('\n')[0]).toBe('Segment,Label,Volume (mL),Voxels,Mean,SD,Min,Max');
   const left = await maskVoxels(page, 2);
   expect(csv).toContain(`Segment 2,2,${left / 1000},${left},`);

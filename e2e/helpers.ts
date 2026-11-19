@@ -67,3 +67,27 @@ export async function drag(page: Page, view: string, from: [number, number], to:
   await page.mouse.up();
   await page.waitForTimeout(400);
 }
+
+/**
+ * Gives the test a way to read what the app copies. Call it before the copy.
+ * Chromium: grants clipboard access, and the returned function reads the real clipboard.
+ * WebKit: Playwright has no clipboard permission to grant there and reading the clipboard
+ * asks the user, so the app's write is recorded instead of reaching the system clipboard.
+ */
+export async function copiedText(page: Page): Promise<() => Promise<string>> {
+  if (page.context().browser()?.browserType().name() !== 'webkit') {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    return () => page.evaluate(() => navigator.clipboard.readText());
+  }
+  const record = () => {
+    Object.defineProperty(Clipboard.prototype, 'writeText', {
+      configurable: true,
+      value: async (text: string) => {
+        (window as unknown as { __copied: string }).__copied = text;
+      },
+    });
+  };
+  await page.addInitScript(record);
+  await page.evaluate(record);
+  return () => page.evaluate(() => (window as unknown as { __copied?: string }).__copied ?? '');
+}

@@ -133,14 +133,6 @@ jobs:
       - run: pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
-      - name: Install the Edge driver that matches WebView2
-        if: runner.os == 'Windows'
-        run: |
-          cargo install --git https://github.com/chippers/msedgedriver-tool
-          mkdir -p "$RUNNER_TEMP/edgedriver"
-          cd "$RUNNER_TEMP/edgedriver"
-          "$HOME/.cargo/bin/msedgedriver-tool.exe"
-          echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
       # The self-test needs no driver, so it also tells an app problem from a driver problem.
       - name: Self-test (Linux)
         if: runner.os == 'Linux'
@@ -148,6 +140,20 @@ jobs:
       - name: Self-test (Windows)
         if: runner.os == 'Windows'
         run: pnpm selftest:desktop 2>&1 | tee "$RUNNER_TEMP/selftest.log"
+        env:
+          W_WEBVIEW_VERSION_FILE: ${{ runner.temp }}\webview-version.txt
+      # The runner can hold a newer WebView2 than the one apps load, and the driver must match
+      # the one in use exactly, so ask the app (the self-test reports it) rather than the registry.
+      - name: Install the Edge driver that matches the WebView2 in use
+        if: runner.os == 'Windows'
+        run: |
+          version=$(cat "$RUNNER_TEMP/webview-version.txt")
+          echo "WebView2 $version"
+          mkdir -p "$RUNNER_TEMP/edgedriver"
+          cd "$RUNNER_TEMP/edgedriver"
+          curl -fsSL --retry 3 -o driver.zip "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip"
+          unzip -o -q driver.zip msedgedriver.exe
+          echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
       - name: Desktop e2e (Linux)
         if: runner.os == 'Linux' && !cancelled()
         run: xvfb-run -a pnpm e2e:desktop

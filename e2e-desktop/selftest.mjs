@@ -8,7 +8,7 @@
  * Exits with 0 only if every step passed and the saved mask checks out.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { APP } from './app.mjs';
@@ -58,6 +58,11 @@ if (!existsSync(resultPath)) {
 } else {
   const result = JSON.parse(readFileSync(resultPath, 'utf8'));
   console.log(`Webview: ${result.userAgent}`);
+  if (result.webview) {
+    console.log(`WebView2 version: ${result.webview}`);
+    // CI uses this to fetch the Edge driver that matches the WebView2 the app really runs on.
+    if (process.env.W_WEBVIEW_VERSION_FILE) writeFileSync(process.env.W_WEBVIEW_VERSION_FILE, result.webview);
+  }
   for (const name of STEPS) {
     const step = result.steps.find((s) => s.name === name);
     check(step?.ok === true, `${name}: ${step ? step.detail : 'step did not run'}`);

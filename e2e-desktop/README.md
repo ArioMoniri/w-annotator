@@ -30,7 +30,7 @@ xvfb-run -a pnpm selftest:desktop
 
 If the window stays blank under a virtual display, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
-Windows needs the Edge driver that matches the installed WebView2 (see the [Tauri WebDriver guide](https://v2.tauri.app/develop/tests/webdriver/)). Put `msedgedriver.exe` on the `PATH` or name it in `W_NATIVE_DRIVER`:
+Windows needs the Edge driver with exactly the version of the WebView2 the app loads (see the [Tauri WebDriver guide](https://v2.tauri.app/develop/tests/webdriver/)); with another version the session fails with "DevToolsActivePort file doesn't exist". The self-test prints that version, and writes it to `W_WEBVIEW_VERSION_FILE` if set. Put `msedgedriver.exe` on the `PATH` or name it in `W_NATIVE_DRIVER`:
 
 ```
 pnpm e2e:desktop
