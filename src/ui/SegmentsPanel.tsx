@@ -19,6 +19,7 @@ import {
   type RefineOp,
 } from '../session';
 import { Slider, useDismiss, useKeyHint } from './common';
+import { FilesSection } from './FilesSection';
 
 /** Operations that ask for one number first. */
 const AMOUNTS = {
@@ -377,6 +378,7 @@ export function SegmentsPanel() {
 
   return (
     <aside className="panel" aria-label="Segments" data-tour="segments">
+      <FilesSection />
       <header>
         <span>Segments</span>
         <button className="iconbtn" aria-label="Add segment" data-tip={`Add segment  ${key('segment.new')}`.trimEnd()} data-tip-side="left" onClick={addSegment}>

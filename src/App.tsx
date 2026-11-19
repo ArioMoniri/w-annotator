@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { findUpdate, launchFiles } from './platform';
+import { findUpdate, isTauri, onFilesGiven, onNativeDrag, startFilesDump } from './platform';
 import * as session from './session';
+import { DROP_TEXT, dropHint } from './files/roles';
+import { fileRows } from './mask/collection';
 import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/shortcuts';
-import { EDIT_TOOLS, get, set, useStore, type ToolId } from './state/store';
+import { EDIT_TOOLS, get, set, toast, useStore, type ToolId } from './state/store';
 import { initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
 import { ReportDialog } from './ui/ReportDialog';
@@ -120,9 +122,26 @@ function useHotkeys() {
   }, []);
 }
 
-function useFileDrop() {
-  const [dragging, setDragging] = useState(false);
+/**
+ * Names of the files held over the window, when they are known; an empty list when a
+ * drag is on but the names are hidden (a browser tells them only at the drop); null
+ * when nothing is being dragged.
+ */
+function useFileDrop(): string[] | null {
+  const [names, setNames] = useState<string[] | null>(null);
   useEffect(() => {
+    // Desktop app: the system's own drag-and-drop gives real paths, also for folders.
+    // The files arrive through `onFilesGiven`; here only the overlay follows the drag.
+    if (isTauri) {
+      let stop = () => {};
+      let gone = false;
+      void onNativeDrag(setNames).then((off) => (gone ? off() : (stop = off)));
+      return () => {
+        gone = true;
+        stop();
+      };
+    }
+    const setDragging = (on: boolean) => setNames(on ? [] : null);
     let depth = 0;
     const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
     const enter = (e: DragEvent) => {
@@ -158,29 +177,41 @@ function useFileDrop() {
       window.removeEventListener('drop', drop);
     };
   }, []);
-  return dragging;
+  return names;
 }
 
 export function App() {
   const hasImage = useStore((s) => !!s.image);
   const panelOpen = useStore((s) => s.panelOpen);
-  const dragging = useFileDrop();
+  const dragged = useFileDrop();
+  const dragging = dragged !== null;
   useHotkeys();
 
   useEffect(() => {
     void initEngine();
     const stopRecovery = startRecovery();
-    void launchFiles().then((files) => {
-      noteImagePaths(files);
-      if (files.length) void session.openFiles(files);
-    });
+    // Desktop app: files dropped on the window or opened with the app, at launch and later.
+    let stopFiles = () => {};
+    let gone = false;
+    void onFilesGiven({
+      reading: (count) => set({ busy: count === 1 ? 'Opening…' : `Reading ${count} files…` }),
+      files: async (files) => {
+        noteImagePaths(files);
+        if (files.length === 0) return set({ busy: null });
+        await session.openFiles(files);
+      },
+      error: (text) => toast('error', text),
+    }).then((off) => (gone ? off() : (stopFiles = off)));
+    void startFilesDump(() => ({ image: get().image?.name ?? null, files: fileRows(get()).map(({ kind, label, active }) => ({ kind, label, active })) }));
     void findUpdate().then((update) => update && set({ update }));
     if (shouldShowTour(getSettings().tourSeen, location.search)) startTour();
     const warn = (e: BeforeUnloadEvent) => {
-      if (get().dirty) e.preventDefault();
+      if (session.anyUnsaved()) e.preventDefault();
     };
     window.addEventListener('beforeunload', warn);
     return () => {
+      gone = true;
+      stopFiles();
       stopRecovery();
       window.removeEventListener('beforeunload', warn);
     };
@@ -201,7 +232,7 @@ export function App() {
       ) : (
         <EmptyState dragging={dragging} />
       )}
-      {hasImage && dragging && <div className="dropveil">Drop to open</div>}
+      {hasImage && dragging && <div className="dropveil">{DROP_TEXT[dropHint(dragged.length > 0 ? dragged : null, true)]}</div>}
       <Busy />
       <Toasts />
       <UpdateBanner />

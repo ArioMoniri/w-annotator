@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { SegmentInfo } from '../collab/protocol';
 import type { SegmentStats } from '../mask/ops';
+import type { MaskRow } from '../mask/collection';
 
 export type ToolId =
   | 'crosshair'
@@ -74,9 +75,18 @@ export interface Hover {
 
 interface State {
   /** `ct` is true when the values look like Hounsfield units; it picks the default window and the unit shown. */
-  image: { name: string; dims: [number, number, number]; range: [number, number]; ct: boolean } | null;
+  image: { name: string; dims: [number, number, number]; range: [number, number]; ct: boolean; path?: string } | null;
+  /** Name, unsaved state and segments below are those of the active mask. */
   maskName: string | null;
   dirty: boolean;
+  /** Every mask open on the image, in the order opened. The active one's name and unsaved state are the live fields above. */
+  masks: MaskRow[];
+  /** The mask being edited. The others are shown as outlines for comparison. */
+  activeMask: string | null;
+  /** The image is drawn darker so masks stand out. A view setting; the voxels are untouched. */
+  imageDimmed: boolean;
+  /** The Files section of the right panel is expanded. */
+  filesOpen: boolean;
   busy: string | null;
   progress: number | null;
 
@@ -131,6 +141,10 @@ export const useStore = create<State>(() => ({
   image: null,
   maskName: null,
   dirty: false,
+  masks: [],
+  activeMask: null,
+  imageDimmed: false,
+  filesOpen: true,
   busy: null,
   progress: null,
 

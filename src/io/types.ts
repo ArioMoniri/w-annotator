@@ -58,4 +58,6 @@ export interface DicomSourceInfo {
 export interface InputFile {
   name: string;
   bytes: Uint8Array;
+  /** Where the file is on disk, when the desktop app was given its path. Never leaves this machine. */
+  path?: string;
 }

@@ -18,6 +18,19 @@ pub const PATH_HEADER: &str = "x-file-path";
 /// Most files returned when the user picks a folder.
 pub const MAX_FOLDER_FILES: usize = 20_000;
 
+/// Most bytes taken in one go from a drop, "Open with" or the command line.
+/// The web side holds every file in memory, so more than this cannot open anyway.
+pub const MAX_GIVEN_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// What became of paths the system handed to the app.
+#[derive(Debug, Default, PartialEq)]
+pub struct Given {
+    /// Readable files, in the order given, folders replaced by their files.
+    pub files: Vec<PathBuf>,
+    /// Why some of the paths were left out, worded for the user.
+    pub error: Option<String>,
+}
+
 #[derive(Default)]
 struct Inner {
     /// Files the user picked: readable and writable.
@@ -68,6 +81,47 @@ impl Allowed {
         Ok(files)
     }
 
+    /// Records paths the system handed over: files dropped on the window, opened
+    /// with the app, or named on the command line. Files become readable and
+    /// writable; a folder becomes readable and is replaced by the files inside
+    /// it. Paths that do not exist are skipped. Nothing past `max_bytes` in
+    /// total is taken.
+    pub fn allow_given(&self, paths: &[PathBuf], max_bytes: u64) -> Given {
+        let mut given = Given::default();
+        let mut seen = HashSet::new();
+        let mut bytes = 0u64;
+        for path in paths {
+            let found = match fs::metadata(path) {
+                Ok(meta) if meta.is_dir() => match self.allow_dir(path) {
+                    Ok(files) => files,
+                    Err(e) => {
+                        given.error = Some(format!("Could not open {}: {e}.", name_of(path)));
+                        continue;
+                    }
+                },
+                Ok(meta) if meta.is_file() => match self.allow_file(path) {
+                    Ok(file) => vec![file],
+                    Err(_) => continue,
+                },
+                _ => continue,
+            };
+            for file in found {
+                if !seen.insert(file.clone()) {
+                    continue;
+                }
+                bytes += fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+                if bytes > max_bytes || given.files.len() >= MAX_FOLDER_FILES {
+                    given.error = Some(
+                        "That is more than the app can open at once. Open fewer files.".into(),
+                    );
+                    return given;
+                }
+                given.files.push(file);
+            }
+        }
+        given
+    }
+
     /// A file may be read if the user picked it, if it sits next to a picked
     /// file (a `.mhd` header points at a `.raw` beside it), or if it is inside
     /// a picked folder.
@@ -95,6 +149,12 @@ impl Allowed {
             Err(denied())
         }
     }
+}
+
+fn name_of(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(|| path.to_string_lossy(), |n| n.to_string_lossy())
+        .into_owned()
 }
 
 fn denied() -> io::Error {
@@ -164,14 +224,32 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
-/// Paths given on the command line that point at existing files.
-pub fn files_from_args(args: impl IntoIterator<Item = String>) -> Vec<PathBuf> {
+/// Files and folders named on a command line, as absolute paths. This is how
+/// "Open with" arrives on Windows and Linux, at launch and from a second
+/// launch that hands its arguments to the running app.
+///
+/// The first argument (the program) and flags are skipped. A relative path is
+/// read from `cwd`, the folder the command was run in. A `file://` address, as
+/// Linux desktops may pass, is turned into its path. Paths that do not exist
+/// are left out.
+pub fn paths_from_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Vec<PathBuf> {
     args.into_iter()
         .skip(1)
-        .filter(|arg| !arg.starts_with('-'))
-        .map(PathBuf::from)
+        .filter(|arg| !arg.is_empty() && !arg.starts_with('-'))
+        .filter_map(|arg| {
+            if arg.starts_with("file://") {
+                return tauri::Url::parse(&arg).ok()?.to_file_path().ok();
+            }
+            let path = PathBuf::from(arg);
+            Some(if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            })
+        })
         .filter_map(|p| dunce::canonicalize(p).ok())
-        .filter(|p| p.is_file())
+        // Never a whole drive: a bare `file://` or `/` names no file.
+        .filter(|p| p.file_name().is_some() && (p.is_file() || p.is_dir()))
         .collect()
 }
 
@@ -282,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn command_line_arguments_keep_only_existing_files() {
+    fn command_line_arguments_keep_existing_files_and_folders() {
         let tmp = TempDir::new("args");
         let file = tmp.0.join("scan.nrrd");
         fs::write(&file, b"x").unwrap();
@@ -293,6 +371,80 @@ mod tests {
             tmp.0.join("missing.nii").to_string_lossy().into_owned(),
             tmp.0.to_string_lossy().into_owned(),
         ];
-        assert_eq!(files_from_args(args), vec![file]);
+        // A folder stays: it may hold a DICOM series.
+        assert_eq!(
+            paths_from_args(args, &std::env::temp_dir()),
+            vec![file, tmp.0.clone()]
+        );
+    }
+
+    #[test]
+    fn arguments_with_spaces_and_other_alphabets_arrive_whole() {
+        let tmp = TempDir::new("args-names");
+        let spaced = tmp.0.join("CT chest 1.mha");
+        let accented = tmp.0.join("Gö\u{11f}üs BT \u{2013} maske.nii.gz");
+        let cjk = tmp.0.join("\u{80f8}\u{90e8}.nrrd");
+        for f in [&spaced, &accented, &cjk] {
+            fs::write(f, b"x").unwrap();
+        }
+        let args = ["app", "CT chest 1.mha"]
+            .into_iter()
+            .map(String::from)
+            .chain([&accented, &cjk].map(|p| p.to_string_lossy().into_owned()));
+        // The first is relative to the folder the command ran in.
+        assert_eq!(paths_from_args(args, &tmp.0), vec![spaced, accented, cjk]);
+    }
+
+    #[test]
+    fn a_file_address_becomes_its_path() {
+        let tmp = TempDir::new("args-url");
+        let file = tmp.0.join("my scan é.nii");
+        fs::write(&file, b"x").unwrap();
+        let url = tauri::Url::from_file_path(&file).unwrap().to_string();
+        assert!(url.contains("%20"));
+        let args = vec!["app".to_string(), url, "file://".to_string()];
+        assert_eq!(paths_from_args(args, &tmp.0), vec![file]);
+    }
+
+    #[test]
+    fn given_files_can_be_read_and_given_folders_are_listed() {
+        let tmp = TempDir::new("given");
+        let image = tmp.0.join("ct.mha");
+        fs::write(&image, b"image").unwrap();
+        fs::create_dir(tmp.0.join("series")).unwrap();
+        let slice = tmp.0.join("series").join("1.dcm");
+        fs::write(&slice, b"slice").unwrap();
+        fs::create_dir(tmp.0.join("other")).unwrap();
+        let untouched = tmp.0.join("other").join("x.nii");
+        fs::write(&untouched, b"x").unwrap();
+
+        let allowed = Allowed::default();
+        let given = allowed.allow_given(
+            &[
+                image.clone(),
+                tmp.0.join("series"),
+                tmp.0.join("gone.nii"),
+                image.clone(),
+            ],
+            MAX_GIVEN_BYTES,
+        );
+        assert_eq!(given.files, vec![image.clone(), slice.clone()]);
+        assert_eq!(given.error, None);
+        assert!(allowed.check_read(&image).is_ok());
+        assert!(allowed.check_read(&slice).is_ok());
+        // Nothing else became readable.
+        assert!(allowed.check_read(&untouched).is_err());
+    }
+
+    #[test]
+    fn given_paths_stop_at_the_size_limit_with_a_message() {
+        let tmp = TempDir::new("given-cap");
+        let a = tmp.0.join("a.nii");
+        let b = tmp.0.join("b.nii");
+        fs::write(&a, [0u8; 60]).unwrap();
+        fs::write(&b, [0u8; 60]).unwrap();
+        let given = Allowed::default().allow_given(&[a.clone(), b], 100);
+        assert_eq!(given.files, vec![a]);
+        assert!(given.error.unwrap().contains("more than the app can open"));
     }
 }

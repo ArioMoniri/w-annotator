@@ -3,48 +3,83 @@
 //!
 //! The JavaScript signature of every command is documented in `README.md`.
 
+mod batch;
+mod dump;
 mod files;
 mod hosting;
 mod recovery;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WebviewEvent, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder, FilePath};
 use tokio::sync::oneshot;
 
+use batch::Batcher;
 use files::Allowed;
 use hosting::{Host, HostInfo};
 
-/// Event sent to the web side when the system asks the running app to open files.
-const OPENED_EVENT: &str = "opened-files";
+/// Event sent to the web side with files to open: dropped on the window, or
+/// opened with the app from the system.
+const GIVEN_EVENT: &str = "files-given";
 
-/// Files the system asked the app to open, in order.
-#[derive(Default)]
-struct Opened(Mutex<Vec<String>>);
+/// Payload of [`GIVEN_EVENT`].
+#[derive(Clone, Serialize)]
+struct GivenFiles {
+    /// Absolute paths, already readable with `read_file`. Opened together.
+    paths: Vec<String>,
+    /// Why something was left out, worded for the user.
+    error: Option<String>,
+}
 
 fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Records files the system handed to the app and allows access to them.
-fn remember_opened(app: &AppHandle, paths: Vec<PathBuf>, notify: bool) {
-    let allowed = app.state::<Allowed>();
-    let new: Vec<String> = paths
-        .iter()
-        .filter_map(|p| allowed.allow_file(p).ok())
-        .map(|p| display(&p))
-        .collect();
-    if new.is_empty() {
+fn send_given(app: &AppHandle, files: &[PathBuf], error: Option<String>) {
+    if files.is_empty() && error.is_none() {
         return;
     }
-    app.state::<Opened>().0.lock().unwrap().extend(new.clone());
-    if notify {
-        let _ = app.emit(OPENED_EVENT, new);
+    let paths = files.iter().map(|p| display(p)).collect();
+    let _ = app.emit(GIVEN_EVENT, GivenFiles { paths, error });
+}
+
+/// Sends the files that have gathered once nothing more has arrived for a moment.
+fn open_when_quiet(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(batch::WINDOW + Duration::from_millis(20)).await;
+        if let Some(files) = app.state::<Batcher>().take_due(Instant::now()) {
+            send_given(&app, &files, None);
+        }
+    });
+}
+
+/// Takes paths the system handed to the app. They become readable here, at the
+/// moment they arrive, and never because the web side named them.
+///
+/// Dropped files open at once. Files from "Open with" are gathered for a moment
+/// first (`gather`), since one selection can arrive in several pieces.
+fn take_paths(app: &AppHandle, paths: &[PathBuf], gather: bool) {
+    if paths.is_empty() {
+        return;
+    }
+    let given = app
+        .state::<Allowed>()
+        .allow_given(paths, files::MAX_GIVEN_BYTES);
+    if !gather {
+        return send_given(app, &given.files, given.error);
+    }
+    if given.error.is_some() {
+        send_given(app, &[], given.error);
+    }
+    if !given.files.is_empty() {
+        app.state::<Batcher>().push(given.files, Instant::now());
+        open_when_quiet(app);
     }
 }
 
@@ -164,9 +199,35 @@ fn recovery_image(app: AppHandle, key: String) -> Result<Response, String> {
         .map_err(|e| format!("Could not open the image: {e}"))
 }
 
+/// The window is listening for [`GIVEN_EVENT`]. Files the app was launched
+/// with have waited for this; they are sent now.
 #[tauri::command]
-fn opened_files(opened: State<'_, Opened>) -> Vec<String> {
-    opened.0.lock().unwrap().clone()
+fn files_ready(app: AppHandle, batcher: State<'_, Batcher>) {
+    batcher.set_ready();
+    open_when_quiet(&app);
+}
+
+/// Shows a file the user opened in the system's file manager.
+#[tauri::command(async)]
+fn reveal_file(allowed: State<'_, Allowed>, path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let full = allowed
+        .check_read(&path)
+        .map_err(|e| format!("Could not show {}: {e}", display(&path)))?;
+    tauri_plugin_opener::reveal_item_in_dir(&full)
+        .map_err(|e| format!("Could not show {}: {e}", display(&path)))
+}
+
+/// Test hook: writes `text` to the file named by `W_FILES_DUMP`. Returns false,
+/// and writes nothing, when the app was launched without it.
+#[tauri::command(async)]
+fn dump_files(text: String) -> Result<bool, String> {
+    let Some(path) = dump::target(std::env::var_os(dump::DUMP_VAR)) else {
+        return Ok(false);
+    };
+    files::write_atomic(&path, text.as_bytes())
+        .map(|()| true)
+        .map_err(|e| format!("Could not write {}: {e}", display(&path)))
 }
 
 /// A file type filter for the dialogs, e.g. `{ name: "NIfTI", extensions: ["nii", "gz"] }`.
@@ -274,22 +335,42 @@ async fn pick_save_path(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // First, so a second launch stops before it builds anything: it hands its
+    // files to the window that is already open, and quits.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            take_paths(app, &files::paths_from_args(args, Path::new(&cwd)), true);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .manage(Allowed::default())
         .manage(Host::default())
-        .manage(Opened::default())
+        .manage(Batcher::default())
+        .on_webview_event(|webview, event| {
+            // Files and folders dropped on the window, with their real paths.
+            if let WebviewEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
+                take_paths(webview.app_handle(), paths, false);
+            }
+        })
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             // "Open with" on Windows and Linux passes the files as arguments.
-            remember_opened(
+            let cwd = std::env::current_dir().unwrap_or_default();
+            take_paths(
                 app.handle(),
-                files::files_from_args(std::env::args()),
-                false,
+                &files::paths_from_args(std::env::args(), &cwd),
+                true,
             );
             Ok(())
         })
@@ -298,7 +379,9 @@ pub fn run() {
             stop_hosting,
             write_file,
             read_file,
-            opened_files,
+            files_ready,
+            reveal_file,
+            dump_files,
             pick_open_paths,
             pick_save_path,
             recovery_write,
@@ -311,11 +394,12 @@ pub fn run() {
         .expect("error while building W Annotator");
 
     app.run(|_app, _event| {
-        // macOS delivers "Open with" and double-clicked files as an event.
+        // macOS delivers "Open with" and double-clicked files as an event, at
+        // launch and while running, and sometimes one selection in several events.
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &_event {
-            let paths = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
-            remember_opened(_app, paths, true);
+            let paths: Vec<PathBuf> = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
+            take_paths(_app, &paths, true);
         }
     });
 }

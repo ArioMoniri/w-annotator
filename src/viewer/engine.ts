@@ -178,6 +178,7 @@ export function unmountViewports(): void {
   ToolGroupManager.destroyToolGroup(ORTHO_GROUP);
   ToolGroupManager.destroyToolGroup(VOLUME3D_GROUP);
   segmentation.removeAllSegmentations();
+  forgetComparisons();
   removeVolume(MASK_VOLUME_ID);
   removeVolume(IMAGE_VOLUME_ID);
   engine.destroy();
@@ -395,6 +396,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   if (imageLoaded && mounted) mountViewports(mounted);
   const e = eng();
   segmentation.removeAllSegmentations();
+  forgetComparisons();
   removeVolume(MASK_VOLUME_ID);
   removeVolume(IMAGE_VOLUME_ID);
   maskLoaded = false;
@@ -414,6 +416,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
 /** The mask buffer stays owned by the caller; edits made by tools land in it directly. */
 export function showMask(vol: VolumeData): void {
   segmentation.removeAllSegmentations();
+  forgetComparisons();
   removeVolume(MASK_VOLUME_ID);
   geometry.set(MASK_VOLUME_ID, vol);
   // Tie the mask to the image so the threshold brush reads image values, not mask values.
@@ -432,6 +435,95 @@ export function showMask(vol: VolumeData): void {
   for (const id of ALL_IDS) map[id] = [{ segmentationId: SEGMENTATION_ID }];
   segmentation.addLabelmapRepresentationToViewportMap(map);
   maskLoaded = true;
+}
+
+/* ───────────────────────── comparison masks ───────────────────────── */
+
+/** A mask shown read-only next to the one being edited. */
+export interface Comparison {
+  id: string;
+  vol: VolumeData;
+  /** One outline colour for the whole mask, so it cannot be mistaken for the segments being edited. */
+  color: string;
+}
+
+const compared = new Set<string>();
+const compareSegmentation = (id: string) => `compare-${id}`;
+const compareVolume = (id: string) => `w-compare-${id}`;
+
+/** Outline only, a little heavier than the active mask's, never filled. */
+const COMPARE_STYLE = {
+  renderFill: false,
+  renderFillInactive: false,
+  renderOutline: true,
+  renderOutlineInactive: true,
+  outlineWidth: 2,
+  outlineWidthInactive: 2,
+  outlineOpacity: 1,
+  outlineOpacityInactive: 1,
+  activeSegmentOutlineWidthDelta: 0,
+};
+
+function forgetComparisons(): void {
+  for (const id of compared) removeVolume(compareVolume(id));
+  compared.clear();
+}
+
+/**
+ * Shows these masks, and only these, as outlines over the slice views. They are
+ * separate segmentations: the tools never write to them, and the 3D view leaves
+ * them out. Call it after `showMask`, which clears them.
+ */
+export function showComparisons(list: Comparison[]): void {
+  if (!maskLoaded || !engine) return;
+  for (const id of compared) {
+    try {
+      segmentation.removeSegmentation(compareSegmentation(id));
+    } catch {
+      /* already gone */
+    }
+  }
+  forgetComparisons();
+  const imageIds = cache.getVolume(IMAGE_VOLUME_ID)?.imageIds;
+  for (const item of list) {
+    const volumeId = compareVolume(item.id);
+    const segmentationId = compareSegmentation(item.id);
+    geometry.set(volumeId, item.vol);
+    volumeLoader.createLocalLabelmapVolume(
+      { ...localVolume(item.vol), referencedVolumeId: IMAGE_VOLUME_ID, referencedImageIds: imageIds },
+      volumeId,
+    );
+    segmentation.addSegmentations([{ segmentationId, representation: { type: LABELMAP, data: { volumeId } } }]);
+    const [r, g, b] = hexToRgb(item.color);
+    const lut = Array.from({ length: 256 }, (_, i) => (i === 0 ? [0, 0, 0, 0] : [r, g, b, 255])) as Types.ColorLUT;
+    const map: Record<string, { segmentationId: string; config: { colorLUTOrIndex: Types.ColorLUT } }[]> = {};
+    for (const id of ORTHO_IDS) map[id] = [{ segmentationId, config: { colorLUTOrIndex: lut } }];
+    segmentation.addLabelmapRepresentationToViewportMap(map);
+    segmentation.segmentationStyle.setStyle({ type: LABELMAP, segmentationId }, COMPARE_STYLE);
+    compared.add(item.id);
+  }
+  // The tools paint on the active segmentation of a view; that is always the mask being edited.
+  for (const id of ALL_IDS) {
+    try {
+      segmentation.activeSegmentation.setActiveSegmentation(id, SEGMENTATION_ID);
+    } catch {
+      /* representation not ready on this viewport yet */
+    }
+  }
+  repaintMask();
+}
+
+/** How bright the image is drawn when dimmed. The voxel values and the window are untouched. */
+const DIMMED = 0.35;
+
+/** Draws the image darker so masks stand out, or back at full strength. A view setting only. */
+export function setImageDimmed(dimmed: boolean): void {
+  if (!engine || !imageLoaded) return;
+  for (const id of ORTHO_IDS) {
+    const vp = orthoViewport(id);
+    vp.setProperties({ colormap: { opacity: dimmed ? DIMMED : 1 } }, IMAGE_VOLUME_ID);
+    vp.render();
+  }
 }
 
 export function set3dImageVisible(visible: boolean): void {
@@ -523,6 +615,12 @@ function repaintMask(): void {
       segmentation.triggerSegmentationEvents.triggerSegmentationRepresentationModified(id, SEGMENTATION_ID, LABELMAP);
     }
     csTools.utilities.segmentation.triggerSegmentationRenderBySegmentationId(SEGMENTATION_ID);
+    for (const item of compared) {
+      for (const id of ORTHO_IDS) {
+        segmentation.triggerSegmentationEvents.triggerSegmentationRepresentationModified(id, compareSegmentation(item), LABELMAP);
+      }
+      csTools.utilities.segmentation.triggerSegmentationRenderBySegmentationId(compareSegmentation(item));
+    }
   } catch {
     /* nothing to repaint yet */
   }

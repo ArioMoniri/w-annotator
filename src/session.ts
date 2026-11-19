@@ -16,6 +16,8 @@ import {
 import type { ScalarArray, VolumeData } from './io/types';
 import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
+import { MaskSet, TOO_MANY_MASKS, compareColor, shortName } from './mask/collection';
+import { assignRoles, labelLook } from './files/roles';
 import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
 import {
   combine,
@@ -64,18 +66,42 @@ import { makeSample } from './sample';
 import { cleanName, setSetting } from './state/settings';
 
 let image: VolumeData | null = null;
+// `mask`, `shadow` and `history` are those of the active mask: the one the tools, undo,
+// the segments list, saving, autosave and rooms work on. The rest are kept in `masks`.
 let mask: VolumeData | null = null;
 let shadow: Uint8Array | null = null;
-const history = new History();
+let history = new History();
 let pointerDown = false;
 let room: RoomClient | null = null;
+
+/** One mask open on the image. For the active one the live state is in the variables above and in the store; `park` writes it back here. */
+interface MaskEntry {
+  id: string;
+  vol: VolumeData;
+  history: History;
+  name: string | null;
+  dirty: boolean;
+  visible: boolean;
+  segments: SegmentInfo[];
+  activeSegment: number;
+  removed: Map<number, SegmentInfo>;
+  path?: string;
+}
+const masks = new MaskSet<MaskEntry>();
+let maskSeq = 0;
 
 export function getImage(): VolumeData | null {
   return image;
 }
 
+/** The active mask. */
 export function getMask(): VolumeData | null {
   return mask;
+}
+
+/** The voxels of any open mask, for looking at from tests and the console. */
+export function getMaskData(id: string): Uint8Array | null {
+  return (masks.get(id)?.vol.data as Uint8Array | undefined) ?? null;
 }
 
 /**
@@ -128,22 +154,6 @@ function groupFiles(files: InputFile[]): InputFile[][] {
   return groups;
 }
 
-function looksLikeMask(vol: VolumeData, name: string): boolean {
-  const d = vol.data;
-  if (d instanceof Float32Array || d instanceof Float64Array) {
-    if (!/seg|mask|label/i.test(name)) return false;
-  }
-  const step = Math.max(1, Math.floor(d.length / 50000));
-  const seen = new Set<number>();
-  for (let i = 0; i < d.length; i += step) {
-    const v = d[i];
-    if (v < 0 || v > 255 || !Number.isInteger(v)) return false;
-    seen.add(v);
-    if (seen.size > 64) return false;
-  }
-  return true;
-}
-
 /** Reader messages that only say the bytes made no sense. They get the file name and a next step instead. */
 const PARSE_FAILURE = /not a valid|incomplete or damaged|invalid image size|not a DICOM segmentation|^RLE /i;
 
@@ -173,7 +183,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
   // So that these names never appear in a problem report.
   for (const file of files) appLog.noteName(file.name);
   const groups = groupFiles(files);
-  const loaded: { vol: VolumeData; name: string }[] = [];
+  const loaded: { vol: VolumeData; name: string; path?: string }[] = [];
   try {
     for (const group of groups) {
       const name = group[0].name;
@@ -182,54 +192,64 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
       try {
         const vol = await readVolumeAsync(group);
         for (const warning of vol.warnings ?? []) toast('warning', warning);
-        loaded.push({ vol: { ...vol, name }, name });
+        loaded.push({ vol: { ...vol, name }, name, path: group[0].path });
       } catch (err) {
         toast('error', describeError(err, name));
       }
     }
     if (loaded.length === 0) return;
 
-    let img: (typeof loaded)[number] | undefined;
-    let msk: (typeof loaded)[number] | undefined;
-    if (role === 'mask') msk = loaded[0];
-    else if (role === 'image' && loaded.length === 1) img = loaded[0];
-    else if (loaded.length >= 2) {
-      msk = loaded.find((l) => /seg|mask|label/i.test(l.name)) ?? loaded.find((l) => looksLikeMask(l.vol, l.name));
-      img = loaded.find((l) => l !== msk);
-    } else if (image && looksLikeMask(loaded[0].vol, loaded[0].name)) msk = loaded[0];
-    else img = loaded[0];
+    // One image and any number of masks; the rules are in files/roles.ts.
+    const looks = loaded.map((l) => labelLook(l.vol.data));
+    const roles = assignRoles(
+      loaded.map((l, i) => ({ name: l.name, look: looks[i] })),
+      { role, hasImage: !!image },
+    );
+    const img = roles.image === null ? undefined : loaded[roles.image];
+    const msks = roles.masks.map((i) => loaded[i]);
+    if (roles.extra.length > 0) toast('warning', `One image can be open at a time. ${loaded[roles.extra[0]].name} was left out.`);
 
-    if (msk && !img && !image) {
+    if (msks.length > 0 && !img && !image) {
       toast('error', 'Open an image first, then add the mask.');
       return;
     }
+    const addMasks = async () => {
+      let changed = false;
+      for (const m of msks) changed = (await loadMask(m.vol, m.path)) || changed;
+      return changed;
+    };
     if (img) {
       const next = img;
-      const nextMask = msk;
       const go = async () => {
-        await loadImage(next.vol);
-        if (nextMask) await loadMask(nextMask.vol);
+        await loadImage(next.vol, next.path);
+        await addMasks();
         emit('opened');
       };
-      if (image && get().dirty) {
-        set({
-          confirm: {
-            title: 'Replace the current image?',
-            body: 'Unsaved mask changes will be lost.',
-            confirm: 'Replace',
-            danger: true,
-            run: () => void guarded(go),
-          },
-        });
-        return;
-      }
       if (room && image) {
         toast('error', 'Leave the room before opening another image.');
         return;
       }
+      // Asked for by name (Open image) it replaces at once; dropped or handed over by the system, it asks.
+      const unsaved = anyUnsaved();
+      if (image && (unsaved || role !== 'image')) {
+        const maybeMask = loaded.length === 1 && roles.image !== null && looks[roles.image] !== 'image';
+        set({
+          confirm: {
+            title: 'Replace the current image?',
+            body: unsaved ? 'Unsaved mask changes will be lost.' : `${next.name} will open in place of ${image.name}.`,
+            confirm: 'Replace',
+            danger: true,
+            run: () => void guarded(go),
+            // Its values could be labels: the app took it for an image, the user may know better.
+            other: maybeMask
+              ? { label: 'Add as mask', run: () => void guarded(async () => void ((await loadMask(next.vol, next.path)) && emit('opened'))) }
+              : undefined,
+          },
+        });
+        return;
+      }
       await go();
-    } else if (msk) {
-      await loadMask(msk.vol);
+    } else if (await addMasks()) {
       emit('opened');
     }
   } catch (err) {
@@ -261,7 +281,7 @@ function dataRange(d: ScalarArray): [number, number] {
   return [lo, hi];
 }
 
-async function loadImage(vol: VolumeData): Promise<void> {
+async function loadImage(vol: VolumeData, path?: string): Promise<void> {
   set({ busy: `Opening ${vol.name}…` });
   await nextFrame();
   const renderable = toRenderable(vol);
@@ -271,25 +291,34 @@ async function loadImage(vol: VolumeData): Promise<void> {
   const auto = autoWindow(renderable);
   const voi = looksLikeCt ? { lower: -160, upper: 240 } : auto;
   image = renderable;
-  set({ image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt }, voi, hover: null, maximized: null });
+  // Masks belong to the image they were opened on.
+  masks.clear();
+  set({ image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt, path }, voi, hover: null, maximized: null, imageDimmed: false });
   // The viewport elements mount when `image` is set; wait for them.
   await nextFrame();
   await engine.showImage(renderable, voi);
   set({ threshold: looksLikeCt ? [100, Math.round(range[1])] : [Math.round((auto.lower + auto.upper) / 2), Math.round(range[1])] });
-  installMask({
-    name: '',
-    dims: vol.dims,
-    spacing: vol.spacing,
-    origin: vol.origin,
-    direction: vol.direction,
-    data: new Uint8Array(vol.dims[0] * vol.dims[1] * vol.dims[2]),
-  });
-  set({ maskName: null, dirty: false });
+  installBlankMask();
   setTool('crosshair');
 }
 
-async function loadMask(vol: VolumeData): Promise<void> {
+/** An empty mask on the image grid, ready to be painted on. */
+function installBlankMask(): void {
   if (!image) return;
+  installMask({
+    name: '',
+    dims: image.dims,
+    spacing: image.spacing,
+    origin: image.origin,
+    direction: image.direction,
+    data: new Uint8Array(image.dims[0] * image.dims[1] * image.dims[2]),
+  });
+  set({ maskName: null, dirty: false });
+}
+
+/** Adds a mask to the image and makes it the active one. True when it was added. */
+async function loadMask(vol: VolumeData, path?: string): Promise<boolean> {
+  if (!image) return false;
   set({ busy: `Opening ${vol.name}…` });
   await nextFrame();
   let fitted = vol;
@@ -301,7 +330,7 @@ async function loadMask(vol: VolumeData): Promise<void> {
     const kept = labelValues(toLabelmap(fitted)).length;
     if (kept === 0 && labelValues(toLabelmap(vol)).length > 0) {
       toast('error', "This mask doesn't overlap the image. Check that it belongs to this scan.");
-      return;
+      return false;
     }
     toast(
       'warning',
@@ -313,8 +342,8 @@ async function loadMask(vol: VolumeData): Promise<void> {
   const label = toLabelmap(fitted);
   const data = label.data === vol.data ? (label.data as Uint8Array).slice() : (label.data as Uint8Array);
   const before = mask?.data as Uint8Array | undefined;
-  installMask({ ...image, name: vol.name, data, labels: vol.labels });
-  const values = labelValues(mask!);
+  const next: VolumeData = { ...image, name: vol.name, data, labels: vol.labels };
+  const values = labelValues(next);
   const segments: SegmentInfo[] = values.map((index) => ({
     index,
     name: vol.labels?.[index] ?? `Segment ${index}`,
@@ -322,6 +351,23 @@ async function loadMask(vol: VolumeData): Promise<void> {
     visible: true,
     locked: false,
   }));
+  // An empty mask nobody has touched makes way. Any other stays open, as a comparison.
+  const untouched = isUntouched();
+  if (!untouched && masks.full) {
+    toast('error', TOO_MANY_MASKS);
+    return false;
+  }
+  if (!untouched && room) {
+    // Everyone in a room edits the room's mask. This one stays on this computer, read-only, and is never sent.
+    const entry = newEntry(next, path);
+    Object.assign(entry, { name: vol.name, segments, activeSegment: segments[0]?.index ?? 0 });
+    masks.add(entry, false);
+    showOthers();
+    toast('info', `${shortName(vol.name)} is shown as an outline, on this computer only. The room keeps editing its own mask.`);
+    return false;
+  }
+  if (!untouched) park();
+  installMask(next, !untouched, path);
   set({ segments, activeSegment: segments[0]?.index ?? 0, maskName: vol.name, dirty: false });
   pushSegments();
   if (room && before) {
@@ -330,16 +376,26 @@ async function loadMask(vol: VolumeData): Promise<void> {
     if (patch) room.sendFrame(FrameKind.Patch, encodePatch(patch));
     sendSegments();
   }
+  return true;
 }
 
 function rgbToHex(c: [number, number, number]): string {
   return '#' + c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
 }
 
-function installMask(vol: VolumeData): void {
+/**
+ * Makes `vol` the active mask, with a fresh undo history. It takes the place of the
+ * active mask, or with `add` joins the list and leaves the others open for comparison.
+ */
+function installMask(vol: VolumeData, add = false, path?: string): void {
+  const entry = newEntry(vol, path);
+  const current = masks.active;
+  if (current && !add) masks.replace(current.id, entry);
+  else masks.add(entry, true);
   mask = vol;
   shadow = (vol.data as Uint8Array).slice();
-  history.clear();
+  history = entry.history;
+  removedSegments.clear();
   syncHistoryFlags();
   engine.showMask(vol);
   // A newly opened mask is shown, whatever the last one was set to.
@@ -347,20 +403,177 @@ function installMask(vol: VolumeData): void {
   engine.setMaskStyle(get().opacity, get().outlineOnly);
   engine.set3dImageVisible(get().show3dImage);
   set({ stats: {} });
+  showOthers();
   scheduleStats();
 }
 
-export function closeImage(): void {
+/* ───────────────────────── several masks ───────────────────────── */
+
+function newEntry(vol: VolumeData, path?: string): MaskEntry {
+  return { id: `m${++maskSeq}`, vol, history: new History(), name: null, dirty: false, visible: true, segments: [], activeSegment: 0, removed: new Map(), path };
+}
+
+/** True for the empty mask every image starts with, while nothing has been done to it. */
+function isUntouched(): boolean {
+  const s = get();
+  return !s.maskName && !s.dirty && s.segments.length === 0 && !history.canUndo && !history.hasPending;
+}
+
+/** Writes the live state of the active mask back into its entry, before another one takes its place. */
+function park(): void {
+  const entry = masks.active;
+  if (!entry || !mask) return;
+  flushEdits();
+  history.commit();
+  const s = get();
+  Object.assign(entry, {
+    vol: mask,
+    history,
+    name: s.maskName,
+    dirty: s.dirty,
+    visible: !s.maskHidden,
+    segments: s.segments,
+    activeSegment: s.activeSegment,
+    removed: new Map(removedSegments),
+  });
+}
+
+/** The list of masks in the store, for the Files section. */
+function syncRows(): void {
+  set({ masks: masks.all.map(({ id, name, dirty, visible, path }) => ({ id, name, dirty, visible, path })), activeMask: masks.active?.id ?? null });
+}
+
+/** The list in the store, and the outlines of the masks that are not being edited. */
+function showOthers(): void {
+  const active = masks.active?.id ?? null;
+  syncRows();
+  engine.showComparisons(
+    masks.others.map((entry, n) => ({ id: entry.id, vol: entry.vol, color: compareColor(n), visible: entry.visible })).filter((x) => x.visible),
+  );
+  // Adding or removing an outline must not change how the active mask is drawn.
+  if (active) pushSegments();
+}
+
+/** Puts a mask from the list in front of the tools. Its own undo history and segments come with it. */
+function mount(entry: MaskEntry): void {
+  mask = entry.vol;
+  shadow = (entry.vol.data as Uint8Array).slice();
+  history = entry.history;
+  removedSegments.clear();
+  for (const [index, seg] of entry.removed) removedSegments.set(index, seg);
+  dirtySlices = null;
+  engine.showMask(entry.vol);
+  set({
+    segments: entry.segments,
+    activeSegment: entry.activeSegment,
+    maskHidden: !entry.visible,
+    newSegment: null,
+    maskName: entry.name,
+    dirty: entry.dirty,
+    stats: {},
+  });
+  syncHistoryFlags();
+  engine.setMaskStyle(get().opacity, get().outlineOnly);
+  engine.set3dImageVisible(get().show3dImage);
+  showOthers();
+  scheduleStats();
+  // The edit tools need a segment to paint with.
+  if (EDIT_TOOLS.includes(get().tool) && entry.segments.length === 0) setTool('crosshair');
+  else applyTool();
+}
+
+/** True when any open mask has edits that are not in a file. */
+export function anyUnsaved(): boolean {
+  return get().dirty || masks.others.some((entry) => entry.dirty);
+}
+
+/** Chooses the mask to edit. The one edited until now stays open, shown as an outline. */
+export function setActiveMask(id: string): void {
+  const next = masks.get(id);
+  if (!next || masks.active?.id === id) return;
+  if (room) {
+    toast('info', "In a room everyone edits the room's mask. Leave the room to edit another one.");
+    return;
+  }
+  park();
+  masks.activate(id);
+  mount(next);
+}
+
+/** Shows or hides one mask. For the active mask this is the same switch as its shortcut. */
+export function setMaskVisible(id: string, visible: boolean): void {
+  const entry = masks.get(id);
+  if (!entry) return;
+  if (masks.active?.id === id) return setMaskHidden(!visible);
+  entry.visible = visible;
+  showOthers();
+}
+
+/** Draws the image darker so the masks stand out, or back at full strength. */
+export function setImageDimmed(imageDimmed: boolean): void {
+  set({ imageDimmed });
+  engine.setImageDimmed(imageDimmed);
+}
+
+/** Closes one mask, asking first when it has unsaved edits. The image always keeps one mask to edit. */
+export function closeMask(id: string): void {
+  const entry = masks.get(id);
+  if (!entry) return;
+  const active = masks.active?.id === id;
+  if (active && room) {
+    toast('info', "This is the room's mask. Leave the room to close it.");
+    return;
+  }
+  if (active) park();
+  const go = () => {
+    masks.remove(id);
+    if (!active) return showOthers();
+    emit('discarded');
+    const next = masks.active;
+    if (next) mount(next);
+    else {
+      installBlankMask();
+      if (EDIT_TOOLS.includes(get().tool)) setTool('crosshair');
+    }
+  };
+  if (!entry.dirty) return go();
+  set({
+    confirm: {
+      title: `Save changes to ${fileNameFor(entry.name)}?`,
+      body: 'Your mask edits have not been saved to a file.',
+      confirm: 'Save',
+      run: () => void saveMaskById(id).then((saved) => saved && go()),
+      other: { label: "Don't save", run: go },
+    },
+  });
+}
+
+export function closeImage(force = false): void {
   const go = () => {
     leaveRoom(true);
     image = null;
     mask = null;
     shadow = null;
     history.clear();
+    masks.clear();
     engine.unmountViewports();
-    set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false });
+    set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false, masks: [], activeMask: null, imageDimmed: false });
     emit('closed');
   };
+  // Only the active mask can be saved from here; the others are named so nothing is lost by surprise.
+  const others = masks.others.filter((entry) => entry.dirty);
+  if (force !== true && others.length > 0) {
+    set({
+      confirm: {
+        title: 'Close without saving every mask?',
+        body: `${others.map((entry) => fileNameFor(entry.name)).join(', ')} ${others.length === 1 ? 'has' : 'have'} unsaved changes. To keep them, save from the Files list first.`,
+        confirm: 'Close',
+        danger: true,
+        run: () => closeImage(true),
+      },
+    });
+    return;
+  }
   if (get().dirty) {
     set({
       confirm: {
@@ -915,9 +1128,42 @@ function formatOf(name: string): MaskFormat {
 }
 
 export function defaultMaskName(): string {
-  const s = get();
-  if (s.maskName && /\.(nii|nii\.gz|mha|nrrd|dcm)$/i.test(s.maskName)) return s.maskName;
-  return `${baseName(s.maskName ?? s.image?.name ?? 'mask')}${s.maskName ? '' : '_mask'}.nii.gz`;
+  return fileNameFor(get().maskName);
+}
+
+/** The file name a mask is saved under: its own when it has one in a format the app writes. */
+function fileNameFor(name: string | null): string {
+  if (name && /\.(nii|nii\.gz|mha|nrrd|dcm)$/i.test(name)) return name;
+  return `${baseName(name ?? get().image?.name ?? 'mask')}${name ? '' : '_mask'}.nii.gz`;
+}
+
+/** Saves any open mask to a file. True when it was written. */
+export async function saveMaskById(id: string): Promise<boolean> {
+  const entry = masks.get(id);
+  if (!entry) return false;
+  if (masks.active?.id === id) {
+    await saveMask();
+    return !get().dirty;
+  }
+  try {
+    const labels: Record<number, string> = {};
+    const colors: Record<number, [number, number, number]> = {};
+    for (const seg of entry.segments) {
+      labels[seg.index] = seg.name;
+      colors[seg.index] = hexToRgb(seg.color);
+    }
+    const saved = await platform.saveBytes(fileNameFor(entry.name), (name) =>
+      writeMask({ ...entry.vol, name, labels, colors }, formatOf(name), { source: image?.dicom }),
+    );
+    if (!saved) return false;
+    Object.assign(entry, { dirty: false, name: saved, path: platform.lastSavedPath() ?? undefined });
+    syncRows();
+    toast('success', `Saved to ${saved}`);
+    return true;
+  } catch {
+    toast('error', "Couldn't save the mask. Check that the folder is writable.");
+    return false;
+  }
 }
 
 export async function saveMask(): Promise<void> {
@@ -937,6 +1183,10 @@ export async function saveMask(): Promise<void> {
     });
     if (!saved) return;
     set({ dirty: false, maskName: saved });
+    if (masks.active) {
+      masks.active.path = platform.lastSavedPath() ?? undefined;
+      syncRows();
+    }
     emit('saved');
     toast('success', `Saved to ${saved}`);
   } catch {
