@@ -3,16 +3,18 @@ import {
   autoWindow,
   baseName,
   fileKind,
+  isDicomSeg,
   labelValues,
-  readVolume,
+  readVolumeAsync,
   resampleNearest,
   sameGrid,
   toLabelmap,
   toRenderable,
-  writeVolume,
+  writeMask,
   type InputFile,
 } from './io';
 import type { ScalarArray, VolumeData } from './io/types';
+import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
 import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
 import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, type Patch } from './mask/patch';
@@ -71,7 +73,9 @@ function groupFiles(files: InputFile[]): InputFile[][] {
   for (const f of files) {
     if (COMPANION.test(f.name)) continue;
     const kind = fileKind(f.name);
-    if (kind === 'dicom' || kind === 'unknown') dicom.push(f);
+    // A DICOM SEG is a mask of its own, not a slice of the image series.
+    if ((kind === 'dicom' || kind === 'unknown') && isDicomSeg(f)) groups.push([f]);
+    else if (kind === 'dicom' || kind === 'unknown') dicom.push(f);
     else groups.push([f, ...companions]);
   }
   if (dicom.length) groups.push(dicom);
@@ -111,7 +115,8 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
       set({ busy: `Opening ${name}…` });
       await nextFrame();
       try {
-        const vol = readVolume(group);
+        const vol = await readVolumeAsync(group);
+        for (const warning of vol.warnings ?? []) toast('warning', warning);
         loaded.push({ vol: { ...vol, name }, name });
       } catch (err) {
         toast('error', describeError(err, name));
@@ -246,7 +251,7 @@ async function loadMask(vol: VolumeData): Promise<void> {
   const segments: SegmentInfo[] = values.map((index) => ({
     index,
     name: vol.labels?.[index] ?? `Segment ${index}`,
-    color: SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
+    color: vol.colors?.[index] ? rgbToHex(vol.colors[index]) : SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
     visible: true,
     locked: false,
   }));
@@ -258,6 +263,10 @@ async function loadMask(vol: VolumeData): Promise<void> {
     if (patch) room.sendFrame(FrameKind.Patch, encodePatch(patch));
     sendSegments();
   }
+}
+
+function rgbToHex(c: [number, number, number]): string {
+  return '#' + c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
 }
 
 function installMask(vol: VolumeData): void {
@@ -606,19 +615,20 @@ export function setShow3dImage(show: boolean): void {
 
 /* ───────────────────────── saving ───────────────────────── */
 
-type MaskFormat = 'nii.gz' | 'nii' | 'mha' | 'nrrd';
+type MaskFormat = 'nii.gz' | 'nii' | 'mha' | 'nrrd' | 'dcm';
 
 function formatOf(name: string): MaskFormat {
   const n = name.toLowerCase();
   if (n.endsWith('.nii')) return 'nii';
   if (n.endsWith('.mha')) return 'mha';
   if (n.endsWith('.nrrd')) return 'nrrd';
+  if (n.endsWith('.dcm')) return 'dcm';
   return 'nii.gz';
 }
 
 export function defaultMaskName(): string {
   const s = get();
-  if (s.maskName && /\.(nii|nii\.gz|mha|nrrd)$/i.test(s.maskName)) return s.maskName;
+  if (s.maskName && /\.(nii|nii\.gz|mha|nrrd|dcm)$/i.test(s.maskName)) return s.maskName;
   return `${baseName(s.maskName ?? s.image?.name ?? 'mask')}${s.maskName ? '' : '_mask'}.nii.gz`;
 }
 
@@ -628,9 +638,14 @@ export async function saveMask(): Promise<void> {
   const suggested = defaultMaskName();
   try {
     const labels: Record<number, string> = {};
-    for (const seg of get().segments) labels[seg.index] = seg.name;
+    const colors: Record<number, [number, number, number]> = {};
+    for (const seg of get().segments) {
+      labels[seg.index] = seg.name;
+      colors[seg.index] = hexToRgb(seg.color);
+    }
     const saved = await platform.saveBytes(suggested, (name) => {
-      return writeVolume({ ...mask!, name, labels }, formatOf(name));
+      // A DICOM SEG refers back to the series the image came from, when there was one.
+      return writeMask({ ...mask!, name, labels, colors }, formatOf(name), { source: image?.dicom });
     });
     if (!saved) return;
     set({ dirty: false, maskName: saved });

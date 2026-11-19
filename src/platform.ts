@@ -73,6 +73,7 @@ export async function saveBytes(suggested: string, make: (name: string) => Uint8
         { name: 'NIfTI', extensions: ['nii.gz', 'nii'] },
         { name: 'MetaImage', extensions: ['mha'] },
         { name: 'NRRD', extensions: ['nrrd'] },
+        { name: 'DICOM SEG', extensions: ['dcm'] },
       ],
     });
     if (!path) return null;
