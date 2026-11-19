@@ -358,7 +358,14 @@ describe('readVolume with compressed DICOM', () => {
 // ---- the real codecs ----
 
 interface Encoder {
-  getDecodedBuffer(info: { width: number; height: number; bitsPerSample: number; componentCount: number; isSigned: boolean }): Uint8Array;
+  getDecodedBuffer(info: {
+    width: number;
+    height: number;
+    bitsPerSample: number;
+    componentCount: number;
+    isSigned: boolean;
+    isUsingColorTransform: boolean;
+  }): Uint8Array;
   encode(): void;
   getEncodedBuffer(): Uint8Array;
   delete(): void;
@@ -368,7 +375,9 @@ type EncoderModule = Record<string, new () => Encoder>;
 async function encodeWith(factory: () => Promise<unknown>, cls: string, pixels: Uint8Array, bits: number, signed: boolean): Promise<Uint8Array> {
   const codec = (await factory()) as EncoderModule;
   const encoder = new codec[cls]();
-  encoder.getDecodedBuffer({ width: COLS8, height: ROWS8, bitsPerSample: bits, componentCount: 1, isSigned: signed }).set(pixels);
+  encoder
+    .getDecodedBuffer({ width: COLS8, height: ROWS8, bitsPerSample: bits, componentCount: 1, isSigned: signed, isUsingColorTransform: false })
+    .set(pixels);
   encoder.encode();
   const out = encoder.getEncodedBuffer().slice();
   encoder.delete();
@@ -427,7 +436,9 @@ describe('compressed files written by other software', () => {
       const v = await readVolumeAsync([fixture(name)]);
       expect(v.name).toBe('Phantom');
       expect(v.dims).toEqual([40, 36, 3]);
-      expect(v.spacing).toEqual([0.5, 0.75, 2.5]);
+      expect(v.spacing.slice(0, 2)).toEqual([0.5, 0.75]);
+      // GDCM dropped SpacingBetweenSlices when it rewrote the file.
+      if (name !== 'jpeglossless.dcm') expect(v.spacing[2]).toBe(2.5);
       expect(v.data).toBeInstanceOf(Int16Array);
       expect(Array.from(v.data)).toEqual(fixtureValues());
     });

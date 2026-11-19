@@ -1,5 +1,6 @@
 import { gzipSync } from 'fflate';
-import { readDicom } from './dicom';
+import { loadCodec } from './codecs';
+import { readDicom, readDicomAsync, type CodecLoader } from './dicom';
 import { isMetaImage, readMetaImage, writeMetaImage } from './metaimage';
 import { fileKind } from './names';
 import { isNifti, readNifti, writeNifti } from './nifti';
@@ -7,13 +8,15 @@ import { isNrrd, readNrrd, writeNrrd } from './nrrd';
 import type { InputFile, VolumeData } from './types';
 import { IoError, gunzip, isGzip } from './util';
 
-export type { InputFile, ScalarArray, VolumeData } from './types';
+export type { DicomSourceInfo, InputFile, ScalarArray, VolumeData } from './types';
+export type { CodecLoader, FrameDecoder, FrameSpec } from './dicom';
 export { baseName, fileKind, type FileKind } from './names';
 export { autoWindow, labelValues, resampleNearest, sameGrid, toLabelmap, toRenderable } from './ops';
 
 const UNSUPPORTED = 'This file is not a supported image. Try NIfTI, MHA, NRRD or DICOM.';
 
-function read(files: InputFile[]): VolumeData {
+/** Reads every format except DICOM. Undefined when the files are none of them. */
+function readOther(files: InputFile[]): VolumeData | undefined {
   if (files.length === 0) throw new IoError('No file was given.');
   // 1. A header file recognised by its extension. Data-only files (.img, .raw, .zraw) never lead.
   for (const f of files) {
@@ -37,10 +40,13 @@ function read(files: InputFile[]): VolumeData {
     }
     if (isNifti(bytes)) return readNifti({ name: f.name, bytes }, files);
   }
-  // 3. Otherwise the files may be the slices of a DICOM series (often without any extension).
-  const vol = readDicom(files);
-  if (vol) return vol;
-  throw new IoError(UNSUPPORTED);
+  return undefined;
+}
+
+function damaged(e: unknown): IoError {
+  if (e instanceof IoError) return e;
+  // Out-of-range reads and the like: the file ends early or its header lies.
+  return new IoError('This file is incomplete or damaged and could not be read.');
 }
 
 /**
@@ -50,12 +56,33 @@ function read(files: InputFile[]): VolumeData {
  */
 export function readVolume(files: InputFile[]): VolumeData {
   try {
-    return read(files);
+    // 3. Files that are nothing else may be the slices of a DICOM series (often without any extension).
+    const vol = readOther(files) ?? readDicom(files);
+    if (vol) return vol;
   } catch (e) {
-    if (e instanceof IoError) throw e;
-    // Out-of-range reads and the like: the file ends early or its header lies.
-    throw new IoError('This file is incomplete or damaged and could not be read.');
+    throw damaged(e);
   }
+  throw new IoError(UNSUPPORTED);
+}
+
+export interface ReadOptions {
+  /** Replaces the built-in decoders for compressed DICOM. Meant for tests. */
+  loadCodec?: CodecLoader;
+}
+
+/**
+ * Like `readVolume`, and also opens DICOM with compressed pixel data (RLE,
+ * JPEG, JPEG-LS, JPEG 2000, HTJ2K). A decoder is loaded the first time a file
+ * needs it, from the app's own files.
+ */
+export async function readVolumeAsync(files: InputFile[], options: ReadOptions = {}): Promise<VolumeData> {
+  try {
+    const vol = readOther(files) ?? (await readDicomAsync(files, options.loadCodec ?? loadCodec));
+    if (vol) return vol;
+  } catch (e) {
+    throw damaged(e);
+  }
+  throw new IoError(UNSUPPORTED);
 }
 
 export type WriteFormat = 'nii.gz' | 'nii' | 'mha' | 'nrrd';

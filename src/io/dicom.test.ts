@@ -208,9 +208,9 @@ describe('DICOM multi-frame', () => {
 });
 
 describe('DICOM errors', () => {
-  it('explains that compressed transfer syntaxes are not supported', () => {
+  it('explains that compressed transfer syntaxes need the asynchronous reader', () => {
     const jpeg = slice(0, { transferSyntax: '1.2.840.10008.1.2.4.70' });
-    expect(() => readVolume([jpeg])).toThrow('Compressed DICOM is not supported yet. Convert the series to NIfTI first.');
+    expect(() => readVolume([jpeg])).toThrow('Compressed DICOM cannot be read synchronously. Use readVolumeAsync.');
   });
   it('reports a series with a missing slice instead of guessing', () => {
     expect(() => readVolume([slice(0), slice(1), slice(3)])).toThrow(/missing or unevenly spaced/);
