@@ -1,6 +1,7 @@
 import { gzipSync } from 'fflate';
 import { loadCodec } from './codecs';
 import { readDicom, readDicomAsync, type CodecLoader } from './dicom';
+import { isDicomSeg, readDicomSeg, writeDicomSeg, type DicomSegOptions } from './dicomseg';
 import { isMetaImage, readMetaImage, writeMetaImage } from './metaimage';
 import { fileKind } from './names';
 import { isNifti, readNifti, writeNifti } from './nifti';
@@ -10,6 +11,7 @@ import { IoError, gunzip, isGzip } from './util';
 
 export type { DicomSourceInfo, InputFile, ScalarArray, VolumeData } from './types';
 export type { CodecLoader, FrameDecoder, FrameSpec } from './dicom';
+export { isDicomSeg, readDicomSeg, writeDicomSeg, type DicomSegOptions, type SegSegment } from './dicomseg';
 export { baseName, fileKind, type FileKind } from './names';
 export { autoWindow, labelValues, resampleNearest, sameGrid, toLabelmap, toRenderable } from './ops';
 
@@ -40,6 +42,8 @@ function readOther(files: InputFile[]): VolumeData | undefined {
     }
     if (isNifti(bytes)) return readNifti({ name: f.name, bytes }, files);
   }
+  // 3. A DICOM segmentation picked on its own is a labelmap. Next to an image series it is left aside.
+  if (files.every(isDicomSeg)) return readDicomSeg(files[0]);
   return undefined;
 }
 
@@ -51,12 +55,13 @@ function damaged(e: unknown): IoError {
 
 /**
  * Reads one volume from the files the user picked: a single image file, a
- * header with its data file, or the slices of one DICOM series. Throws an
- * Error whose message can be shown to the user.
+ * header with its data file, the slices of one uncompressed DICOM series, or
+ * a DICOM segmentation (as a labelmap on its own grid). Throws an Error whose
+ * message can be shown to the user.
  */
 export function readVolume(files: InputFile[]): VolumeData {
   try {
-    // 3. Files that are nothing else may be the slices of a DICOM series (often without any extension).
+    // 4. Files that are nothing else may be the slices of a DICOM series (often without any extension).
     const vol = readOther(files) ?? readDicom(files);
     if (vol) return vol;
   } catch (e) {
@@ -101,4 +106,24 @@ export function writeVolume(vol: VolumeData, format: WriteFormat): Uint8Array {
     default:
       throw new IoError(`Saving as "${String(format)}" is not supported.`);
   }
+}
+
+export type MaskFormat = WriteFormat | 'dcm';
+
+/**
+ * Encodes a mask like `writeVolume`, with one more format: 'dcm', a DICOM
+ * Segmentation object. For 'dcm', `seg.segments` defaults to the mask's own
+ * `labels` and `colors`; pass `seg.source` (the image's `dicom` field) when
+ * the image came from DICOM so that the file references it.
+ */
+export function writeMask(mask: VolumeData, format: MaskFormat, seg: Partial<DicomSegOptions> = {}): Uint8Array {
+  if (format !== 'dcm') return writeVolume(mask, format);
+  const segments =
+    seg.segments ??
+    Object.entries(mask.labels ?? {}).map(([value, name]) => {
+      const index = Number(value);
+      const color = mask.colors?.[index];
+      return color ? { index, name, color } : { index, name };
+    });
+  return writeDicomSeg(mask, { ...seg, segments });
 }
