@@ -8,6 +8,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release when every build and check passes
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -318,3 +323,27 @@ jobs:
       - name: Updater check skipped
         if: env.HAS_UPDATER_KEY != 'true'
         run: echo "::warning title=Updater check skipped::No updater key, so there is no latest.json to check."
+
+  publish:
+    name: Publish the release
+    # Only on request, and only for a fully signed build that passed every check.
+    if: inputs.publish == true
+    needs: [prepare, build, relay, check-updater]
+    runs-on: ubuntu-22.04
+    env:
+      HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    steps:
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if [ "$HAS_APPLE_CERTIFICATE" != "true" ] || [ "$HAS_UPDATER_KEY" != "true" ]; then
+            echo "::error title=Not published::The Apple or updater secrets are missing, so this build stays a draft."
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false --latest
+          gh release view "$TAG" --json url --jq .url
+
