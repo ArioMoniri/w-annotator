@@ -3,7 +3,10 @@
 // usage: node scripts/build-footage.cjs <recording dir>
 const fs = require('fs'); const path = require('path'); const { execFileSync } = require('child_process');
 const rec = path.resolve(process.argv[2] || 'out/rec'); const root = path.resolve(__dirname, '..');
-const man = JSON.parse(fs.readFileSync(rec + '/manifest.json', 'utf8')); const F = man.frames; const n = F.length;
+const SPEED = +(process.env.SPEED || 1.3); // the session is recorded at a relaxed pace; play it a little faster
+const man = JSON.parse(fs.readFileSync(rec + '/manifest.json', 'utf8'));
+const F = []; for (let t = 0; Math.round(t) < man.frames.length; t += SPEED) F.push(man.frames[Math.round(t)]);
+const n = F.length;
 const seq = (key, frames, out) => {
   const dir = path.join(rec, 'seq-' + key); fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir);
   frames.forEach((id, i) => fs.symlinkSync(path.join(rec, `${key.toUpperCase()}${String(Math.max(id, 0)).padStart(4, '0')}.jpg`), path.join(dir, String(i).padStart(5, '0') + '.jpg')));
