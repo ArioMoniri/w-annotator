@@ -7,9 +7,9 @@
 A desktop app for macOS, Windows and Linux that opens 3D medical images and lets you view and correct segmentation masks, alone or with other people in the same mask at once.
 
 <p>
-  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest"><img height="50" src="docs/assets/download-macos.svg" alt="Download for macOS"></a>
-  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest"><img height="50" src="docs/assets/download-windows.svg" alt="Download for Windows"></a>
-  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest"><img height="50" src="docs/assets/download-linux.svg" alt="Download for Linux"></a>
+  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-macOS.dmg"><img height="50" src="docs/assets/download-macos.svg" alt="Download for macOS"></a>
+  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-Windows-setup.exe"><img height="50" src="docs/assets/download-windows.svg" alt="Download for Windows"></a>
+  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-Linux.AppImage"><img height="50" src="docs/assets/download-linux.svg" alt="Download for Linux"></a>
 </p>
 
 <sub>macOS builds are signed and notarised. The app updates itself from GitHub Releases.</sub>

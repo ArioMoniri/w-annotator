@@ -1,0 +1,25 @@
+name: Stable download names
+
+# Adds version-free copies of the installers to a release, so the README's
+# download buttons can link straight to the newest file for each platform.
+# The Release workflow does this itself; run this by hand for an older release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  copy:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: .github/scripts/stable-assets.sh "${{ inputs.tag }}"
