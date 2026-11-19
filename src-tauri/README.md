@@ -1,10 +1,11 @@
 # src-tauri
 
-The Rust side of W Annotator (Tauri v2). It does three things: reads and writes files the user chose, hosts a room on the local network, and reports files opened with the app from the system.
+The Rust side of W Annotator (Tauri v2). It does four things: reads and writes files the user chose, keeps recovery copies of unsaved mask edits, hosts a room on the local network, and reports files opened with the app from the system.
 
 ```
 src/lib.rs       commands and app setup
 src/files.rs     which paths may be read or written
+src/recovery.rs  recovery copies in the app's local data folder
 src/hosting.rs   the embedded room relay (the `w-relay` crate in ../relay)
 src/testing.rs   hooks for automated tests, off unless asked for (see "Test hooks")
 capabilities/    what the window may call in the plugins
@@ -100,6 +101,46 @@ const unlisten = await listen<string[]>('opened-files', (event) => {
 Returns every file the system has asked the app to open so far: paths on the command line ("Open with" on Windows and Linux) and macOS file-open events. Call it once at startup. The list is not cleared by reading it. Each later macOS open also emits the `opened-files` event with just the new paths. These paths are readable and writable.
 
 Limits: `.nii.gz` is not registered as a file type (the system only sees `.gz`); on Linux only `.dcm` is registered, because the other formats have no standard MIME type; and on Windows and Linux "Open with" while the app is already running starts a second window instead of reusing the first.
+
+### Recovery copies
+
+Autosave keeps one recovery copy of the unsaved mask per image. The copies live in `recovery/` inside the app's local data directory (`app_local_data_dir()`):
+
+| System | Folder |
+| --- | --- |
+| macOS | `~/Library/Application Support/<bundle identifier>/recovery` |
+| Windows | `%LOCALAPPDATA%\<bundle identifier>\recovery` |
+| Linux | `~/.local/share/<bundle identifier>/recovery` |
+
+These commands never take a path to write to. They take a **key**: 16 to 64 lowercase hex characters (`[a-f0-9]{16,64}`), the fingerprint of the image. Any other key is rejected before the disk is touched. A copy is the file `<key>.wrec`; nothing in its name or in the folder names the patient or the image. Copies are never sent anywhere.
+
+```ts
+// Write or replace a copy. The bytes are the raw request body, as with write_file.
+await invoke<void>('recovery_write', bytes, {
+  headers: {
+    'x-recovery-key': key,
+    'x-image-path': encodeURIComponent(imagePath), // optional
+  },
+});
+
+// Read a copy. An empty buffer means there is none.
+const buffer = await invoke<ArrayBuffer>('recovery_read', { key });
+
+// List the copies, newest first.
+const copies = await invoke<{ key: string; savedAt: number; bytes: number; imageName: string | null }[]>('recovery_list');
+
+// Remove a copy. Removing one that is not there is not an error.
+await invoke<void>('recovery_delete', { key });
+
+// The bytes of the image a copy belongs to.
+const image = await invoke<ArrayBuffer>('recovery_image', { key });
+```
+
+- `recovery_write` writes to a temporary file and moves it into place, so a crash cannot leave a half-written copy.
+- `savedAt` is the file's modification time in milliseconds since 1970.
+- `x-image-path` is kept (in `<key>.path`, beside the copy) only when the user chose that file in this run of the app, under the file access rule above; otherwise it is ignored. A write without the header keeps an earlier note. The path is used for one thing: `recovery_list` reports the file name as `imageName` while the file still exists, and `recovery_image` returns its bytes so the app can offer "Open {file name}". The path itself is never returned to the web side.
+- `recovery_image` rejects when no path was recorded or the file has moved. It gives read access to that one file only.
+- The web side decides when copies are written and removed (14 days, 5 images); see `src/mask/recovery.ts`.
 
 ### `host_room`
 

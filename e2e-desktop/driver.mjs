@@ -80,8 +80,13 @@ export async function launch({ args = [], env = {} } = {}) {
     const dataDir = mkdtempSync(join(tmpdir(), 'w-webview2-'));
     app = spawn(APP, args, { env: { ...process.env, ...env, WEBVIEW2_USER_DATA_FOLDER: dataDir }, stdio: 'inherit' });
     capabilities = { browserName: 'webview2', 'ms:edgeOptions': { debuggerAddress: `127.0.0.1:${debugPort}` } };
-    const ready = () => fetch(`http://127.0.0.1:${debugPort}/json/version`).then((r) => r.ok);
-    await until(ready, Boolean, { timeout: 60_000, what: `WebView2 to open its debugging port ${debugPort}` }).catch((err) => {
+    // Attach only once the app's own page is there; attaching while the webview is still blank leaves the driver on the blank page.
+    const pages = async () => {
+      const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
+      return targets.map((t) => `${t.type} ${t.url}`);
+    };
+    const loaded = (list) => list.some((t) => t.startsWith('page ') && t.includes('tauri.localhost'));
+    await until(pages, loaded, { timeout: 60_000, what: `the app's page on WebView2's debugging port ${debugPort}` }).catch((err) => {
       killApp();
       driver.kill();
       throw err;
@@ -124,6 +129,12 @@ export async function launch({ args = [], env = {} } = {}) {
       return `no app window among: ${seen.join(', ') || 'no windows'}`;
     };
     await until(findApp, (found) => found === true, { timeout: 60_000, what: 'the app to load' });
+    // A first launch offers the welcome tour; the tests are not about it.
+    const skip = await browser.$('//*[contains(@class, "tour")]//button[contains(., "Skip tour")]');
+    if (await skip.isExisting()) {
+      await skip.click();
+      await until(() => skip.isExisting(), (there) => !there, { what: 'the tour to close' });
+    }
     return {
       browser,
       quit: async () => {

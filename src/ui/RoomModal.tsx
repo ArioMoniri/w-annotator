@@ -1,12 +1,21 @@
 import { X } from 'lucide-react';
 import { useState } from 'react';
 import { formatCode } from '../collab/protocol';
-import { copyText, isTauri, saveName, saveServer, savedName, savedServer } from '../platform';
+import { SERVER_HELP, copyText, isTauri, saveName, saveServer, savedName, savedServer } from '../platform';
 import { joinRoom, startRoom, type RoomStarted } from '../session';
 import { set, toast, useStore } from '../state/store';
 import { Modal } from './common';
 
+/** Once a room is running, its pill in the top bar is where this dialog came from. */
+const ROOM_PILL = '[data-testid="room-pill"]';
+
+/** Mounted afresh each time it opens, so the name and server always come from Settings. */
 export function RoomModal() {
+  const open = useStore((s) => !!s.roomModal);
+  return open ? <RoomDialog /> : null;
+}
+
+function RoomDialog() {
   const mode = useStore((s) => s.roomModal);
   const hasImage = useStore((s) => !!s.image);
   const [name, setName] = useState(savedName());
@@ -41,7 +50,7 @@ export function RoomModal() {
 
   if (started) {
     return (
-      <Modal key="started" title="Room started" onClose={close}>
+      <Modal key="started" title="Room started" onClose={close} returnTo={ROOM_PILL}>
         <button className="iconbtn close" aria-label="Close" onClick={close}>
           <X size={16} />
         </button>
@@ -78,7 +87,7 @@ export function RoomModal() {
   }
 
   return (
-    <Modal title={mode === 'start' ? 'Start a room' : 'Join a room'} onClose={close}>
+    <Modal title={mode === 'start' ? 'Start a room' : 'Join a room'} onClose={close} returnTo={ROOM_PILL}>
       <button className="iconbtn close" aria-label="Close" onClick={close}>
         <X size={16} />
       </button>
@@ -136,11 +145,7 @@ export function RoomModal() {
               disabled={working}
               onChange={(e) => setServer(e.target.value)}
             />
-            <span className="help">
-              {isTauri
-                ? 'Leave empty to host the room on this computer for people on the same network. Enter a room server address to work over the internet.'
-                : 'Address of the room server.'}
-            </span>
+            <span className="help">{SERVER_HELP}</span>
           </label>
         </details>
         <div className="footer" style={{ marginTop: 8 }}>

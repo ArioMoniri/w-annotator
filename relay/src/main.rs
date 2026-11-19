@@ -4,15 +4,21 @@ use std::process::ExitCode;
 const USAGE: &str = "\
 w-relay: room relay for W Annotator
 
-Usage: w-relay [--port <PORT>] [--host <ADDR>]
+Usage: w-relay [--port <PORT>] [--host <ADDR>] [options]
 
-  --port <PORT>   Port to listen on (default: $PORT, else 8787)
-  --host <ADDR>   Address to bind (default: 0.0.0.0)
+  --port <PORT>             Port to listen on (default: $PORT, else 8787)
+  --host <ADDR>             Address to bind (default: 0.0.0.0)
+  --max-rooms <N>           Rooms held at once (default: 1024)
+  --joins-per-minute <N>    Connection attempts per address per minute
+                            (default: 30; raise it behind a proxy, where
+                            every client has the proxy's address)
+  --no-v1                   Refuse apps that still use the old protocol
 ";
 
 struct Options {
     host: IpAddr,
     port: u16,
+    config: w_relay::RelayConfig,
 }
 
 fn parse(args: &[String], env_port: Option<String>) -> Result<Options, String> {
@@ -24,8 +30,13 @@ fn parse(args: &[String], env_port: Option<String>) -> Result<Options, String> {
             .map_err(|_| format!("PORT is not a port number: {p}"))?,
         None => 8787,
     };
+    let mut config = w_relay::RelayConfig::default();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
+        if arg == "--no-v1" {
+            config.v1 = false;
+            continue;
+        }
         let (flag, inline) = match arg.split_once('=') {
             Some((f, v)) => (f, Some(v.to_owned())),
             None => (arg.as_str(), None),
@@ -45,10 +56,19 @@ fn parse(args: &[String], env_port: Option<String>) -> Result<Options, String> {
                 let v = value()?;
                 host = v.parse().map_err(|_| format!("not an IP address: {v}"))?;
             }
+            "--max-rooms" => {
+                let v = value()?;
+                config.limits.max_rooms = v.parse().map_err(|_| format!("not a number: {v}"))?;
+            }
+            "--joins-per-minute" => {
+                let v = value()?;
+                config.limits.joins_per_minute =
+                    v.parse().map_err(|_| format!("not a number: {v}"))?;
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
     }
-    Ok(Options { host, port })
+    Ok(Options { host, port, config })
 }
 
 async fn shutdown_signal() {
@@ -95,7 +115,8 @@ async fn main() -> ExitCode {
         }
     };
     println!("w-relay listening on {addr}");
-    match w_relay::serve(listener, shutdown_signal()).await {
+    let relay = w_relay::Relay::new(options.config);
+    match relay.serve(listener, shutdown_signal()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("relay stopped: {e}");
@@ -123,6 +144,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!((o.host.to_string().as_str(), o.port), ("127.0.0.1", 1234));
+        assert!(o.config.v1);
+        assert_eq!(o.config.limits.max_rooms, 1024);
+        assert!(o.config.faults.is_none());
+        let o = parse(
+            &args(&["--no-v1", "--max-rooms=10", "--joins-per-minute", "600"]),
+            None,
+        )
+        .unwrap();
+        assert!(!o.config.v1);
+        assert_eq!(o.config.limits.max_rooms, 10);
+        assert_eq!(o.config.limits.joins_per_minute, 600);
+        assert!(parse(&args(&["--max-rooms", "many"]), None).is_err());
         assert!(parse(&args(&["--port"]), None).is_err());
         assert!(parse(&args(&["--nope"]), None).is_err());
     }

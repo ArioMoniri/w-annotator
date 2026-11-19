@@ -5,6 +5,7 @@
 
 mod files;
 mod hosting;
+mod recovery;
 mod testing;
 
 use std::borrow::Cow;
@@ -68,7 +69,7 @@ fn body_bytes(body: &InvokeBody) -> Result<Cow<'_, [u8]>, String> {
         InvokeBody::Raw(bytes) => Ok(Cow::Borrowed(bytes)),
         InvokeBody::Json(value) => Vec::<u8>::deserialize(value)
             .map(Cow::Owned)
-            .map_err(|_| "write_file expects the file bytes as the raw request body".to_string()),
+            .map_err(|_| "The bytes must be sent as the raw request body".to_string()),
     }
 }
 
@@ -98,6 +99,70 @@ fn read_file(allowed: State<'_, Allowed>, path: String) -> Result<Response, Stri
     std::fs::read(&full)
         .map(Response::new)
         .map_err(|e| format!("Could not open {}: {e}", display(&path)))
+}
+
+/// The folder that holds recovery copies, inside the app's local data directory.
+fn recovery_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map(|dir| dir.join(recovery::FOLDER))
+        .map_err(|e| format!("Could not find the app data folder: {e}"))
+}
+
+/// Writes the raw request body as the recovery copy for the key in the
+/// `x-recovery-key` header. An `x-image-path` header is remembered only if the
+/// user chose that file in this run of the app.
+#[tauri::command(async)]
+fn recovery_write(
+    app: AppHandle,
+    request: Request<'_>,
+    allowed: State<'_, Allowed>,
+) -> Result<(), String> {
+    let key = request
+        .headers()
+        .get(recovery::KEY_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| format!("Missing {} header", recovery::KEY_HEADER))?;
+    let image = request
+        .headers()
+        .get(recovery::IMAGE_PATH_HEADER)
+        .and_then(|v| files::decode_path_header(v.as_bytes()).ok())
+        .and_then(|path| allowed.check_write(&path).ok());
+    let bytes = body_bytes(request.body())?;
+    recovery::write(&recovery_dir(&app)?, key, &bytes, image.as_deref())
+        .map_err(|e| format!("Could not write the recovery copy: {e}"))
+}
+
+/// Returns the recovery copy for `key` as a raw response body; empty if there is none.
+#[tauri::command(async)]
+fn recovery_read(app: AppHandle, key: String) -> Result<Response, String> {
+    recovery::read(&recovery_dir(&app)?, &key)
+        .map(|bytes| Response::new(bytes.unwrap_or_default()))
+        .map_err(|e| format!("Could not read the recovery copy: {e}"))
+}
+
+#[tauri::command(async)]
+fn recovery_list(app: AppHandle) -> Result<Vec<recovery::Copy>, String> {
+    recovery::list(&recovery_dir(&app)?)
+        .map_err(|e| format!("Could not list the recovery copies: {e}"))
+}
+
+#[tauri::command(async)]
+fn recovery_delete(app: AppHandle, key: String) -> Result<(), String> {
+    recovery::delete(&recovery_dir(&app)?, &key)
+        .map_err(|e| format!("Could not remove the recovery copy: {e}"))
+}
+
+/// Returns the bytes of the image a recovery copy belongs to, when its path was
+/// recorded by `recovery_write` and the file still exists.
+#[tauri::command(async)]
+fn recovery_image(app: AppHandle, key: String) -> Result<Response, String> {
+    let path = recovery::image_path(&recovery_dir(&app)?, &key)
+        .map_err(|e| format!("Could not open the image: {e}"))?
+        .ok_or("The image is no longer where it was. Open it from its new place.")?;
+    std::fs::read(&path)
+        .map(Response::new)
+        .map_err(|e| format!("Could not open the image: {e}"))
 }
 
 #[tauri::command]
@@ -267,6 +332,11 @@ pub fn run() {
             pick_save_path,
             selftest_enabled,
             selftest_finish,
+            recovery_write,
+            recovery_read,
+            recovery_list,
+            recovery_delete,
+            recovery_image,
         ])
         .build(tauri::generate_context!())
         .expect("error while building W Annotator");

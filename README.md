@@ -1,67 +1,53 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" width="72" alt="W Annotator logo">
+<img src="docs/assets/logo-draw.webp" width="108" alt="W Annotator logo">
 
 <h1>W Annotator</h1>
 
-A desktop app for macOS, Windows and Linux that opens 3D medical images and lets you edit segmentation masks, alone or with other people in the same mask at once.
+A desktop app for macOS, Windows and Linux that opens 3D medical images and lets you view and correct segmentation masks, alone or with other people in the same mask at once.
 
 <p>
-  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest"><img height="50" src="docs/assets/download-macos.svg" alt="Download for macOS"></a>
-  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest"><img height="50" src="docs/assets/download-windows.svg" alt="Download for Windows"></a>
-  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest"><img height="50" src="docs/assets/download-linux.svg" alt="Download for Linux"></a>
+  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-macOS.dmg"><img height="50" src="docs/assets/download-macos.svg" alt="Download for macOS"></a>
+  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-Windows-setup.exe"><img height="50" src="docs/assets/download-windows.svg" alt="Download for Windows"></a>
+  <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-Linux.AppImage"><img height="50" src="docs/assets/download-linux.svg" alt="Download for Linux"></a>
 </p>
 
 <sub>macOS builds are signed and notarised. The app updates itself from GitHub Releases.</sub>
 
 <br><br>
 
-<img src="docs/assets/hero.webp" width="560" alt="Animation: one person paints an orange region on a scan slice, a second person paints a blue one, and the two stay in sync">
+<a href="docs/assets/launch.mp4"><img src="docs/assets/launch.webp" width="720" alt="Preview of the tour: opening an image and a mask, painting, filling between slices and editing with a second person"></a>
+
+<sub><a href="docs/assets/launch.mp4">Watch the 30-second tour</a></sub>
 
 </div>
 
-<p align="center">
-  <img src="docs/assets/screenshot.png" alt="A chest CT in axial, sagittal, coronal and 3D views, with the left lung, right lung and airways as three segments and the brush on the edge of the left lung">
-</p>
+## What it does
+
+W Annotator shows a volume in axial, sagittal and coronal views with a 3D view of the mask, and lets you fix the mask by hand. The image and the mask can be in different formats; a mask on another grid is resampled to the image.
 
 <p align="center">
-  <img src="docs/assets/shot-outline.png" width="49%" alt="The axial view maximised with the mask drawn as outlines only">
-  <img src="docs/assets/shot-room.png" width="49%" alt="A room with two people: the other person's cursor and name show on the slice">
+  <img src="docs/assets/features.webp" width="720" alt="Four screenshots in turn: an image and its mask in four views, a brush correction on a lung edge, the menu of a segment, and two people editing in a room">
 </p>
 
-<p align="center"><sub>Left: outline-only view. Right: a room with a second person's cursor.<br>Scan from <a href="https://luna16.grand-challenge.org">LUNA16</a>, a subset of <a href="https://www.cancerimagingarchive.net/collection/lidc-idri/">LIDC-IDRI</a>, with the LUNA16 lung mask. Both are licensed CC BY 4.0.</sub></p>
+<p align="center"><sub>A chest CT with a lung mask: the four views, a brush correction, the segment menu, and a room with two people.</sub></p>
 
-<h2 align="center">What it does</h2>
-
-<p align="center">
-  <img src="docs/assets/paint.webp" width="200" alt="Animation: a brush paints a stroke that becomes a filled region">
-  <img src="docs/assets/fill-between.webp" width="200" alt="Animation: three stacked slices, the middle one fills in from the two painted ones">
-</p>
-
-- Shows a volume in axial, sagittal and coronal views, with a 3D view of the mask.
-- Overlays a mask on an image. The two can be in different formats, such as an MHA image with a `.nii.gz` mask. A mask on another grid is resampled to the image.
-- Edits the mask with a brush and an eraser (circle or sphere, size in mm), a threshold brush, scissors and fill. Shift-drag with the brush erases.
+- Editing tools: brush and eraser (circle or sphere, size in mm), threshold brush, scissors and fill. The brush can paint over everything or only empty voxels.
 - Fill between slices: paint every few slices and the app fills the gaps.
-- Has crosshair, pan, zoom, a ruler, and window/level with CT presets.
-- Manages segments: add, rename, recolour, hide, lock, clear and delete. Mask opacity and an outline-only view.
-- Undo and redo.
-- Saves the mask as `.nii.gz`, `.nii`, `.mha` or `.nrrd`.
+- Segments: add, rename, recolour, hide, lock, clear and delete. Each row shows the volume in mL.
+- Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, and combine with another segment.
+- Viewing: crosshair, pan, zoom, a ruler, window/level with CT presets, mask opacity and an outline-only view.
+- Undo and redo, a light, dark or system theme, and a form that turns a problem report into a GitHub issue.
 
-There are no AI features, by design.
-
-<h2 align="center">File formats</h2>
+## File formats
 
 <p align="center">
-  <img src="docs/assets/formats.webp" width="560" alt="Animation: a selector moves across NIfTI, MetaImage, NRRD and DICOM series and shows for each whether it opens as an image, opens as a mask and saves a mask">
+  <img src="docs/assets/formats.svg" width="640" alt="NIfTI, MetaImage, NRRD, DICOM series and DICOM SEG">
 </p>
 
-<p align="center"><sub>Opens as image or mask: NIfTI (<code>.nii</code>, <code>.nii.gz</code>), MetaImage (<code>.mha</code>, <code>.mhd</code>), NRRD (<code>.nrrd</code>, <code>.seg.nrrd</code>) and uncompressed DICOM series.<br>Saves masks as <code>.nii.gz</code>, <code>.nii</code>, <code>.mha</code> or <code>.nrrd</code>. Compressed DICOM and DICOM SEG are in progress.</sub></p>
+Opens NIfTI (`.nii`, `.nii.gz`), MetaImage (`.mha`, `.mhd`), NRRD (`.nrrd`, `.seg.nrrd`), DICOM series (uncompressed, RLE, JPEG, JPEG-LS, JPEG 2000 and HTJ2K) and DICOM SEG. Saves masks as `.nii.gz`, `.nii`, `.mha`, `.nrrd` or DICOM SEG (`.dcm`).
 
-<h2 align="center">Working together</h2>
-
-<p align="center">
-  <img src="docs/assets/rooms.webp" width="200" alt="Animation: two cursors meet on one shape and each fills half of it">
-</p>
+## Working together
 
 A room lets several people edit one mask at the same time. Nobody needs an account, only a display name.
 
@@ -72,27 +58,25 @@ A room lets several people edit one mask at the same time. Nobody needs an accou
 
 With the server field left empty, the desktop app hosts the room itself. That works for people on the same network or VPN. To work over the internet, run the relay in [`relay/`](relay/README.md) (a small Rust server, with a Dockerfile) and enter its address when starting the room. The relay forwards messages and stores nothing.
 
-<h2 align="center">Shortcuts</h2>
+## Shortcuts
 
 | Key | Action | Key | Action |
 | --- | --- | --- | --- |
-| `B` | Brush | `C` | Crosshair |
-| `E` | Eraser | `H` | Pan |
-| `T` | Threshold brush | `Z` | Zoom |
-| `S` | Scissors | `W` | Window / level |
-| `F` | Fill | `R` | Ruler |
-| `[` `]` | Brush size | `Space` | Last tool |
-| `1`–`9` | Select segment | `N` | New segment |
+| `B` / `E` | Brush / eraser | `C` | Crosshair |
+| `T` | Threshold brush | `H` / `Z` | Pan / zoom |
+| `S` / `F` | Scissors / fill | `W` | Window / level |
+| `[` `]` | Brush size | `R` | Ruler |
+| `I` | Fill between slices | `Space` | Last tool |
+| `N` | New segment | `1`–`9` | Select segment |
 | `O` | Outline only | `X` | Hide or show the mask |
-| `↑` `↓` | Next / previous slice | `M` | Maximise or restore a view |
+| `↑` `↓` | Previous / next slice | `M` | Maximise or restore a view |
 | `Ctrl+Z` | Undo | `Ctrl+Shift+Z` | Redo |
 | `Ctrl+O` | Open image | `Ctrl+Shift+O` | Open mask |
-| `Ctrl+S` | Save mask | `Ctrl+\` | Show or hide segments |
-| `I` | Fill between slices | `Shift`-drag | Erase with the brush |
+| `Ctrl+S` | Save mask | `?` | All shortcuts |
 
-On macOS use `Cmd` in place of `Ctrl`. With any tool: scroll changes slice, `Ctrl`+scroll zooms, middle-drag pans, right-drag changes window/level, and double-click maximises a view. The full list is in the app, where the shortcuts can also be changed.
+On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice, `Ctrl`+scroll zooms, middle-drag pans and right-drag changes window/level. Press `?` in the app to see every shortcut and change any of them.
 
-<h2 align="center">Build from source</h2>
+## Build from source
 
 You need Node with pnpm, Rust, and the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your system.
 
@@ -104,15 +88,21 @@ pnpm e2e                 # end-to-end tests
 cargo test --workspace   # Rust tests, app and relay
 ```
 
-<h2 align="center">Releasing</h2>
+## Releasing
 
 Pushing a `v*` tag builds the installers and a draft release. The steps and the signing secrets are in [docs/RELEASING.md](docs/RELEASING.md).
 
-<h2 align="center">Built on</h2>
+## Built on
 
 - [Cornerstone3D](https://www.cornerstonejs.org/), the rendering engine and tool library of the [OHIF Viewer](https://ohif.org/).
 - [Tauri](https://tauri.app/) for the desktop shell and the updater.
 
-The animations are Lottie files. Their sources are the `.json` files in [`docs/assets`](docs/assets), rendered to animated WebP for this page.
+The logo and file-format animations are Lottie files (`.json` in [`docs/assets`](docs/assets)). The tour is composed with [Remotion](https://www.remotion.dev/) from a recording of the app; its source is in [`video/`](video/README.md).
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](LICENSE). W Annotator is free for non-commercial use. Commercial use needs permission from Ariorad Moniri.
+
+The scan in the screenshots and the tour is from [LUNA16](https://luna16.grand-challenge.org), a subset of [LIDC-IDRI](https://www.cancerimagingarchive.net/collection/lidc-idri/), shown with the LUNA16 lung mask. Both are licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 W Annotator is not a medical device and must not be used for diagnosis or treatment.

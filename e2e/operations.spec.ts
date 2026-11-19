@@ -274,8 +274,19 @@ for (const size of [
     await page.keyboard.press('b');
     await expect(page.locator('.segrow').first().getByTestId('segment-volume')).toBeVisible();
     await expect(page.getByRole('group', { name: 'Paint over' })).toBeVisible();
-    // Nothing in the brush strip is cut off.
-    expect(await page.locator('.strip .options').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    // Nothing in the brush strip is cut off, also with a wider system font than this machine's.
+    const overflow = () =>
+      page.evaluate(() => {
+        const options = document.querySelector('.strip .options')!;
+        const strip = document.querySelector('.strip')!;
+        return Math.max(options.scrollWidth - options.clientWidth, strip.scrollWidth - strip.clientWidth);
+      });
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    await page.addStyleTag({ content: '.strip { letter-spacing: 1px; }' });
+    await page.setViewportSize({ width: size.width - 1, height: size.height });
+    await page.waitForTimeout(200);
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    await page.setViewportSize(size);
     await shot('volumes');
 
     await openMenu(page, 'Segment 2');

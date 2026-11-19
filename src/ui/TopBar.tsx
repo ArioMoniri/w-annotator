@@ -5,7 +5,7 @@ import { set, toast, useStore } from '../state/store';
 import { closeImage, leaveRoom, saveMask } from '../session';
 import { copyText } from '../platform';
 import { jumpTo } from '../viewer/engine';
-import { MOD, useDismiss } from './common';
+import { useDismiss, useKeyHint } from './common';
 import { pickDicomFolder, pickImage, pickMask } from './files';
 import { ThemeControl } from './ThemeControl';
 
@@ -14,6 +14,7 @@ function FileMenu() {
   const maskName = useStore((s) => s.maskName);
   const dirty = useStore((s) => s.dirty);
   const update = useStore((s) => s.update);
+  const key = useKeyHint();
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const ref = useDismiss<HTMLDivElement>(open, close);
@@ -25,6 +26,7 @@ function FileMenu() {
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
       <button
         className="filebtn"
+        data-tour="file"
         aria-haspopup="menu"
         aria-expanded={open}
         title={maskName ? `${image?.name} · ${maskName}` : image?.name}
@@ -38,21 +40,21 @@ function FileMenu() {
       {open && (
         <div className="menu" role="menu" style={{ left: 0, top: 34, minWidth: 240 }}>
           <button className="item" role="menuitem" onClick={run(pickImage)}>
-            Open image… <kbd>{MOD}+O</kbd>
+            Open image… {key('file.openImage') && <kbd>{key('file.openImage')}</kbd>}
           </button>
           <button className="item" role="menuitem" onClick={run(pickDicomFolder)}>
             Open DICOM folder…
           </button>
           <button className="item" role="menuitem" onClick={run(pickMask)}>
-            Open mask… <kbd>{MOD}+Shift+O</kbd>
+            Open mask… {key('file.openMask') && <kbd>{key('file.openMask')}</kbd>}
           </button>
           <hr />
           <button className="item" role="menuitem" onClick={run(() => void saveMask())}>
-            Save mask… <kbd>{MOD}+S</kbd>
+            Save mask… {key('file.save') && <kbd>{key('file.save')}</kbd>}
           </button>
           <hr />
-          <button className="item" role="menuitem" onClick={run(() => set({ shortcutsOpen: true }))}>
-            Keyboard shortcuts <kbd>?</kbd>
+          <button className="item" role="menuitem" onClick={run(() => set({ settings: 'profile' }))}>
+            Settings… {key('app.settings') && <kbd>{key('app.settings')}</kbd>}
           </button>
           <div className="row">
             Appearance
@@ -88,6 +90,7 @@ function RoomButton() {
     return (
       <button
         className="btn secondary"
+        data-tour="share"
         data-tip="Start or join a room"
         data-tip-align="end"
         onClick={() => set({ roomModal: hasImage ? 'start' : 'join' })}
@@ -101,7 +104,7 @@ function RoomButton() {
     if (await copyText(text)) toast('success', done);
   };
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} data-tour="share" style={{ position: 'relative' }}>
       <div className="avatars" style={{ display: 'inline-flex', marginRight: 8, verticalAlign: 'middle' }}>
         {peers.slice(0, 4).map((p) => (
           <button
@@ -177,6 +180,7 @@ function RoomButton() {
 export function TopBar() {
   const hasImage = useStore((s) => !!s.image);
   const panelOpen = useStore((s) => s.panelOpen);
+  const key = useKeyHint();
   return (
     <header className="topbar" data-tauri-drag-region>
       {hasImage ? <FileMenu /> : <span className="brand">W Annotator</span>}
@@ -187,7 +191,7 @@ export function TopBar() {
           className="iconbtn"
           aria-label={panelOpen ? 'Hide segments' : 'Show segments'}
           aria-pressed={panelOpen}
-          data-tip={`${panelOpen ? 'Hide' : 'Show'} segments  ${MOD}+\\`}
+          data-tip={`${panelOpen ? 'Hide' : 'Show'} segments  ${key('view.panel')}`.trimEnd()}
           data-tip-align="end"
           onClick={() => set({ panelOpen: !panelOpen })}
         >

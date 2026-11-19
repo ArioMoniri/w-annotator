@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { attachEditTracking, getImage, getMask, setShow3dImage, setVoi, shareCursor } from '../session';
 import { EDIT_TOOLS, activeSegmentInfo, set, toast, useStore, type ViewId } from '../state/store';
 import * as engine from '../viewer/engine';
+import { useKeyHint } from './common';
 import { voxelAt } from '../viewer/geometry';
 
 const VIEWS: { id: ViewId; label: string; letters?: [string, string, string, string] }[] = [
@@ -71,10 +72,18 @@ export function Viewports() {
   const hasSegments = useStore((s) => s.segments.length > 0);
   const show3dImage = useStore((s) => s.show3dImage);
   const [tick, setTick] = useState(0);
+  const key = useKeyHint();
+  const maskHidden = useStore((s) => s.maskHidden);
   const tool = useStore((s) => s.tool);
   const activeSeg = useStore(activeSegmentInfo);
   // Painting on a locked or hidden segment is refused rather than done silently.
-  const blocked = EDIT_TOOLS.includes(tool) && !!activeSeg && (activeSeg.locked || !activeSeg.visible);
+  const blocked = EDIT_TOOLS.includes(tool) && !!activeSeg && (activeSeg.locked || !activeSeg.visible || maskHidden);
+  const whyBlocked = () => {
+    if (!activeSeg) return '';
+    if (activeSeg.locked) return `${activeSeg.name} is locked. Unlock it to edit.`;
+    if (maskHidden) return key('mask.toggle') ? `The mask is hidden. Press ${key('mask.toggle')} to show it.` : 'The mask is hidden. Show it to edit.';
+    return `${activeSeg.name} is hidden. Show it to edit.`;
+  };
   const lastRefusal = useRef(0);
   const pressed = useRef<[number, number]>([0, 0]);
   const refuse = (id: ViewId, e: React.MouseEvent) => {
@@ -84,7 +93,7 @@ export function Viewports() {
     e.preventDefault();
     if (Date.now() - lastRefusal.current > 1500) {
       lastRefusal.current = Date.now();
-      toast('info', activeSeg.locked ? `${activeSeg.name} is locked. Unlock it to edit.` : `${activeSeg.name} is hidden. Show it to edit.`);
+      toast('info', whyBlocked());
     }
   };
 
@@ -167,7 +176,7 @@ export function Viewports() {
   };
 
   return (
-    <div className="views" ref={gridRef}>
+    <div className="views" ref={gridRef} data-tour="views">
       {VIEWS.map((v) => (
         <div
           key={v.id}
@@ -229,7 +238,7 @@ export function Viewports() {
             <button
               className="iconbtn sm"
               aria-label={maximized === v.id ? 'Restore' : 'Maximise'}
-              data-tip={maximized === v.id ? 'Restore  M' : 'Maximise  M'}
+              data-tip={`${maximized === v.id ? 'Restore' : 'Maximise'}  ${key('view.maximise')}`.trimEnd()}
               data-tip-side="left"
               onClick={() => set({ maximized: maximized === v.id ? null : v.id })}
             >

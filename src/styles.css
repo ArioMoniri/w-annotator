@@ -21,8 +21,14 @@
   --border-strong: #363c45;
   --border-control: #6b7480;
   --border-button: var(--border-strong);
-  --track: var(--border-strong);
+  /* The unfilled part of a slider: 3:1 or better against the surface it sits on. */
+  --track: var(--border-control);
   --swatch-ring: transparent;
+  /* The halo around a slider thumb on hover and drag. */
+  --halo: var(--accent-soft);
+  --row-selected: var(--accent-soft);
+  /* A tool that cannot be used yet is still an icon to find: 3:1 against the rail. */
+  --tool-disabled: #666e7a;
   --text-1: #e7e9ec;
   --text-2: #a6adb7;
   --text-3: #808894;
@@ -54,13 +60,17 @@
   --bg-raised: #ffffff;
   --bg-hover: #eceef1;
   --bg-active: #e1e4e8;
-  --bg-scrim: rgba(15, 17, 20, 0.32);
+  --bg-scrim: rgba(15, 17, 20, 0.48);
   --border: #dde0e5;
   --border-strong: #c4c9d1;
   --border-control: #7a828e;
   --border-button: var(--border-control);
   --track: var(--border-control);
   --swatch-ring: rgba(16, 18, 22, 0.28);
+  --halo: rgba(29, 88, 216, 0.22);
+  /* Stronger than hover grey, so the selected row is told apart by more than its hue. */
+  --row-selected: rgba(29, 88, 216, 0.16);
+  --tool-disabled: #868d98;
   --text-1: #16181c;
   --text-2: #4d545e;
   --text-3: #5e6570;
@@ -105,31 +115,7 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-instant: 0ms;
-    --dur-fast: 0ms;
-    --dur-base: 0ms;
-    --dur-slow: 0ms;
-  }
-  *,
-  *::before,
-  *::after {
-    animation-iteration-count: 1 !important;
-  }
-  .spinner {
-    animation: none;
-    border: 0;
-    width: auto;
-    height: auto;
-  }
-  .spinner::after {
-    content: '…';
-  }
-  .rcursor {
-    transition: none;
-  }
-}
+/* Reduced motion is at the end of this file, so it wins over every rule above it. */
 
 * {
   box-sizing: border-box;
@@ -294,7 +280,7 @@ kbd {
   border-radius: var(--radius-sm);
   font-weight: 500;
   white-space: nowrap;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .btn.lg {
@@ -371,7 +357,7 @@ kbd {
   border-radius: var(--radius-sm);
   color: var(--text-2);
   flex: none;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .iconbtn:hover {
@@ -412,7 +398,7 @@ kbd {
   padding: 4px 8px;
   font: 400 12px/16px var(--font-ui);
   color: var(--text-1);
-  white-space: nowrap;
+  white-space: pre;
   pointer-events: none;
   opacity: 0;
   z-index: 70;
@@ -496,7 +482,7 @@ kbd {
   align-items: center;
   justify-content: center;
   color: var(--text-2);
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .toolbtn:hover {
@@ -509,20 +495,27 @@ kbd {
   color: var(--accent);
 }
 
-.toolbtn[aria-checked='true']::before {
+/* One bar for the whole rail. ToolRail sets --tool-y to the active button's position. */
+.rail {
+  position: relative;
+}
+
+.rail::before {
   content: '';
   position: absolute;
-  left: -6px;
-  top: 10px;
+  left: 0;
+  top: 0;
   width: 2px;
   height: 16px;
   border-radius: 1px;
   background: var(--accent);
+  transform: translateY(var(--tool-y, 16px));
+  transition: transform var(--dur-fast) var(--ease-in-out);
 }
 
 .toolbtn[aria-disabled='true'],
 .toolbtn:disabled {
-  color: var(--text-disabled);
+  color: var(--tool-disabled);
   background: none;
   cursor: default;
 }
@@ -632,7 +625,7 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .seg-control button:hover {
@@ -726,11 +719,11 @@ input[type='range']::-moz-range-thumb {
 }
 
 input[type='range']:hover::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  box-shadow: 0 0 0 4px var(--halo);
 }
 
 input[type='range']:active::-webkit-slider-thumb {
-  box-shadow: 0 0 0 6px var(--accent-soft);
+  box-shadow: 0 0 0 6px var(--halo);
 }
 
 input[type='range']:focus-visible {
@@ -835,6 +828,13 @@ input[type='range']:focus-visible {
 
 .cell[data-active='true']::after {
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Labels sit on unpredictable pixels: a dark stroke behind each glyph keeps them readable over bone. */
+.overlay,
+.orient {
+  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.8);
+  paint-order: stroke fill;
 }
 
 .overlay {
@@ -1010,6 +1010,7 @@ input[type='range']:focus-visible {
   border-radius: var(--radius-sm);
 }
 
+/* Only the row made with Add segment gets this class; rows from a file or the room appear at once. */
 .segrow.new {
   animation: row-in var(--dur-base) var(--ease-out);
 }
@@ -1020,12 +1021,32 @@ input[type='range']:focus-visible {
   }
 }
 
+.segrow.new::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  pointer-events: none;
+  animation: row-hold 600ms var(--ease-in) forwards;
+}
+
+@keyframes row-hold {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .segrow:hover {
   background: var(--bg-hover);
 }
 
 .segrow[aria-selected='true'] {
-  background: var(--accent-soft);
+  background: var(--row-selected);
 }
 
 .segrow[aria-selected='true']::before {
@@ -1064,7 +1085,8 @@ input[type='range']:focus-visible {
 
 .segrow[data-hidden='true'] .swatchbtn .swatch {
   background: transparent !important;
-  box-shadow: inset 0 0 0 1px currentColor;
+  /* The outer ring keeps a pale colour (yellow, pink) visible on a light surface. */
+  box-shadow: inset 0 0 0 1.5px currentColor, 0 0 0 1px var(--swatch-ring);
 }
 
 .segrow .act {
@@ -1241,10 +1263,15 @@ input[type='range']:focus-visible {
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--swatch-ring);
 }
 
 .palette button[aria-pressed='true'] {
-  box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--swatch-ring), 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--text-1);
+}
+
+.palette button:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 
 /* ── Status bar ────────────────────────────────── */
@@ -1274,6 +1301,25 @@ input[type='range']:focus-visible {
   color: var(--text-3);
 }
 
+.status .warn {
+  color: var(--warn);
+}
+
+/* Unsaved work is the one thing in this bar that asks for attention. */
+.status .sync[data-unsaved] {
+  color: var(--text-1);
+}
+
+.status .sync {
+  animation: status-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes status-in {
+  from {
+    opacity: 0.4;
+  }
+}
+
 /* ── Empty state ───────────────────────────────── */
 
 .empty {
@@ -1299,7 +1345,7 @@ input[type='range']:focus-visible {
   gap: 8px;
   padding: 32px;
   text-align: center;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 
 .empty .corner {
@@ -1351,7 +1397,9 @@ input[type='range']:focus-visible {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: var(--bg-scrim);
+  /* Dark in both themes: most of what it covers is the black viewport. */
+  background: rgba(0, 0, 0, 0.56);
+  color: #e7e9ec;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1392,8 +1440,32 @@ input[type='range']:focus-visible {
   animation: modal-in var(--dur-slow) var(--ease-out);
 }
 
+/* The sheet's list scrolls inside it, so the title, help line and buttons stay put. */
 .modal.wide {
   width: 560px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal.wide > * {
+  flex: none;
+}
+
+/* Leaving: a copy of the dialog fades out after the real one has gone (see Modal). Opacity only. */
+.scrim[data-leaving] {
+  pointer-events: none;
+  animation: fade-out var(--dur-fast) var(--ease-in) forwards;
+}
+
+.scrim[data-leaving] .modal {
+  animation: none;
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes modal-in {
@@ -1516,6 +1588,15 @@ input[type='range']:focus-visible {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 32px;
+  overflow-y: auto;
+  min-height: 0;
+  /* Room for focus rings, and for the scrollbar to sit clear of the keys. */
+  margin: 0 -8px;
+  padding: 4px 8px;
+}
+
+.modal.wide > .shortcuts {
+  flex: 0 1 auto;
 }
 
 .shortcuts h3 {
@@ -1529,7 +1610,7 @@ input[type='range']:focus-visible {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  height: 22px;
+  min-height: 24px;
   align-items: center;
 }
 
@@ -1669,6 +1750,17 @@ input[type='range']:focus-visible {
   }
 }
 
+.toast[data-leaving] {
+  pointer-events: none;
+  animation: toast-out var(--dur-fast) var(--ease-in) forwards;
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
+}
+
 .update {
   position: fixed;
   left: calc(var(--rail-w) + 12px);
@@ -1747,22 +1839,59 @@ input[type='range']:focus-visible {
   opacity: 1;
 }
 
+/*
+ * Clipped sideways only, so a long hint is cut at the chip, while tooltips and focus
+ * rings may reach above and below the strip.
+ */
 .strip .options {
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: visible;
+  align-self: stretch;
+}
+
+/* Start-aligned, so a tooltip on a narrow field is not cut by the sideways clip. */
+.strip .options .field[data-tip]::after {
+  left: 0;
+  transform: translate(0, -4px);
+}
+
+.strip .options .field[data-tip]:hover::after,
+.strip .options .field[data-tip]:focus-visible::after {
+  transform: translate(0, 0);
+}
+
+/* Buttons keep their width; hints are what gives way. */
+.strip .btn {
+  flex: none;
 }
 
 @media (max-width: 1279px) {
   .dual {
-    width: 96px;
+    width: 80px;
   }
   .strip[data-strip='threshold'] input[aria-label='Brush size'] {
     display: none;
+  }
+  .strip[data-strip='brush'] .hint,
+  .strip[data-strip='brush'] .field > .label {
+    display: none;
+  }
+  .strip[data-strip='brush'] input[type='range'] {
+    width: 64px;
+  }
+  .chip {
+    max-width: 120px;
   }
 }
 
 .seg-control button[aria-pressed='true'],
 .seg-control button[aria-selected='true'] {
   box-shadow: inset 0 0 0 1px var(--border-control);
+}
+
+/* After the pressed rule, so a pressed button still shows where focus is. */
+.seg-control button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .check input {
@@ -1801,13 +1930,13 @@ button.avatar {
 .keybtn {
   font: 11px/16px var(--font-mono);
   min-width: 44px;
-  height: 20px;
+  height: 24px;
   padding: 0 6px;
   border-radius: var(--radius-xs);
   background: var(--bg-active);
   color: var(--text-2);
   white-space: nowrap;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .keybtn:hover {
@@ -1819,6 +1948,11 @@ button.avatar {
   background: var(--accent-soft);
   color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* An action that lost its key to another one. */
+.keybtn[data-empty] {
+  color: var(--warn);
 }
 
 .modal p.sheet-help {
@@ -2045,3 +2179,692 @@ button.avatar {
 }
 
 /* ── End of segment operations and measurements ─────────────────── */
+
+/* ── Options strip: tighten until it fits ──────── */
+
+.strip .btn .short {
+  display: none;
+}
+
+.strip[data-compact='1'] .hint,
+.strip[data-compact='2'] .hint,
+.strip[data-compact='3'] .hint,
+.strip[data-compact='1'] .field > .label,
+.strip[data-compact='2'] .field > .label,
+.strip[data-compact='3'] .field > .label,
+.strip[data-compact='1'] .field > label,
+.strip[data-compact='2'] .field > label,
+.strip[data-compact='3'] .field > label {
+  display: none;
+}
+
+.strip[data-compact='2'] .options,
+.strip[data-compact='3'] .options {
+  gap: 8px;
+}
+
+.strip[data-compact='2'] .btn .long,
+.strip[data-compact='3'] .btn .long {
+  display: none;
+}
+
+.strip[data-compact='2'] .btn .short,
+.strip[data-compact='3'] .btn .short {
+  display: inline;
+}
+
+.strip[data-compact='2'] .seg-control button,
+.strip[data-compact='3'] .seg-control button {
+  padding: 0 6px;
+}
+
+.strip[data-compact='2'] .unit,
+.strip[data-compact='3'] .unit,
+.strip[data-compact='3'] input[type='range'],
+.strip[data-compact='3'] .dual {
+  display: none;
+}
+
+.strip[data-compact='3'] .chip span:last-child {
+  display: none;
+}
+
+.sheet-help .btn.text {
+  height: 20px;
+  margin-left: 8px;
+  color: var(--accent);
+  vertical-align: baseline;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Settings dialog and welcome tour (issue #7). Everything for both lives
+   in this one block.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Empty state links ────────────────────────── */
+
+.empty .links {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Switch ───────────────────────────────────── */
+
+.switch {
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--bg-active);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+  transition: background-color var(--dur-instant) linear;
+}
+
+.switch i {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform var(--dur-fast) var(--ease-in-out), background-color var(--dur-instant) linear;
+}
+
+.switch[aria-checked='true'] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.switch[aria-checked='true'] i {
+  background: var(--text-on-accent);
+  transform: translateX(16px);
+}
+
+/* ── Settings ─────────────────────────────────── */
+
+.modal.settings {
+  width: 720px;
+  height: 500px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.modal.settings nav {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 8px 8px;
+  overflow: auto;
+}
+
+.modal.settings nav h2 {
+  margin: 0 8px 12px;
+}
+
+.modal.settings [role='tablist'] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modal.settings [role='tab'] {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-2);
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.modal.settings [role='tab']:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.modal.settings [role='tab'][aria-selected='true'] {
+  background: var(--bg-active);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.modal.settings .pane {
+  padding: 20px 24px 24px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.modal.settings .pane h3 {
+  font: 600 15px/22px var(--font-ui);
+  margin: 0;
+  /* Clear of the close button. */
+  padding-right: 32px;
+}
+
+.modal.settings .pane p {
+  margin: 0;
+}
+
+.modal.settings .form input[type='text'] {
+  max-width: 320px;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 28px;
+}
+
+.setting .text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.setting .help {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.modal.settings .pane p.sheet-help {
+  margin: -12px 0 -8px;
+  min-height: 20px;
+}
+
+.shortcuts h4 {
+  grid-column: 1 / -1;
+  font: 600 12px/16px var(--font-ui);
+  color: var(--text-3);
+  margin: 8px 0 2px;
+}
+
+.pane-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.linklist {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.modal.settings .pane p.about {
+  margin-top: auto;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (max-width: 640px) {
+  .modal.settings {
+    grid-template-columns: 132px minmax(0, 1fr);
+  }
+  .shortcuts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* In a narrow window the brush strip keeps the number field and drops the slider,
+   as the threshold strip does, so "Fill between slices" is not cut off. */
+@media (max-width: 1279px) {
+  .strip[data-strip='brush'] input[aria-label='Brush size'] {
+    display: none;
+  }
+}
+
+/* ── Welcome tour ─────────────────────────────────
+   A dimming layer with a hole around the control being explained. The layer
+   is four panels and four corner pieces that only ever move with transform,
+   inside one group whose opacity dims the window once however they overlap.
+   Nothing here touches a viewport: the image is only seen through the layer. */
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  /* The panels reach past the window. Clip rather than hide, so focus can never scroll the layer. */
+  overflow: hidden;
+  overflow: clip;
+  --tour-shade: #000000;
+  --tour-dim: 0.6;
+}
+
+:root[data-theme='light'] .tour {
+  --tour-shade: #0f1114;
+  --tour-dim: 0.44;
+}
+
+.tour-dim {
+  position: absolute;
+  inset: 0;
+  opacity: var(--tour-dim);
+  animation: fade-in var(--dur-base) linear;
+}
+
+.tour-dim i,
+.tour-dim b {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: transform var(--dur-slow) var(--ease-in-out);
+}
+
+.tour-dim i {
+  width: 100vw;
+  height: 100vh;
+  background: var(--tour-shade);
+}
+
+.tour-dim b[data-corner='tl'] {
+  background: radial-gradient(circle farthest-side at 100% 100%, transparent 96%, var(--tour-shade) 100%);
+}
+
+.tour-dim b[data-corner='tr'] {
+  background: radial-gradient(circle farthest-side at 0 100%, transparent 96%, var(--tour-shade) 100%);
+}
+
+.tour-dim b[data-corner='bl'] {
+  background: radial-gradient(circle farthest-side at 100% 0, transparent 96%, var(--tour-shade) 100%);
+}
+
+.tour-dim b[data-corner='br'] {
+  background: radial-gradient(circle farthest-side at 0 0, transparent 96%, var(--tour-shade) 100%);
+}
+
+/* A hairline around the hole. It appears in place once the hole has arrived. */
+.tour-hole {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36);
+  pointer-events: none;
+  animation: fade-in var(--dur-fast) linear var(--dur-slow) backwards;
+}
+
+.tour-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 304px;
+  max-width: calc(100vw - 24px);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-3);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  transition: transform var(--dur-slow) var(--ease-in-out);
+  animation: fade-in var(--dur-base) linear;
+}
+
+.tour-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fade-in var(--dur-base) linear;
+}
+
+.tour-card h2 {
+  font: 600 15px/22px var(--font-ui);
+  margin: 0;
+}
+
+.tour-card p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tour-head .btn.text {
+  margin: 0 -8px 0 0;
+  flex: none;
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tour-foot.end {
+  justify-content: flex-end;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 4px;
+  margin-right: auto;
+}
+
+.tour-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-control);
+  opacity: 0.5;
+}
+
+.tour-dots i[data-on='true'] {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.tour-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tour-choices .btn {
+  justify-content: center;
+}
+
+.tour-choices .btn.text {
+  align-self: center;
+}
+
+/* The drawing in a card. Its resting state is the finished picture. */
+.tour-hint {
+  display: block;
+  width: 100%;
+  height: 62px;
+  margin-bottom: 4px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+}
+
+.tour-hint .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.tour-hint .faint-line {
+  stroke: var(--border-control);
+  stroke-width: 1;
+}
+
+.tour-hint .solid {
+  fill: currentColor;
+}
+
+.tour-hint .faint {
+  fill: var(--border-strong);
+}
+
+.tour-hint .accent {
+  fill: var(--accent);
+}
+
+.tour-hint .cover {
+  fill: var(--bg-surface);
+}
+
+.tour-hint .hint-wheel {
+  animation: hint-wheel 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-slice {
+  animation: hint-slice 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-cover {
+  transform: translateX(150px);
+  animation: hint-cover 2s linear infinite;
+}
+
+.tour-hint .hint-brush {
+  animation: hint-brush 2s linear infinite;
+}
+
+.tour-hint .hint-fill {
+  animation: hint-fill 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-cursor-a {
+  animation: hint-cursor-a 2s var(--ease-in-out) infinite;
+}
+
+.tour-hint .hint-cursor-b {
+  animation: hint-cursor-b 2s var(--ease-in-out) infinite;
+}
+
+@keyframes hint-wheel {
+  0%,
+  100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+@keyframes hint-slice {
+  0%,
+  100% {
+    transform: translateY(-8px);
+  }
+  50% {
+    transform: translateY(8px);
+  }
+}
+
+@keyframes hint-cover {
+  0%,
+  10% {
+    transform: translateX(0);
+  }
+  70%,
+  100% {
+    transform: translateX(150px);
+  }
+}
+
+@keyframes hint-brush {
+  0%,
+  10% {
+    transform: translate(-116px, 18px);
+  }
+  70%,
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes hint-fill {
+  0%,
+  25% {
+    opacity: 0;
+  }
+  60%,
+  100% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes hint-cursor-a {
+  0%,
+  100% {
+    transform: translate(-46px, 8px);
+  }
+  50% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes hint-cursor-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-44px, -6px);
+  }
+}
+
+/* Reduced motion: the drawings stand still, and the hole and card cut to their place. */
+@media (prefers-reduced-motion: reduce) {
+  .tour-hint * {
+    animation: none !important;
+  }
+}
+
+:root[data-reduce-motion] .tour-hint * {
+  animation: none !important;
+}
+
+/* ══ End of settings dialog and welcome tour ══ */
+
+/* ══ Autosave and crash recovery (begin) ═══════════ */
+
+/* The bar takes a row of its own above the viewports, so it never covers the image. */
+.app[data-empty='false']:has(.recoverybar) {
+  grid-template-rows: var(--topbar-h) var(--strip-h) auto minmax(0, 1fr) var(--status-h);
+  grid-template-areas:
+    'top top top'
+    'rail strip panel'
+    'rail recover panel'
+    'rail view panel'
+    'stat stat stat';
+}
+
+.recoverybar {
+  grid-area: recover;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 12px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.recoverybar .text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+}
+
+.status .recovery-note {
+  color: var(--text-2);
+}
+
+.status .syncgroup {
+  white-space: nowrap;
+}
+
+.recovery-waiting {
+  margin: 0;
+  color: var(--text-2);
+  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+}
+
+/* ══ Autosave and crash recovery (end) ═════════════ */
+/* ── More contrast (DESIGN.md 7) ───────────────── */
+
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme='light'] .cell {
+    --border: #363c45;
+    --text-3: #a6adb7;
+  }
+  :root[data-theme='light'] {
+    --border: #c4c9d1;
+    --text-3: #4d545e;
+  }
+}
+
+/* ── Reduced motion ────────────────────────────── */
+/*
+ * Last in the file so nothing above overrides it. The same rules apply to the OS
+ * setting and to the in-app one, which src/state/settings.ts puts on <html data-reduce-motion>.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .segrow.new::after {
+    animation: none;
+    opacity: 0;
+  }
+  .spinner {
+    animation: none;
+    border: 0;
+    width: auto;
+    height: auto;
+  }
+  .spinner::after {
+    content: '…';
+  }
+  .rcursor {
+    transition: none;
+  }
+}
+
+:root[data-reduce-motion] {
+  --dur-instant: 0ms;
+  --dur-fast: 0ms;
+  --dur-base: 0ms;
+  --dur-slow: 0ms;
+}
+
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+
+:root[data-reduce-motion] .segrow.new::after {
+  animation: none;
+  opacity: 0;
+}
+
+:root[data-reduce-motion] .spinner {
+  animation: none;
+  border: 0;
+  width: auto;
+  height: auto;
+}
+
+:root[data-reduce-motion] .spinner::after {
+  content: '…';
+}
+
+:root[data-reduce-motion] .rcursor {
+  transition: none;
+}

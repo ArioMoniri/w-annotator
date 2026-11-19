@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, actionFor, comboFromEvent, defaultBindings, formatCombo, isReserved, rebind } from './shortcuts';
+import {
+  ACTIONS,
+  actionFor,
+  comboFromEvent,
+  defaultBindings,
+  formatCombo,
+  isReserved,
+  rebind,
+  rebindNote,
+  setShortcut,
+  setShortcuts,
+  useShortcuts,
+} from './shortcuts';
+
+describe('taking a key from another action', () => {
+  it('says what the key does now and what lost it', () => {
+    expect(rebindNote('tool.pan', 'mod+s', 'file.save', false)).toBe('Ctrl+S now selects Pan. Save mask has no shortcut.');
+    expect(rebindNote('edit.undo', 'q', 'tool.zoom', false)).toBe('Q is now Undo. Zoom has no shortcut.');
+  });
+
+  it('says nothing when the key was free', () => {
+    expect(rebindNote('tool.pan', 'q', null, false)).toBe('');
+  });
+
+  it('can be undone for both actions', () => {
+    const before = { ...useShortcuts.getState().bindings };
+    expect(setShortcut('tool.pan', 'mod+s')).toBe('file.save');
+    expect(useShortcuts.getState().bindings['file.save']).toBe('');
+    setShortcuts(before);
+    expect(useShortcuts.getState().bindings).toEqual(defaultBindings());
+  });
+});
 
 const ev = (key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) => ({
   key,
@@ -58,5 +89,14 @@ describe('formatCombo', () => {
     expect(formatCombo('mod+shift+z', true)).toBe('⌘ Shift Z');
     expect(formatCombo('arrowup', false)).toBe('↑');
     expect(formatCombo('', false)).toBe('—');
+  });
+});
+
+describe('settings shortcut', () => {
+  it('opens settings with mod+, by default and can be rebound', () => {
+    expect(defaultBindings()['app.settings']).toBe('mod+,');
+    expect(actionFor(defaultBindings(), comboFromEvent({ key: ',', ctrlKey: true, metaKey: false, shiftKey: false, altKey: false })!)).toBe('app.settings');
+    const { bindings } = rebind(defaultBindings(), 'app.settings', 'mod+shift+p');
+    expect(actionFor(bindings, 'mod+shift+p')).toBe('app.settings');
   });
 });

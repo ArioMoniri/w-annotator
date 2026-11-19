@@ -334,6 +334,13 @@ jobs:
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
       HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
+      - uses: actions/checkout@v6
+      - name: Add version-free installer names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: .github/scripts/stable-assets.sh "$TAG"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

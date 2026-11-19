@@ -1,9 +1,10 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { activeSegmentInfo, useStore } from '../state/store';
 import { fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } from '../session';
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { getImage } from '../session';
 import { autoWindow } from '../io';
-import { Choice, NumberField, Slider } from './common';
+import { Choice, NumberField, Slider, useKeyHint } from './common';
 import { TOOLS } from './ToolRail';
 
 const CT_PRESETS: { name: string; w: number; l: number }[] = [
@@ -24,8 +25,9 @@ const SHAPES = [
 
 function SizeField() {
   const size = useStore((s) => s.brushSize);
+  const key = useKeyHint();
   return (
-    <div className="field" data-tip="Brush diameter  [  ]" data-tip-side="bottom">
+    <div className="field" data-tip={`Brush diameter  ${key('brush.smaller')}  ${key('brush.larger')}`.trimEnd()} data-tip-side="bottom">
       <span className="label">Size</span>
       <Slider label="Brush size" min={1} max={100} value={size} onChange={setBrushSize} />
       <NumberField label="Brush size in millimetres" value={size} min={1} max={100} onCommit={setBrushSize} />
@@ -69,12 +71,11 @@ function ThresholdField() {
 
 function WindowFields() {
   const voi = useStore((s) => s.voi);
-  const range = useStore((s) => s.image?.range);
+  const looksLikeCt = useStore((s) => !!s.image?.ct);
   if (!voi) return null;
   const w = Math.round(voi.upper - voi.lower);
   const l = Math.round((voi.upper + voi.lower) / 2);
   const apply = (nw: number, nl: number) => setVoi(nl - Math.max(1, nw) / 2, nl + Math.max(1, nw) / 2);
-  const looksLikeCt = !!range && range[0] <= -500 && range[1] > 300;
   const current = CT_PRESETS.find((p) => p.w === w && p.l === l)?.name ?? '';
   return (
     <>
@@ -129,6 +130,29 @@ export function OptionsStrip() {
   const paintOver = useStore((s) => s.paintOver);
   const active = useStore(activeSegmentInfo);
   const name = TOOLS.find((t) => t.id === tool)?.name ?? '';
+  const key = useKeyHint();
+
+  // The strip tightens itself step by step until its controls fit, so it holds
+  // up with any window width, system font or segment name.
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(0);
+  useLayoutEffect(() => {
+    const el = optionsRef.current;
+    if (!el) return;
+    const fit = () => {
+      let level = 0;
+      el.parentElement!.dataset.compact = '0';
+      while (level < 3 && el.scrollWidth > el.clientWidth) {
+        level++;
+        el.parentElement!.dataset.compact = String(level);
+      }
+      setCompact(level);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el.parentElement!);
+    return () => observer.disconnect();
+  }, [tool, scissorsShape, active?.name]);
 
   let body;
   switch (tool) {
@@ -181,11 +205,14 @@ export function OptionsStrip() {
           <span className="hint">Shift-drag erases.</span>
           <button
             className="btn secondary"
-            data-tip="Paint every few slices, then fill the gaps  I"
+            data-tour="interpolate"
+            data-tip={`Paint every few slices, then fill the gaps  ${key('mask.interpolate')}`.trimEnd()}
             data-tip-side="bottom"
+            data-tip-align="end"
             onClick={fillBetweenSlices}
           >
-            Fill between slices
+            <span className="long">Fill between slices</span>
+            <span className="short">Fill gaps</span>
           </button>
         </>
       );
@@ -243,9 +270,9 @@ export function OptionsStrip() {
   }
 
   return (
-    <div className="strip" data-strip={tool}>
+    <div className="strip" data-strip={tool} data-compact={compact} data-tour="options">
       <span className="toolname">{name}</span>
-      <div className="options" key={tool}>
+      <div className="options" key={tool} ref={optionsRef}>
         {body}
       </div>
       <span className="chip" data-tip={active ? `Painting on ${active.name}` : 'No segment'} data-tip-align="end">

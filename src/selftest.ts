@@ -11,6 +11,7 @@ import { roomUrl, type ServerMessage } from './collab/protocol';
 import { finishSelfTest } from './platform';
 import * as session from './session';
 import { get } from './state/store';
+import { endTour, useTour } from './tour/state';
 
 export interface SelfTestStep {
   name: string;
@@ -104,6 +105,9 @@ export async function run(): Promise<void> {
       steps.push({ name, ok: false, detail: err instanceof Error ? err.message : String(err) });
     }
   };
+
+  // A first launch offers the welcome tour; it would cover the views.
+  if (useTour.getState().phase !== 'off') endTour();
 
   await step('files opened', async () => {
     await until('the image and the mask to open', () => !!get().image && get().busy === null && get().segments.length >= 2, 90_000);

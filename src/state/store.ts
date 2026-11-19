@@ -16,6 +16,8 @@ export type ToolId =
 
 export const EDIT_TOOLS: ToolId[] = ['brush', 'eraser', 'threshold', 'scissors', 'fill'];
 
+export type SettingsSection = 'profile' | 'appearance' | 'shortcuts' | 'files' | 'help';
+
 export type ViewId = 'axial' | 'sagittal' | 'coronal' | 'volume3d';
 
 export const SEGMENT_COLORS = [
@@ -23,11 +25,19 @@ export const SEGMENT_COLORS = [
   '#D55E00', '#00D5C8', '#FFAABB', '#3D85F0', '#BBCC33', '#CC79A7',
 ];
 
+/** Names for SEGMENT_COLORS, in the same order (DESIGN.md 3.1). */
+export const SEGMENT_COLOR_NAMES = [
+  'Orange', 'Sky', 'Yellow', 'Magenta', 'Green', 'Violet',
+  'Vermilion', 'Aqua', 'Pink', 'Blue', 'Lime', 'Mauve',
+];
+
 export interface Toast {
   id: number;
   kind: 'info' | 'success' | 'warning' | 'error';
   text: string;
   action?: { label: string; run: () => void };
+  /** Set while the toast fades out, just before it is removed. */
+  leaving?: boolean;
 }
 
 export interface Peer {
@@ -63,7 +73,8 @@ export interface Hover {
 }
 
 interface State {
-  image: { name: string; dims: [number, number, number]; range: [number, number] } | null;
+  /** `ct` is true when the values look like Hounsfield units; it picks the default window and the unit shown. */
+  image: { name: string; dims: [number, number, number]; range: [number, number]; ct: boolean } | null;
   maskName: string | null;
   dirty: boolean;
   busy: string | null;
@@ -82,6 +93,10 @@ interface State {
   activeSegment: number;
   opacity: number;
   outlineOnly: boolean;
+  /** The whole mask is off, fill and outline. Opacity and each segment's own setting are kept. */
+  maskHidden: boolean;
+  /** The segment just made with Add segment, so only its row animates in. */
+  newSegment: number | null;
   show3dImage: boolean;
   /** Measurements per segment index, refreshed shortly after edits stop. */
   stats: Record<number, SegmentStats>;
@@ -100,10 +115,11 @@ interface State {
   room: RoomState | null;
   peers: Peer[];
   roomModal: 'start' | 'join' | null;
-  shortcutsOpen: boolean;
+  /** The settings dialog and the section it shows; null when closed. */
+  settings: SettingsSection | null;
   /** The report dialog, opened on the bug or the idea form. */
   report: 'bug' | 'idea' | null;
-  /** True while the shortcut sheet is waiting for a new key, so nothing else reacts to it. */
+  /** True while the shortcut list is waiting for a new key, so nothing else reacts to it. */
   capturingShortcut: boolean;
   confirm: ConfirmRequest | null;
   toasts: Toast[];
@@ -130,6 +146,8 @@ export const useStore = create<State>(() => ({
   activeSegment: 0,
   opacity: 0.5,
   outlineOnly: false,
+  maskHidden: false,
+  newSegment: null,
   show3dImage: false,
   stats: {},
   measurementsOpen: false,
@@ -147,7 +165,7 @@ export const useStore = create<State>(() => ({
   room: null,
   peers: [],
   roomModal: null,
-  shortcutsOpen: false,
+  settings: null,
   report: null,
   capturingShortcut: false,
   confirm: null,
@@ -160,17 +178,32 @@ export const set = useStore.setState;
 export const get = useStore.getState;
 
 let toastId = 0;
+/** How long a toast takes to fade out; matches --dur-fast. */
+export const TOAST_EXIT_MS = 120;
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
+function toastTimer(id: number, ms: number | null, run: () => void): void {
+  const running = toastTimers.get(id);
+  if (running) clearTimeout(running);
+  toastTimers.delete(id);
+  if (ms !== null) toastTimers.set(id, setTimeout(run, ms));
+}
+
+/** A message that is already showing is not stacked again: it stays, and its time starts over. */
 export function toast(kind: Toast['kind'], text: string, action?: Toast['action']): void {
-  const id = ++toastId;
-  set((s) => ({ toasts: [...s.toasts, { id, kind, text, action }].slice(-3) }));
-  if (kind !== 'error') {
-    setTimeout(() => dismissToast(id), action ? 6000 : 4000);
-  }
+  const same = get().toasts.find((t) => t.text === text && t.kind === kind);
+  const id = same?.id ?? ++toastId;
+  const entry: Toast = { id, kind, text, action };
+  set((s) => ({ toasts: same ? s.toasts.map((t) => (t.id === id ? entry : t)) : [...s.toasts, entry].slice(-3) }));
+  toastTimer(id, kind === 'error' ? null : action ? 6000 : 4000, () => dismissToast(id));
 }
 
 export function dismissToast(id: number): void {
-  set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t)) }));
+  toastTimer(id, TOAST_EXIT_MS, () => {
+    toastTimers.delete(id);
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  });
 }
 
 export function activeSegmentInfo(s: State): SegmentInfo | undefined {
