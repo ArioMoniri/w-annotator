@@ -1,31 +1,14 @@
 /** Everything that differs between the desktop app and a plain browser tab. */
 
+import { getSettings, setSetting } from './state/settings';
+
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-const SERVER_KEY = 'w-annotator:server';
-const NAME_KEY = 'w-annotator:name';
+export const savedName = () => getSettings().displayName;
+export const saveName = (name: string) => setSetting('displayName', name);
 
-function read(key: string): string {
-  try {
-    return localStorage.getItem(key) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function write(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* storage is unavailable; the value just won't be remembered */
-  }
-}
-
-export const savedName = () => read(NAME_KEY);
-export const saveName = (name: string) => write(NAME_KEY, name);
-
-export const savedServer = () => read(SERVER_KEY);
-export const saveServer = (url: string) => write(SERVER_KEY, url.trim());
+export const savedServer = () => getSettings().server;
+export const saveServer = (url: string) => setSetting('server', url.trim());
 
 /** The room server to use, or null when this computer should host. */
 export function relayServer(): string | null {
