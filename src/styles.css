@@ -21,8 +21,13 @@
   --border-strong: #363c45;
   --border-control: #6b7480;
   --border-button: var(--border-strong);
-  --track: var(--border-strong);
+  /* The unfilled part of a slider: 3:1 or better against the surface it sits on. */
+  --track: var(--border-control);
   --swatch-ring: transparent;
+  --thumb: var(--text-1);
+  --thumb-ring: transparent;
+  --row-selected: var(--accent-soft);
+  --tool-disabled: var(--text-disabled);
   --text-1: #e7e9ec;
   --text-2: #a6adb7;
   --text-3: #808894;
@@ -105,31 +110,7 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-instant: 0ms;
-    --dur-fast: 0ms;
-    --dur-base: 0ms;
-    --dur-slow: 0ms;
-  }
-  *,
-  *::before,
-  *::after {
-    animation-iteration-count: 1 !important;
-  }
-  .spinner {
-    animation: none;
-    border: 0;
-    width: auto;
-    height: auto;
-  }
-  .spinner::after {
-    content: '…';
-  }
-  .rcursor {
-    transition: none;
-  }
-}
+/* Reduced motion is at the end of this file, so it wins over every rule above it. */
 
 * {
   box-sizing: border-box;
@@ -294,7 +275,7 @@ kbd {
   border-radius: var(--radius-sm);
   font-weight: 500;
   white-space: nowrap;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .btn.lg {
@@ -371,7 +352,7 @@ kbd {
   border-radius: var(--radius-sm);
   color: var(--text-2);
   flex: none;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .iconbtn:hover {
@@ -496,7 +477,7 @@ kbd {
   align-items: center;
   justify-content: center;
   color: var(--text-2);
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .toolbtn:hover {
@@ -509,20 +490,27 @@ kbd {
   color: var(--accent);
 }
 
-.toolbtn[aria-checked='true']::before {
+/* One bar for the whole rail. ToolRail sets --tool-y to the active button's position. */
+.rail {
+  position: relative;
+}
+
+.rail::before {
   content: '';
   position: absolute;
-  left: -6px;
-  top: 10px;
+  left: 0;
+  top: 0;
   width: 2px;
   height: 16px;
   border-radius: 1px;
   background: var(--accent);
+  transform: translateY(var(--tool-y, 16px));
+  transition: transform var(--dur-fast) var(--ease-in-out);
 }
 
 .toolbtn[aria-disabled='true'],
 .toolbtn:disabled {
-  color: var(--text-disabled);
+  color: var(--tool-disabled);
   background: none;
   cursor: default;
 }
@@ -632,7 +620,7 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .seg-control button:hover {
@@ -837,6 +825,13 @@ input[type='range']:focus-visible {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+/* Labels sit on unpredictable pixels: a dark stroke behind each glyph keeps them readable over bone. */
+.overlay,
+.orient {
+  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.8);
+  paint-order: stroke fill;
+}
+
 .overlay {
   position: absolute;
   z-index: 10;
@@ -1010,6 +1005,7 @@ input[type='range']:focus-visible {
   border-radius: var(--radius-sm);
 }
 
+/* Only the row made with Add segment gets this class; rows from a file or the room appear at once. */
 .segrow.new {
   animation: row-in var(--dur-base) var(--ease-out);
 }
@@ -1020,12 +1016,32 @@ input[type='range']:focus-visible {
   }
 }
 
+.segrow.new::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  pointer-events: none;
+  animation: row-hold 600ms var(--ease-in) forwards;
+}
+
+@keyframes row-hold {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .segrow:hover {
   background: var(--bg-hover);
 }
 
 .segrow[aria-selected='true'] {
-  background: var(--accent-soft);
+  background: var(--row-selected);
 }
 
 .segrow[aria-selected='true']::before {
@@ -1274,6 +1290,25 @@ input[type='range']:focus-visible {
   color: var(--text-3);
 }
 
+.status .warn {
+  color: var(--warn);
+}
+
+/* Unsaved work is the one thing in this bar that asks for attention. */
+.status .sync[data-unsaved] {
+  color: var(--text-1);
+}
+
+.status .sync {
+  animation: status-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes status-in {
+  from {
+    opacity: 0.4;
+  }
+}
+
 /* ── Empty state ───────────────────────────────── */
 
 .empty {
@@ -1299,7 +1334,7 @@ input[type='range']:focus-visible {
   gap: 8px;
   padding: 32px;
   text-align: center;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 
 .empty .corner {
@@ -1392,8 +1427,32 @@ input[type='range']:focus-visible {
   animation: modal-in var(--dur-slow) var(--ease-out);
 }
 
+/* The sheet's list scrolls inside it, so the title, help line and buttons stay put. */
 .modal.wide {
   width: 560px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal.wide > * {
+  flex: none;
+}
+
+/* Leaving: a copy of the dialog fades out after the real one has gone (see Modal). Opacity only. */
+.scrim[data-leaving] {
+  pointer-events: none;
+  animation: fade-out var(--dur-fast) var(--ease-in) forwards;
+}
+
+.scrim[data-leaving] .modal {
+  animation: none;
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
 }
 
 @keyframes modal-in {
@@ -1516,6 +1575,15 @@ input[type='range']:focus-visible {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 32px;
+  overflow-y: auto;
+  min-height: 0;
+  /* Room for focus rings, and for the scrollbar to sit clear of the keys. */
+  margin: 0 -8px;
+  padding: 4px 8px;
+}
+
+.modal.wide > .shortcuts {
+  flex: 0 1 auto;
 }
 
 .shortcuts h3 {
@@ -1529,7 +1597,7 @@ input[type='range']:focus-visible {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  height: 22px;
+  min-height: 24px;
   align-items: center;
 }
 
@@ -1669,6 +1737,17 @@ input[type='range']:focus-visible {
   }
 }
 
+.toast[data-leaving] {
+  pointer-events: none;
+  animation: toast-out var(--dur-fast) var(--ease-in) forwards;
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
+}
+
 .update {
   position: fixed;
   left: calc(var(--rail-w) + 12px);
@@ -1747,8 +1826,19 @@ input[type='range']:focus-visible {
   opacity: 1;
 }
 
+/*
+ * Clipped sideways only, so a long hint is cut at the chip, while tooltips and focus
+ * rings may reach above and below the strip.
+ */
 .strip .options {
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: visible;
+  align-self: stretch;
+}
+
+/* Buttons keep their width; hints are what gives way. */
+.strip .btn {
+  flex: none;
 }
 
 @media (max-width: 1279px) {
@@ -1758,11 +1848,26 @@ input[type='range']:focus-visible {
   .strip[data-strip='threshold'] input[aria-label='Brush size'] {
     display: none;
   }
+  .strip[data-strip='brush'] .hint,
+  .strip[data-strip='brush'] .field > .label {
+    display: none;
+  }
+  .strip[data-strip='brush'] input[type='range'] {
+    width: 64px;
+  }
+  .chip {
+    max-width: 120px;
+  }
 }
 
 .seg-control button[aria-pressed='true'],
 .seg-control button[aria-selected='true'] {
   box-shadow: inset 0 0 0 1px var(--border-control);
+}
+
+/* After the pressed rule, so a pressed button still shows where focus is. */
+.seg-control button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .check input {
@@ -1801,13 +1906,13 @@ button.avatar {
 .keybtn {
   font: 11px/16px var(--font-mono);
   min-width: 44px;
-  height: 20px;
+  height: 24px;
   padding: 0 6px;
   border-radius: var(--radius-xs);
   background: var(--bg-active);
   color: var(--text-2);
   white-space: nowrap;
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .keybtn:hover {
@@ -1819,6 +1924,11 @@ button.avatar {
   background: var(--accent-soft);
   color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* An action that lost its key to another one. */
+.keybtn[data-empty] {
+  color: var(--warn);
 }
 
 .modal p.sheet-help {
@@ -2095,41 +2205,18 @@ button.avatar {
 .strip[data-compact='3'] .chip span:last-child {
   display: none;
 }
+
+.sheet-help .btn.text {
+  height: 20px;
+  margin-left: 8px;
+  color: var(--accent);
+  vertical-align: baseline;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    Settings dialog and welcome tour (issue #7). Everything for both lives
    in this one block.
    ═══════════════════════════════════════════════════════════════════════ */
-
-/* ── Reduce motion, as a setting ──────────────────
-   The same overrides as the prefers-reduced-motion block near the top. */
-
-:root[data-reduce-motion] {
-  --dur-instant: 0ms;
-  --dur-fast: 0ms;
-  --dur-base: 0ms;
-  --dur-slow: 0ms;
-}
-
-:root[data-reduce-motion] *,
-:root[data-reduce-motion] *::before,
-:root[data-reduce-motion] *::after {
-  animation-iteration-count: 1 !important;
-}
-
-:root[data-reduce-motion] .spinner {
-  animation: none;
-  border: 0;
-  width: auto;
-  height: auto;
-}
-
-:root[data-reduce-motion] .spinner::after {
-  content: '…';
-}
-
-:root[data-reduce-motion] .rcursor {
-  transition: none;
-}
 
 /* ── Empty state links ────────────────────────── */
 
@@ -2148,7 +2235,7 @@ button.avatar {
   border-radius: 10px;
   background: var(--bg-active);
   box-shadow: inset 0 0 0 1px var(--border-control);
-  transition: background var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear;
 }
 
 .switch i {
@@ -2157,7 +2244,7 @@ button.avatar {
   height: 16px;
   border-radius: 50%;
   background: var(--text-2);
-  transition: transform var(--dur-fast) var(--ease-in-out), background var(--dur-instant) linear;
+  transition: transform var(--dur-fast) var(--ease-in-out), background-color var(--dur-instant) linear;
 }
 
 .switch[aria-checked='true'] {
@@ -2205,7 +2292,7 @@ button.avatar {
   text-align: left;
   font-size: 13px;
   color: var(--text-2);
-  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+  transition: background-color var(--dur-instant) linear, color var(--dur-instant) linear;
 }
 
 .modal.settings [role='tab']:hover {
@@ -2622,3 +2709,88 @@ button.avatar {
 }
 
 /* ══ End of settings dialog and welcome tour ══ */
+
+/* ── More contrast (DESIGN.md 7) ───────────────── */
+
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme='light'] .cell {
+    --border: #363c45;
+    --text-3: #a6adb7;
+  }
+  :root[data-theme='light'] {
+    --border: #c4c9d1;
+    --text-3: #4d545e;
+  }
+}
+
+/* ── Reduced motion ────────────────────────────── */
+/*
+ * Last in the file so nothing above overrides it. The same rules apply to the OS
+ * setting and to the in-app one, which src/state/settings.ts puts on <html data-reduce-motion>.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .segrow.new::after {
+    animation: none;
+    opacity: 0;
+  }
+  .spinner {
+    animation: none;
+    border: 0;
+    width: auto;
+    height: auto;
+  }
+  .spinner::after {
+    content: '…';
+  }
+  .rcursor {
+    transition: none;
+  }
+}
+
+:root[data-reduce-motion] {
+  --dur-instant: 0ms;
+  --dur-fast: 0ms;
+  --dur-base: 0ms;
+  --dur-slow: 0ms;
+}
+
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+
+:root[data-reduce-motion] .segrow.new::after {
+  animation: none;
+  opacity: 0;
+}
+
+:root[data-reduce-motion] .spinner {
+  animation: none;
+  border: 0;
+  width: auto;
+  height: auto;
+}
+
+:root[data-reduce-motion] .spinner::after {
+  content: '…';
+}
+
+:root[data-reduce-motion] .rcursor {
+  transition: none;
+}

@@ -4,7 +4,7 @@ import { fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } 
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { getImage } from '../session';
 import { autoWindow } from '../io';
-import { Choice, NumberField, Slider } from './common';
+import { Choice, NumberField, Slider, useKeyHint } from './common';
 import { TOOLS } from './ToolRail';
 
 const CT_PRESETS: { name: string; w: number; l: number }[] = [
@@ -25,8 +25,9 @@ const SHAPES = [
 
 function SizeField() {
   const size = useStore((s) => s.brushSize);
+  const key = useKeyHint();
   return (
-    <div className="field" data-tip="Brush diameter  [  ]" data-tip-side="bottom">
+    <div className="field" data-tip={`Brush diameter  ${key('brush.smaller')}  ${key('brush.larger')}`.trimEnd()} data-tip-side="bottom">
       <span className="label">Size</span>
       <Slider label="Brush size" min={1} max={100} value={size} onChange={setBrushSize} />
       <NumberField label="Brush size in millimetres" value={size} min={1} max={100} onCommit={setBrushSize} />
@@ -70,12 +71,11 @@ function ThresholdField() {
 
 function WindowFields() {
   const voi = useStore((s) => s.voi);
-  const range = useStore((s) => s.image?.range);
+  const looksLikeCt = useStore((s) => !!s.image?.ct);
   if (!voi) return null;
   const w = Math.round(voi.upper - voi.lower);
   const l = Math.round((voi.upper + voi.lower) / 2);
   const apply = (nw: number, nl: number) => setVoi(nl - Math.max(1, nw) / 2, nl + Math.max(1, nw) / 2);
-  const looksLikeCt = !!range && range[0] <= -500 && range[1] > 300;
   const current = CT_PRESETS.find((p) => p.w === w && p.l === l)?.name ?? '';
   return (
     <>
@@ -130,6 +130,7 @@ export function OptionsStrip() {
   const paintOver = useStore((s) => s.paintOver);
   const active = useStore(activeSegmentInfo);
   const name = TOOLS.find((t) => t.id === tool)?.name ?? '';
+  const key = useKeyHint();
 
   // The strip tightens itself step by step until its controls fit, so it holds
   // up with any window width, system font or segment name.
@@ -205,7 +206,7 @@ export function OptionsStrip() {
           <button
             className="btn secondary"
             data-tour="interpolate"
-            data-tip="Paint every few slices, then fill the gaps  I"
+            data-tip={`Paint every few slices, then fill the gaps  ${key('mask.interpolate')}`.trimEnd()}
             data-tip-side="bottom"
             onClick={fillBetweenSlices}
           >

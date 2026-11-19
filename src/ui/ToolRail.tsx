@@ -1,5 +1,5 @@
 import { Blend, Brush, Contrast, Crosshair, Eraser, Hand, PaintBucket, Redo2, Ruler, Scissors, Undo2, ZoomIn, Keyboard } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { EDIT_TOOLS, set, useStore, type ToolId } from '../state/store';
 import { redo, setTool, undo } from '../session';
 import { formatCombo, useShortcuts, type ActionId } from '../state/shortcuts';
@@ -25,6 +25,13 @@ export function ToolRail() {
   const canRedo = useStore((s) => s.canRedo);
   const bindings = useShortcuts((s) => s.bindings);
   const key = (id: ActionId) => (bindings[id] ? `  ${formatCombo(bindings[id], isMac)}` : '');
+  const rail = useRef<HTMLElement>(null);
+
+  // One accent bar for the rail; it slides to the active tool (styles.css, .rail::before).
+  useLayoutEffect(() => {
+    const button = rail.current?.querySelector<HTMLElement>(`[data-tool="${tool}"]`);
+    if (button) rail.current!.style.setProperty('--tool-y', `${button.offsetTop + 10}px`);
+  }, [tool]);
 
   const button = (t: (typeof TOOLS)[number]) => {
     const disabled = EDIT_TOOLS.includes(t.id) && !hasSegments;
@@ -48,7 +55,7 @@ export function ToolRail() {
   };
 
   return (
-    <nav className="rail" role="radiogroup" aria-label="Tools" data-tour="tools">
+    <nav className="rail" role="radiogroup" aria-label="Tools" data-tour="tools" ref={rail}>
       {TOOLS.slice(0, 5).map(button)}
       <hr />
       {TOOLS.slice(5).map(button)}

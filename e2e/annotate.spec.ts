@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { drag, maskVoxels, openPhantom } from './helpers';
+import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, maskVoxels, openPhantom, pixelAt } from './helpers';
 
 test('empty state offers to open an image or join a room', async ({ page }) => {
   await page.goto('/');
@@ -189,6 +189,40 @@ test('opacity, outline and hiding a segment repaint the overlay', async ({ page 
   await page.waitForTimeout(500);
   const oneHidden = await shot();
   expect(oneHidden).not.toBe(filled);
+
+  // Hiding the second segment: its colour goes at a point inside it, segment 1 stays.
+  await page.locator('.segrow').first().getByRole('button', { name: 'Show', exact: true }).click();
+  await jumpToVoxel(page, SEGMENT_2);
+  const one: [number, number, number] = [SEGMENT_1[0], SEGMENT_1[1], SEGMENT_2[2]];
+  await expect.poll(async () => isTinted(await pixelAt(page, 'axial', SEGMENT_2))).toBe(true);
+  expect(isTinted(await pixelAt(page, 'axial', one))).toBe(true);
+  await page.locator('.segrow').nth(1).hover();
+  await page.locator('.segrow').nth(1).getByRole('button', { name: 'Hide', exact: true }).click();
+  await expect.poll(async () => isTinted(await pixelAt(page, 'axial', SEGMENT_2))).toBe(false);
+  expect(isTinted(await pixelAt(page, 'sagittal', SEGMENT_2))).toBe(false);
+  expect(isTinted(await pixelAt(page, 'axial', one))).toBe(true);
+  await page.locator('.segrow').nth(1).getByRole('button', { name: 'Show', exact: true }).click();
+  await expect.poll(async () => isTinted(await pixelAt(page, 'axial', SEGMENT_2))).toBe(true);
+});
+
+test('show only this hides every other segment, and again brings them back', async ({ page }) => {
+  await openPhantom(page);
+  await jumpToVoxel(page, SEGMENT_2);
+  const one: [number, number, number] = [SEGMENT_1[0], SEGMENT_1[1], SEGMENT_2[2]];
+  const only = async (n: number) => {
+    await page.locator('.segrow').nth(n - 1).hover();
+    await page.getByRole('button', { name: `More for Segment ${n}` }).click();
+    await page.getByRole('menuitem', { name: 'Show only this' }).click();
+  };
+  await only(2);
+  await expect.poll(async () => isTinted(await pixelAt(page, 'axial', one))).toBe(false);
+  expect(isTinted(await pixelAt(page, 'axial', SEGMENT_2))).toBe(true);
+  await only(1);
+  await expect.poll(async () => isTinted(await pixelAt(page, 'axial', SEGMENT_2))).toBe(false);
+  expect(isTinted(await pixelAt(page, 'axial', one))).toBe(true);
+  await only(1);
+  await expect.poll(async () => isTinted(await pixelAt(page, 'axial', SEGMENT_2))).toBe(true);
+  expect(isTinted(await pixelAt(page, 'axial', one))).toBe(true);
 });
 
 test('shift-drag erases with the brush', async ({ page }) => {

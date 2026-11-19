@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { startLogCapture } from './report';
 import * as session from './session';
+import * as engine from './viewer/engine';
 import { useStore } from './state/store';
 import './styles.css';
 
@@ -11,6 +12,6 @@ import './styles.css';
 startLogCapture();
 
 // A handle for end-to-end tests and for debugging from the console.
-(window as unknown as Record<string, unknown>).__w = { session, store: useStore };
+(window as unknown as Record<string, unknown>).__w = { session, engine, store: useStore };
 
 createRoot(document.getElementById('root')!).render(<App />);

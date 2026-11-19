@@ -6,6 +6,9 @@ import { joinRoom, startRoom } from '../session';
 import { set, toast, useStore } from '../state/store';
 import { Modal } from './common';
 
+/** Once a room is running, its pill in the top bar is where this dialog came from. */
+const ROOM_PILL = '[data-testid="room-pill"]';
+
 /** Mounted afresh each time it opens, so the name and server always come from Settings. */
 export function RoomModal() {
   const open = useStore((s) => !!s.roomModal);
@@ -47,7 +50,7 @@ function RoomDialog() {
 
   if (started) {
     return (
-      <Modal key="started" title="Room started" onClose={close}>
+      <Modal key="started" title="Room started" onClose={close} returnTo={ROOM_PILL}>
         <button className="iconbtn close" aria-label="Close" onClick={close}>
           <X size={16} />
         </button>
@@ -80,7 +83,7 @@ function RoomDialog() {
   }
 
   return (
-    <Modal title={mode === 'start' ? 'Start a room' : 'Join a room'} onClose={close}>
+    <Modal title={mode === 'start' ? 'Start a room' : 'Join a room'} onClose={close} returnTo={ROOM_PILL}>
       <button className="iconbtn close" aria-label="Close" onClick={close}>
         <X size={16} />
       </button>
