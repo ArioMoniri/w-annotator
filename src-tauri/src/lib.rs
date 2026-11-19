@@ -211,6 +211,7 @@ async fn pick_save_path(
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .manage(Allowed::default())
         .manage(Host::default())

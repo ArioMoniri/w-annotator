@@ -53,6 +53,9 @@ function FileMenu() {
           <button className="item" role="menuitem" onClick={run(() => set({ shortcutsOpen: true }))}>
             Keyboard shortcuts <kbd>?</kbd>
           </button>
+          <button className="item" role="menuitem" onClick={run(() => set({ report: 'bug' }))}>
+            Report a problem…
+          </button>
           {update && (
             <button className="item" role="menuitem" onClick={run(() => void update.install())}>
               Restart to update

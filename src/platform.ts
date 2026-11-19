@@ -133,6 +133,24 @@ export async function findUpdate(): Promise<ReadyUpdate | null> {
   }
 }
 
+/**
+ * Opens a web page in the user's browser. The desktop app may only open pages
+ * under the project's GitHub repository (see src-tauri/capabilities).
+ */
+export async function openExternal(url: string): Promise<boolean> {
+  try {
+    if (isTauri) {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);

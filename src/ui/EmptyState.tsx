@@ -22,6 +22,9 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
       <button className="btn text" onClick={() => set({ roomModal: 'join' })}>
         Join a room
       </button>
+      <button className="btn text report-link" onClick={() => set({ report: 'bug' })}>
+        Report a problem
+      </button>
     </main>
   );
 }

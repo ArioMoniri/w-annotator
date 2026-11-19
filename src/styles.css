@@ -1739,3 +1739,55 @@ button.avatar {
   margin: -8px 0 4px;
   min-height: 20px;
 }
+
+/* ── Report dialog (src/ui/ReportDialog.tsx) ───── */
+
+.form textarea {
+  min-height: 64px;
+  resize: vertical;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font: 13px/18px var(--font-ui);
+  color: var(--text-1);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+.form label.check input {
+  accent-color: var(--accent);
+}
+
+.form pre.report-preview {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  font: 12px/16px var(--font-mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.empty .report-link {
+  color: var(--text-3);
+  font-size: 12px;
+}

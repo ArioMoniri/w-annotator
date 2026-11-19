@@ -11,7 +11,7 @@ How to use it:
 
 | Date | Question | Decision | Why |
 | --- | --- | --- | --- |
-|  |  |  |  |
+| 2026-11-19 | How do reports from inside the app reach GitHub? | The app composes the report and opens GitHub's pre-filled new-issue form in the browser; the user submits it as themselves. New dependency: the official Tauri opener plugin, allowed to open only URLs under `https://github.com/ArioMoniri/w-annotator/`. | A GitHub token in the app could be extracted from the binary. The app itself sends nothing, so the no-telemetry rule holds. |
 |  |  |  |  |
 |  |  |  |  |
 |  |  |  |  |
