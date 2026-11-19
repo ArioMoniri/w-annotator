@@ -36,6 +36,7 @@ import {
 import * as engine from './viewer/engine';
 import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
+import { appLog } from './report';
 
 let image: VolumeData | null = null;
 let mask: VolumeData | null = null;
@@ -105,8 +106,22 @@ function describeError(err: unknown, name: string): string {
   return text.length < 160 ? text : `Can't read ${name}. The file may be damaged or incomplete.`;
 }
 
+/**
+ * Tells the user about an error nobody planned for, and offers to report it.
+ * Errors with a known cause (a file that is too large or not supported) get no such offer.
+ */
+function unexpected(err: unknown, name: string): void {
+  const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  // Readers explain a bad file with an IoError; that is the file's problem, not the app's.
+  const known = /^IoError|memory|allocation|Array buffer|not a supported/i.test(raw);
+  if (!known) appLog.add('error', raw);
+  toast('error', describeError(err, name), known ? undefined : { label: 'Report', run: () => set({ report: 'bug' }) });
+}
+
 export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Promise<void> {
   if (files.length === 0) return;
+  // So that these names never appear in a problem report.
+  for (const file of files) appLog.noteName(file.name);
   const groups = groupFiles(files);
   const loaded: { vol: VolumeData; name: string }[] = [];
   try {
@@ -166,7 +181,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
       await loadMask(msk.vol);
     }
   } catch (err) {
-    toast('error', describeError(err, files[0].name));
+    unexpected(err, files[0].name);
   } finally {
     set({ busy: null });
   }
@@ -176,7 +191,7 @@ async function guarded(fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
-    toast('error', describeError(err, 'the file'));
+    unexpected(err, 'the file');
   } finally {
     set({ busy: null });
   }
@@ -948,7 +963,7 @@ async function finishSnapshot(all: Uint8Array): Promise<void> {
     for (const p of queuedPatches) applyRemotePatch(p);
     queuedPatches = [];
   } catch (err) {
-    toast('error', describeError(err, 'the room data'));
+    unexpected(err, 'the room data');
   } finally {
     awaitingSnapshot = false;
     set({ busy: null, progress: null });

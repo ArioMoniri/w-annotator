@@ -26,6 +26,9 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
       <div className="corner">
         <ThemeControl compact />
       </div>
+      <button className="btn text report-link" onClick={() => set({ report: 'bug' })}>
+        Report a problem
+      </button>
     </main>
   );
 }

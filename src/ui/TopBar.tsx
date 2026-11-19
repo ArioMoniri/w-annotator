@@ -59,6 +59,9 @@ function FileMenu() {
             <ThemeControl />
           </div>
           <hr />
+          <button className="item" role="menuitem" onClick={run(() => set({ report: 'bug' }))}>
+            Report a problem…
+          </button>
           {update && (
             <button className="item" role="menuitem" onClick={run(() => void update.install())}>
               Restart to update

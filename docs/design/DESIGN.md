@@ -666,6 +666,23 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 
 `Version 1.4.0 is ready.` · `Restart to update. Your work is saved first.` · `Restart` · `Later` · File menu item: `Restart to update`
 
+### 6.12 Report a problem
+
+| Element | Copy |
+|---|---|
+| File menu item, empty state link | Report a problem… · Report a problem |
+| Error toast action (unexpected errors only) | Report |
+| Titles and switch | Report a problem · Suggest an idea · Bug · Idea |
+| Bug fields | Title · What happened · What you expected · Steps to reproduce |
+| Idea fields | Title · Problem · Proposal |
+| Checkbox and preview | Include technical details · What will be sent · No file names or paths. Only what is listed here. |
+| Notes | Do not include patient names or screenshots of patient data. · GitHub opens in your browser. You review the report and submit it there with your GitHub account. |
+| Buttons | Cancel · Copy report · Continue on GitHub |
+| Missing text | Add a short title. · Say what happened. · Describe the problem. · Say what you would like the app to do. |
+| Browser did not open | Couldn't open the browser. Use Copy report and paste it into a new issue on GitHub. |
+| Copied (toast) | Report copied |
+| Log shortened (in the report) | Older log lines were left out to keep the report short. |
+
 ---
 
 ## 7. Accessibility

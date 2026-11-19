@@ -95,6 +95,8 @@ interface State {
   peers: Peer[];
   roomModal: 'start' | 'join' | null;
   shortcutsOpen: boolean;
+  /** The report dialog, opened on the bug or the idea form. */
+  report: 'bug' | 'idea' | null;
   /** True while the shortcut sheet is waiting for a new key, so nothing else reacts to it. */
   capturingShortcut: boolean;
   confirm: ConfirmRequest | null;
@@ -137,6 +139,7 @@ export const useStore = create<State>(() => ({
   peers: [],
   roomModal: null,
   shortcutsOpen: false,
+  report: null,
   capturingShortcut: false,
   confirm: null,
   toasts: [],
