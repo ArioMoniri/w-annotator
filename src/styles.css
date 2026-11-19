@@ -2046,7 +2046,6 @@ button.avatar {
 
 /* ── End of segment operations and measurements ─────────────────── */
 
-
 /* ── Options strip: tighten until it fits ──────── */
 
 .strip .btn .short {
@@ -2622,3 +2621,55 @@ button.avatar {
 }
 
 /* ══ End of settings dialog and welcome tour ══ */
+
+/* ══ Autosave and crash recovery (begin) ═══════════ */
+
+/* The bar takes a row of its own above the viewports, so it never covers the image. */
+.app[data-empty='false']:has(.recoverybar) {
+  grid-template-rows: var(--topbar-h) var(--strip-h) auto minmax(0, 1fr) var(--status-h);
+  grid-template-areas:
+    'top top top'
+    'rail strip panel'
+    'rail recover panel'
+    'rail view panel'
+    'stat stat stat';
+}
+
+.recoverybar {
+  grid-area: recover;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 12px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.recoverybar .text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+}
+
+.status .recovery-note {
+  color: var(--text-2);
+}
+
+.status .syncgroup {
+  white-space: nowrap;
+}
+
+.recovery-waiting {
+  margin: 0;
+  color: var(--text-2);
+  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+}
+
+/* ══ Autosave and crash recovery (end) ═════════════ */

@@ -6,7 +6,9 @@ import { EDIT_TOOLS, get, set, useStore, type ToolId } from './state/store';
 import { initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
 import { ReportDialog } from './ui/ReportDialog';
+import { noteImagePaths, startRecovery } from './recovery';
 import { OptionsStrip } from './ui/OptionsStrip';
+import { RecoveryBar } from './ui/RecoveryBar';
 import { Busy, ConfirmDialog, Toasts, UpdateBanner } from './ui/Overlays';
 import { MeasurementsSheet } from './ui/Measurements';
 import { RoomModal } from './ui/RoomModal';
@@ -167,7 +169,9 @@ export function App() {
 
   useEffect(() => {
     void initEngine();
+    const stopRecovery = startRecovery();
     void launchFiles().then((files) => {
+      noteImagePaths(files);
       if (files.length) void session.openFiles(files);
     });
     void findUpdate().then((update) => update && set({ update }));
@@ -176,7 +180,10 @@ export function App() {
       if (get().dirty) e.preventDefault();
     };
     window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    return () => {
+      stopRecovery();
+      window.removeEventListener('beforeunload', warn);
+    };
   }, []);
 
   return (
@@ -186,6 +193,7 @@ export function App() {
         <>
           <ToolRail />
           <OptionsStrip />
+          <RecoveryBar />
           <Viewports />
           {panelOpen && <SegmentsPanel />}
           <StatusBar />

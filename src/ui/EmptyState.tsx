@@ -1,6 +1,7 @@
 import { Layers } from 'lucide-react';
 import { set } from '../state/store';
 import { pickDicomFolder, pickImage } from './files';
+import { RecoveryWaiting } from './RecoveryBar';
 import { ThemeControl } from './ThemeControl';
 
 export function EmptyState({ dragging }: { dragging: boolean }) {
@@ -28,6 +29,7 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
           Settings
         </button>
       </div>
+      <RecoveryWaiting />
       <div className="corner">
         <ThemeControl compact />
       </div>

@@ -79,16 +79,16 @@ export async function saveBytes(suggested: string, make: (name: string) => Uint8
   return suggested;
 }
 
-/** Files the app was launched with ("Open with"), as name + bytes. */
-export async function launchFiles(): Promise<{ name: string; bytes: Uint8Array }[]> {
+/** Files the app was launched with ("Open with"), as name + bytes, with the path they came from. */
+export async function launchFiles(): Promise<{ name: string; bytes: Uint8Array; path: string }[]> {
   if (!isTauri) return [];
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const paths = await invoke<string[]>('opened_files');
-    const out: { name: string; bytes: Uint8Array }[] = [];
+    const out: { name: string; bytes: Uint8Array; path: string }[] = [];
     for (const path of paths) {
       const data = await invoke<ArrayBuffer>('read_file', { path });
-      out.push({ name: path.split(/[\\/]/).pop() ?? path, bytes: new Uint8Array(data) });
+      out.push({ name: path.split(/[\\/]/).pop() ?? path, bytes: new Uint8Array(data), path });
     }
     return out;
   } catch {
