@@ -133,6 +133,9 @@ jobs:
       - run: pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
+      - name: Probe WebView2 before anything else ran (temporary)
+        if: runner.os == 'Windows'
+        run: bash e2e-desktop/win-probe.sh 2>&1 | tee "$RUNNER_TEMP/probe.log"
       # The self-test needs no driver, so it also tells an app problem from a driver problem.
       - name: Self-test (Linux)
         if: runner.os == 'Linux'
@@ -156,7 +159,7 @@ jobs:
           echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
       - name: Probe the Edge driver (temporary)
         if: runner.os == 'Windows'
-        run: bash e2e-desktop/win-probe.sh 2>&1 | tee "$RUNNER_TEMP/probe.log"
+        run: bash e2e-desktop/win-probe.sh 2>&1 | tee "$RUNNER_TEMP/probe2.log"
       - name: Desktop e2e (Linux)
         if: runner.os == 'Linux' && !cancelled()
         run: xvfb-run -a pnpm e2e:desktop
@@ -167,7 +170,7 @@ jobs:
           W_DIAG_FILE: ${{ runner.temp }}\driver-diag.log
       - name: What happened (Windows)
         if: runner.os == 'Windows' && failure()
-        run: cat "$RUNNER_TEMP/driver-diag.log" "$RUNNER_TEMP/probe.log" || true
+        run: cat "$RUNNER_TEMP/probe.log" "$RUNNER_TEMP/probe2.log" || true
 
   # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
   # WebKit, and the built app testing itself (W_SELFTEST).
