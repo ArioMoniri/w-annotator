@@ -35,6 +35,8 @@ export type ServerMessage =
 export type PeerMessage =
   | { t: 'cursor'; from: number; vp: string | null; w?: [number, number, number]; r?: number }
   | { t: 'segments'; from: number; list: SegmentInfo[] }
+  /** The sender changed their display name. */
+  | { t: 'rename'; from: number; name: string }
   | { t: 'need-snapshot'; from: number; to: number; imageToo: boolean; resync?: boolean }
   /** A fingerprint of the sender's mask, sent when it has been quiet for a moment. */
   | { t: 'digest'; from: number; h: number }
@@ -50,6 +52,13 @@ export type PeerMessage =
       total: number;
     }
   | { t: 'no-snapshot'; from: number; to: number };
+
+/** Applies a `rename` to the list of people. A blank or malformed name changes nothing. */
+export function renamePeer<P extends PeerInfo>(peers: P[], msg: Extract<PeerMessage, { t: 'rename' }>): P[] {
+  const name = typeof msg.name === 'string' ? msg.name.trim().slice(0, 24).trim() : '';
+  if (!name) return peers;
+  return peers.map((p) => (p.id === msg.from ? { ...p, name } : p));
+}
 
 export const enum FrameKind {
   Patch = 1,

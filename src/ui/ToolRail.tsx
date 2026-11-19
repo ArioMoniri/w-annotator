@@ -37,6 +37,7 @@ export function ToolRail() {
         aria-disabled={disabled}
         aria-label={t.name}
         data-tool={t.id}
+        data-tour={t.id === 'brush' ? 'brush' : undefined}
         data-tip={disabled ? 'Add a segment to start editing.' : `${t.name}${key(`tool.${t.id}` as ActionId)}`}
         data-tip-side="right"
         onClick={() => setTool(t.id)}
@@ -47,18 +48,25 @@ export function ToolRail() {
   };
 
   return (
-    <nav className="rail" role="radiogroup" aria-label="Tools">
+    <nav className="rail" role="radiogroup" aria-label="Tools" data-tour="tools">
       {TOOLS.slice(0, 5).map(button)}
       <hr />
       {TOOLS.slice(5).map(button)}
       <div className="grow" />
-      <button className="toolbtn" aria-label="Undo" data-tip={`Undo${key('edit.undo')}`} data-tip-side="right" disabled={!canUndo} onClick={undo}>
+      <button className="toolbtn" aria-label="Undo" data-tour="undo" data-tip={`Undo${key('edit.undo')}`} data-tip-side="right" disabled={!canUndo} onClick={undo}>
         <Undo2 size={18} strokeWidth={1.5} />
       </button>
-      <button className="toolbtn" aria-label="Redo" data-tip={`Redo${key('edit.redo')}`} data-tip-side="right" disabled={!canRedo} onClick={redo}>
+      <button className="toolbtn" aria-label="Redo" data-tour="redo" data-tip={`Redo${key('edit.redo')}`} data-tip-side="right" disabled={!canRedo} onClick={redo}>
         <Redo2 size={18} strokeWidth={1.5} />
       </button>
-      <button className="toolbtn" aria-label="Keyboard shortcuts" data-tip={`Shortcuts${key('help.shortcuts')}`} data-tip-side="right" onClick={() => set({ shortcutsOpen: true })}>
+      <button
+        className="toolbtn"
+        aria-label="Keyboard shortcuts"
+        data-tour="shortcuts"
+        data-tip={`Shortcuts${key('help.shortcuts')}`}
+        data-tip-side="right"
+        onClick={() => set({ settings: 'shortcuts' })}
+      >
         <Keyboard size={18} strokeWidth={1.5} />
       </button>
     </nav>

@@ -25,7 +25,7 @@ export class RoomClient {
   constructor(
     private readonly server: string,
     private readonly code: string,
-    private readonly name: string,
+    private name: string,
     private readonly events: RoomEvents,
   ) {}
 
@@ -72,6 +72,11 @@ export class RoomClient {
       this.events.onStatus('reconnecting');
       this.timer = setTimeout(() => this.connect(), RETRY_DELAYS[this.retries++]);
     };
+  }
+
+  /** Use a new display name for any later reconnect. */
+  setName(name: string): void {
+    this.name = name;
   }
 
   get open(): boolean {

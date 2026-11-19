@@ -29,7 +29,7 @@ export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => v
   return ref;
 }
 
-export function Modal(props: { title: string; onClose: () => void; wide?: boolean; children: ReactNode }) {
+export function Modal(props: { title: string; onClose: () => void; wide?: boolean; className?: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -47,7 +47,7 @@ export function Modal(props: { title: string; onClose: () => void; wide?: boolea
       }
       if (e.key === 'Tab' && ref.current) {
         const items = Array.from(
-          ref.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), summary'),
+          ref.current.querySelectorAll<HTMLElement>('button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), summary'),
         );
         if (items.length === 0) return;
         const first = items[0];
@@ -75,7 +75,7 @@ export function Modal(props: { title: string; onClose: () => void; wide?: boolea
   }, []);
   return (
     <div className="scrim" onPointerDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className={`modal${props.wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-label={props.title} ref={ref}>
+      <div className={`modal${props.wide ? ' wide' : ''}${props.className ? ` ${props.className}` : ''}`} role="dialog" aria-modal="true" aria-label={props.title} ref={ref}>
         {props.children}
       </div>
     </div>
@@ -169,5 +169,22 @@ export function Choice<T extends string>(props: {
         </button>
       ))}
     </div>
+  );
+}
+
+/** An on/off setting. The visible label and help text live beside it and are tied to it by id. */
+export function Switch(props: { on: boolean; labelledBy: string; describedBy?: string; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      className="switch"
+      aria-checked={props.on}
+      aria-labelledby={props.labelledBy}
+      aria-describedby={props.describedBy}
+      onClick={() => props.onChange(!props.on)}
+    >
+      <i />
+    </button>
   );
 }

@@ -167,7 +167,7 @@ export function Viewports() {
   };
 
   return (
-    <div className="views" ref={gridRef}>
+    <div className="views" ref={gridRef} data-tour="views">
       {VIEWS.map((v) => (
         <div
           key={v.id}

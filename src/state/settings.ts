@@ -62,3 +62,23 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
 }
 
 export const getSettings = () => useSettings.getState();
+
+export const NAME_MAX = 24;
+
+/** A display name as it is stored and sent: trimmed, at most 24 characters. */
+export function cleanName(name: unknown): string {
+  return typeof name === 'string' ? name.trim().slice(0, NAME_MAX).trim() : '';
+}
+
+/** Mirrors the "Reduce motion" setting on <html>, where the stylesheet looks for it. */
+export function applyReduceMotion(root: { setAttribute(name: string, value: string): void; removeAttribute(name: string): void }, on: boolean): void {
+  if (on) root.setAttribute('data-reduce-motion', 'true');
+  else root.removeAttribute('data-reduce-motion');
+}
+
+if (typeof document !== 'undefined') {
+  applyReduceMotion(document.documentElement, useSettings.getState().reduceMotion);
+  useSettings.subscribe((s, p) => {
+    if (s.reduceMotion !== p.reduceMotion) applyReduceMotion(document.documentElement, s.reduceMotion);
+  });
+}

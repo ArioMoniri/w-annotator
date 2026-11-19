@@ -499,6 +499,9 @@ Exits are always one step faster than entrances. Travel distances stay at or und
 | **Remote cursor movement** | Position is interpolated between network updates. This is the cursor glyph only, never the image. | 80 ms linear |
 | **Update banner** | Same as toast in / out. | |
 | **Buttons, rows, slider halo** | Background and colour. | `--dur-instant` linear |
+| **Settings switch** | Knob slides `translateX(0 → 16px)`; track colour changes. | knob `--dur-fast` `--ease-in-out`; colour `--dur-instant` |
+| **Welcome tour: cut-out and card** | The dimming layer is four panels and four corner pieces above the app; each moves with `transform` only, so the hole travels and resizes without animating layout. The card moves with `transform`; its content fades in. Nothing under the layer is animated, the image included. | move `--dur-slow` `--ease-in-out`; content `--dur-base` |
+| **Welcome tour: hints** | Small inline SVG drawings in the card (scroll, brush stroke, fill between slices, two cursors) loop with `transform` and `opacity`. The one place a decorative loop is allowed; it is inside the tour card only. | 2 s loop |
 | **Connection dot** | Colour change only. Reconnecting: opacity 1 ↔ 0.4 pulse. | 1.2 s loop, `--ease-in-out` |
 
 ### 5.4 Reduced motion
@@ -513,7 +516,8 @@ Exits are always one step faster than entrances. Travel distances stay at or und
 - All transforms, slides and scales are removed; state changes are immediate.
 - The reconnecting pulse becomes a static amber dot; spinners become static `…` text.
 - Remote cursor interpolation is off; cursors jump to each reported position.
-- Also offered as an in-app setting (`Reduce motion`) for shared reading-room machines where the OS setting is not the user's to change.
+- Tour hints stand still in their finished state; the cut-out and card cut to their place.
+- Also offered as an in-app setting (`Reduce motion`, Settings → Appearance; sets `data-reduce-motion` on `<html>` with the same overrides) for shared reading-room machines where the OS setting is not the user's to change.
 
 ---
 
