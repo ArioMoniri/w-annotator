@@ -1,0 +1,320 @@
+name: Release
+
+# Builds the installers and attaches them to a draft GitHub release.
+# Publish the draft by hand; the updater only sees published releases.
+# Secrets and the release steps are described in docs/RELEASING.md.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Check version and open the draft release
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check that the versions agree
+        id: version
+        run: |
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          pkg=$(jq -r .version package.json)
+          crate=$(sed -n '/^\[package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)
+          echo "tauri.conf.json=$conf package.json=$pkg Cargo.toml=$crate"
+          if [ "$conf" != "$pkg" ] || [ "$conf" != "$crate" ]; then
+            echo "::error title=Version mismatch::tauri.conf.json ($conf), package.json ($pkg) and src-tauri/Cargo.toml ($crate) must hold the same version."
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+            if [ "$tag" != "v$conf" ]; then
+              echo "::error title=Tag mismatch::Tag $tag does not match version $conf in src-tauri/tauri.conf.json (expected v$conf)."
+              exit 1
+            fi
+          else
+            tag="v$conf"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$conf" >> "$GITHUB_OUTPUT"
+      - name: Check the updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          pubkey=$(jq -r .plugins.updater.pubkey src-tauri/tauri.conf.json)
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning title=No updater signature::TAURI_SIGNING_PRIVATE_KEY is not set. This build has no latest.json and cannot be used for auto-update."
+          elif [ "$pubkey" = "UPDATER_PUBKEY_PLACEHOLDER" ]; then
+            echo "::error title=Updater public key missing::Replace UPDATER_PUBKEY_PLACEHOLDER in src-tauri/tauri.conf.json with the public key. See docs/RELEASING.md."
+            exit 1
+          fi
+      - name: Open the draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "W Annotator $VERSION" \
+              --target "$GITHUB_SHA" --generate-notes
+          fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "::error title=Already published::Release $TAG is already published. Bump the version instead of rebuilding it."
+            exit 1
+          fi
+          echo "id=$(gh release view "$TAG" --json databaseId --jq .databaseId)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            os: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: Windows x64
+            os: windows-latest
+            args: ''
+            rust-targets: ''
+          - name: Linux x64
+            os: ubuntu-22.04
+            args: ''
+            rust-targets: ''
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev build-essential patchelf file
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: tauri-release-${{ matrix.os }}
+      - run: pnpm install --frozen-lockfile
+
+      # Secrets reach the build only when they exist, so a fork or a dry run
+      # without them still produces unsigned installers.
+      - name: Set up signing
+        id: signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          export_env() { # name: copy a variable of this step to the following steps
+            local delimiter="EOF_$RANDOM$RANDOM"
+            { echo "$1<<$delimiter"; printenv "$1"; echo "$delimiter"; } >> "$GITHUB_ENV"
+          }
+          extra_args=""
+          if [ "$HAS_UPDATER_KEY" = "true" ]; then
+            export_env TAURI_SIGNING_PRIVATE_KEY
+            export_env TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          else
+            echo "::warning title=No updater signature::TAURI_SIGNING_PRIVATE_KEY is not set, so updater artifacts and latest.json are skipped."
+            echo '{ "bundle": { "createUpdaterArtifacts": false } }' > no-updater.conf.json
+            extra_args="--config no-updater.conf.json"
+          fi
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            if [ "$HAS_APPLE_CERTIFICATE" = "true" ]; then
+              missing=""
+              for name in APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+                if [ -z "$(printenv "$name")" ]; then missing="$missing $name"; fi
+              done
+              if [ -n "$missing" ]; then
+                echo "::error title=Apple secrets incomplete::APPLE_CERTIFICATE is set but these are missing:$missing"
+                exit 1
+              fi
+              for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+                export_env "$name"
+              done
+            else
+              echo "::warning title=Unsigned macOS build::The Apple secrets are not set. The macOS app is not signed or notarised, and the signing checks are skipped. Do not publish this build."
+            fi
+          fi
+          echo "extra_args=$extra_args" >> "$GITHUB_OUTPUT"
+
+      - name: Build and upload to the draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          args: ${{ matrix.args }} ${{ steps.signing.outputs.extra_args }}
+          uploadUpdaterJson: ${{ env.HAS_UPDATER_KEY }}
+          updaterJsonPreferNsis: true
+
+      - name: Find the macOS app
+        if: runner.os == 'macOS'
+        run: |
+          bundle="target/universal-apple-darwin/release/bundle"
+          app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n1)
+          dmg=$(find "$bundle/dmg" -maxdepth 1 -name '*.dmg' | head -n1)
+          if [ -z "$app" ] || [ -z "$dmg" ]; then
+            echo "::error title=macOS bundle missing::No .app or .dmg under $bundle"
+            exit 1
+          fi
+          echo "APP_PATH=$app" >> "$GITHUB_ENV"
+          echo "DMG_PATH=$dmg" >> "$GITHUB_ENV"
+
+      # Tauri signs, notarises and staples the .app, and signs the .dmg.
+      # The steps below fail the job if any of that is broken.
+      - name: Verify the app signature and notarisation
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERTIFICATE == 'true'
+        run: |
+          set -euxo pipefail
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          details=$(codesign --display --verbose=4 "$APP_PATH" 2>&1)
+          echo "$details"
+          echo "$details" | grep -q "Authority=Developer ID Application" \
+            || { echo "::error title=Wrong certificate::The app is not signed with a Developer ID Application certificate."; exit 1; }
+          echo "$details" | grep -q "TeamIdentifier=$APPLE_TEAM_ID" \
+            || { echo "::error title=Wrong team::The signature does not belong to team $APPLE_TEAM_ID."; exit 1; }
+          echo "$details" | grep -Eq "flags=.*runtime" \
+            || { echo "::error title=No hardened runtime::The app is not signed with the hardened runtime."; exit 1; }
+          spctl -a -t exec -vv "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+      - name: Notarise and staple the dmg
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERTIFICATE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          codesign --verify --strict --verbose=2 "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" --wait \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl -a -t open --context context:primary-signature -vv "$DMG_PATH"
+          # Replace the dmg uploaded by the build with the stapled one.
+          gh release upload "$TAG" "$DMG_PATH" --clobber
+
+      - name: Verify the app inside the dmg
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERTIFICATE == 'true'
+        run: |
+          set -euxo pipefail
+          mount="$RUNNER_TEMP/dmg"
+          hdiutil attach "$DMG_PATH" -nobrowse -readonly -mountpoint "$mount"
+          trap 'hdiutil detach "$mount" -force' EXIT
+          inner=$(find "$mount" -maxdepth 1 -name '*.app' | head -n1)
+          codesign --verify --deep --strict --verbose=2 "$inner"
+          spctl -a -t exec -vv "$inner"
+          xcrun stapler validate "$inner"
+
+      - name: Launch the app
+        if: runner.os == 'macOS'
+        run: |
+          exe="$APP_PATH/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Contents/Info.plist")"
+          "$exe" > "$RUNNER_TEMP/app.log" 2>&1 &
+          pid=$!
+          sleep 10
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "The app is still running after 10 s."
+            kill "$pid"
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/app.log"
+          if [ "$HAS_APPLE_CERTIFICATE" = "true" ]; then
+            echo "::error title=Launch failed::The signed app exited within 10 s of starting."
+            exit 1
+          fi
+          echo "::warning title=Launch failed::The unsigned app exited within 10 s of starting."
+
+      - name: Signing checks skipped
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERTIFICATE != 'true'
+        run: echo "::warning title=Signing checks skipped::codesign, spctl and stapler checks did not run because the Apple secrets are not set."
+
+  relay:
+    name: Relay binary (Linux x64)
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: relay-musl
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      # A static binary: it runs on any x64 Linux, with no libraries to install.
+      - run: cargo build --release --locked -p w-relay --target x86_64-unknown-linux-musl
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/w-relay
+          "$bin" --help
+          name="w-relay_${TAG#v}_linux_x64"
+          cp "$bin" "$name"
+          tar -czf "$name.tar.gz" "$name"
+          gh release upload "$TAG" "$name.tar.gz" --clobber
+
+  check-updater:
+    name: Check latest.json
+    needs: [prepare, build]
+    runs-on: ubuntu-22.04
+    env:
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    steps:
+      - name: Check that every platform is listed
+        if: env.HAS_UPDATER_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release download "$TAG" --pattern latest.json
+          cat latest.json
+          [ "$(jq -r .version latest.json)" = "$VERSION" ] \
+            || { echo "::error title=latest.json::Version is not $VERSION."; exit 1; }
+          for platform in darwin-aarch64 darwin-x86_64 windows-x86_64 linux-x86_64; do
+            jq -e --arg p "$platform" '.platforms[$p] | (.url | length > 0) and (.signature | length > 0)' latest.json >/dev/null \
+              || { echo "::error title=latest.json::No signed entry for $platform. Re-run the failed build job."; exit 1; }
+          done
+      - name: Updater check skipped
+        if: env.HAS_UPDATER_KEY != 'true'
+        run: echo "::warning title=Updater check skipped::No updater key, so there is no latest.json to check."

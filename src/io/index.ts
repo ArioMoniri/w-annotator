@@ -1,4 +1,5 @@
 import { gzipSync } from 'fflate';
+import { readDicom } from './dicom';
 import { isMetaImage, readMetaImage, writeMetaImage } from './metaimage';
 import { fileKind } from './names';
 import { isNifti, readNifti, writeNifti } from './nifti';
@@ -36,6 +37,9 @@ function read(files: InputFile[]): VolumeData {
     }
     if (isNifti(bytes)) return readNifti({ name: f.name, bytes }, files);
   }
+  // 3. Otherwise the files may be the slices of a DICOM series (often without any extension).
+  const vol = readDicom(files);
+  if (vol) return vol;
   throw new IoError(UNSUPPORTED);
 }
 
@@ -50,7 +54,7 @@ export function readVolume(files: InputFile[]): VolumeData {
   } catch (e) {
     if (e instanceof IoError) throw e;
     // Out-of-range reads and the like: the file ends early or its header lies.
-    throw new IoError('This file is damaged or incomplete and could not be read.');
+    throw new IoError('This file is incomplete or damaged and could not be read.');
   }
 }
 

@@ -65,10 +65,10 @@ export async function stopHosting(): Promise<void> {
  */
 export async function saveBytes(suggested: string, make: (name: string) => Uint8Array): Promise<string | null> {
   if (isTauri) {
-    const { save } = await import('@tauri-apps/plugin-dialog');
     const { invoke } = await import('@tauri-apps/api/core');
-    const path = await save({
-      defaultPath: suggested,
+    // The app only writes to a path the user picked in its own save dialog.
+    const path = await invoke<string | null>('pick_save_path', {
+      defaultName: suggested,
       filters: [
         { name: 'NIfTI', extensions: ['nii.gz', 'nii'] },
         { name: 'MetaImage', extensions: ['mha'] },
@@ -77,7 +77,7 @@ export async function saveBytes(suggested: string, make: (name: string) => Uint8
     });
     if (!path) return null;
     const name = path.split(/[\\/]/).pop() ?? suggested;
-    await invoke('write_file', make(name), { headers: { 'x-path': encodeURIComponent(path) } });
+    await invoke('write_file', make(name), { headers: { 'x-file-path': encodeURIComponent(path) } });
     return name;
   }
   const bytes = make(suggested);

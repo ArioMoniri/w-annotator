@@ -148,7 +148,8 @@ kbd {
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   position: relative;
-  z-index: 20;
+  /* Above the rail and panel so its menus are never covered. */
+  z-index: 25;
 }
 
 .topbar .spacer {

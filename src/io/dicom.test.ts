@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { deflateSync } from 'fflate';
 import { readVolume } from './index';
 import { TS_EXPLICIT, TS_IMPLICIT, ascii, concat, dcmEl, dcmFile, dcmSeq, dcmSlice, encode, ramp, us, type SliceOpts } from './fixtures';
 
@@ -75,9 +76,9 @@ describe('DICOM series', () => {
   });
 
   it('widens to Int32 when rescaled integers do not fit Int16', () => {
-    const v = readVolume([slice(0, { slope: 1000, intercept: 0 })]);
+    const v = readVolume([slice(1, { slope: 1000, intercept: 0 })]);
     expect(v.data).toBeInstanceOf(Int32Array);
-    expect(Array.from(v.data)).toEqual(ramp(6).map((x) => x * 1000));
+    expect(Array.from(v.data)).toEqual(ramp(6, 100).map((x) => x * 1000));
   });
 
   it('reads signed 16-bit and 8-bit pixels', () => {
@@ -136,6 +137,18 @@ describe('DICOM series', () => {
     const implicit = slice(0, { explicit: false }).bytes;
     const metaI = dcmFile(TS_IMPLICIT, new Uint8Array(0)).length;
     expect(Array.from(readVolume([{ name: 'raw', bytes: implicit.subarray(metaI) }]).data)).toEqual(ramp(6));
+  });
+});
+
+describe('DICOM transfer syntaxes', () => {
+  it('reads deflated explicit VR little endian', () => {
+    const plain = slice(0, { transferSyntax: '1.2.840.10008.1.2.1.99' }).bytes;
+    const meta = dcmFile('1.2.840.10008.1.2.1.99', new Uint8Array(0)).length;
+    const bytes = concat(plain.subarray(0, meta), deflateSync(plain.subarray(meta)));
+    expect(Array.from(readVolume([{ name: 'd.dcm', bytes }]).data)).toEqual(ramp(6));
+  });
+  it('explains that big-endian DICOM is not supported', () => {
+    expect(() => readVolume([slice(0, { transferSyntax: '1.2.840.10008.1.2.2' })])).toThrow(/Big-endian DICOM is not supported/);
   });
 });
 

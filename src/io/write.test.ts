@@ -129,7 +129,7 @@ describe('written files follow their format', () => {
   });
 
   it('MHA declares compressed local data', () => {
-    const text = String.fromCharCode(...writeVolume(v, 'mha').subarray(0, 290));
+    const text = new TextDecoder('latin1').decode(writeVolume(v, 'mha'));
     expect(text).toMatch(/^ObjectType = Image\nNDims = 3\n/);
     expect(text).toContain('CompressedData = True\n');
     expect(text).toContain('DimSize = 4 3 2\n');

@@ -5,7 +5,7 @@ test('empty state offers to open an image or join a room', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Drop an image and a mask' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open image' })).toBeVisible();
-  await page.getByRole('button', { name: 'Join a room' }).click();
+  await page.getByRole('button', { name: 'Join a room', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Invite link or room code');
 });
 

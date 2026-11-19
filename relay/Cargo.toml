@@ -1,0 +1,27 @@
+[package]
+name = "w-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Room relay for W Annotator: forwards messages between the peers of a room."
+license = "MIT"
+publish = false
+
+[lib]
+name = "w_relay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "w-relay"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "query"] }
+bytes = "1.7"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.28"
+tokio = { version = "1", features = ["io-util"] }

@@ -1,0 +1,88 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "W Annotator",
+  "version": "0.1.0",
+  "identifier": "com.wannotator.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "W Annotator",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "category": "Medical",
+    "shortDescription": "Open medical volumes and correct segmentation masks.",
+    "longDescription": "W Annotator opens medical volumes, overlays segmentation masks and lets you correct them quickly, alone or with others in a room.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["nii"],
+        "name": "NIfTI volume",
+        "description": "NIfTI volume",
+        "role": "Editor"
+      },
+      {
+        "ext": ["mha", "mhd"],
+        "name": "MetaImage volume",
+        "description": "MetaImage volume",
+        "role": "Editor"
+      },
+      {
+        "ext": ["nrrd"],
+        "name": "NRRD volume",
+        "description": "NRRD volume",
+        "role": "Editor"
+      },
+      {
+        "ext": ["dcm"],
+        "name": "DICOM image",
+        "description": "DICOM image",
+        "mimeType": "application/dicom",
+        "role": "Viewer"
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist"
+    },
+    "linux": {
+      "deb": {
+        "section": "science"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMzNzdCMzIxOENDNUY3QzcKUldUSDk4V01JYk4zTTgwb25yUjQ5c3lya3NFTitwS3VIcFMwUVczaXM1TXovOEVtYnVvNWZQV1UK",
+      "endpoints": [
+        "https://github.com/ArioMoniri/w-annotator/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

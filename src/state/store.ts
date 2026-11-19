@@ -96,6 +96,7 @@ interface State {
   confirm: ConfirmRequest | null;
   toasts: Toast[];
   update: { version: string; install: () => Promise<void> } | null;
+  updateDismissed: boolean;
 }
 
 export const useStore = create<State>(() => ({
@@ -135,6 +136,7 @@ export const useStore = create<State>(() => ({
   confirm: null,
   toasts: [],
   update: null,
+  updateDismissed: false,
 }));
 
 export const set = useStore.setState;

@@ -66,9 +66,8 @@ export function ConfirmDialog() {
 
 export function UpdateBanner() {
   const update = useStore((s) => s.update);
-  const dismissed = useStore((s) => s.shortcutsOpen); // re-render hook only
-  void dismissed;
-  if (!update || (update as { hidden?: boolean }).hidden) return null;
+  const dismissed = useStore((s) => s.updateDismissed);
+  if (!update || dismissed) return null;
   return (
     <div className="update" role="status">
       <strong>Version {update.version} is ready.</strong>
@@ -77,7 +76,7 @@ export function UpdateBanner() {
         <button className="btn primary" onClick={() => void update.install()}>
           Restart
         </button>
-        <button className="btn secondary" onClick={() => set({ update: { ...update, hidden: true } as typeof update })}>
+        <button className="btn secondary" onClick={() => set({ updateDismissed: true })}>
           Later
         </button>
       </div>

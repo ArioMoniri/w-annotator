@@ -17,7 +17,7 @@ export default defineConfig({
   webServer: [
     { command: 'pnpm dev', url: 'http://localhost:1420', reuseExistingServer: true, timeout: 60_000 },
     {
-      command: 'cargo run --quiet --manifest-path relay/Cargo.toml -- --port 8787',
+      command: 'cargo run --quiet -p w-relay -- --port 8787',
       url: 'http://localhost:8787/health',
       reuseExistingServer: true,
       timeout: 300_000,

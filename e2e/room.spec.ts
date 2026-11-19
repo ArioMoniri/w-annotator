@@ -17,7 +17,7 @@ test('two people edit the same mask in a room', async ({ browser }) => {
 
   // The guest has nothing open and gets the image and mask from the room.
   await guest.goto('/');
-  await guest.getByRole('button', { name: 'Join a room' }).click();
+  await guest.getByRole('button', { name: 'Join a room', exact: true }).click();
   await guest.getByPlaceholder('How others will see you').fill('Ario');
   await guest.getByPlaceholder('Paste the invite link').fill(link);
   await guest.getByRole('button', { name: 'Join', exact: true }).click();
@@ -59,7 +59,7 @@ test('two people edit the same mask in a room', async ({ browser }) => {
 
 test('joining a room that does not exist says so', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Join a room' }).click();
+  await page.getByRole('button', { name: 'Join a room', exact: true }).click();
   await page.getByPlaceholder('How others will see you').fill('Ario');
   await page.getByPlaceholder('Paste the invite link').fill('ZZZ-999');
   await page.getByRole('button', { name: 'Join', exact: true }).click();
