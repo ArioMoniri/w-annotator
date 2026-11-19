@@ -804,8 +804,18 @@ input[type='range']:focus-visible {
   z-index: 5;
 }
 
+/*
+ * The other views leave the grid while one is enlarged. Left in it they are placed in
+ * rows of their own below, and WebKit gives those rows the height, which squeezes the
+ * enlarged view to nothing. They keep a quarter of the area so their canvases keep a size.
+ */
 .cell[data-max='false'] {
   visibility: hidden;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 50%;
 }
 
 .cell .canvas {

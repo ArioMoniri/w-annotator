@@ -636,6 +636,17 @@ export function resizeViewports(): void {
   engine.resize(true, true);
 }
 
+/**
+ * Cornerstone remembers the last key pressed over a view until its key-up, and while it
+ * holds one no mouse tool matches a plain click. The key-up never comes when the window
+ * loses focus first (switching apps, a save dialog, a screenshot shortcut), which would
+ * leave every tool dead until the next key press. Mouse events carry their own Shift,
+ * Ctrl, Alt and Cmd state, so the remembered key is dropped before each press.
+ */
+export function forgetHeldKey(): void {
+  document.dispatchEvent(new KeyboardEvent('keyup'));
+}
+
 export function clearMeasurements(): void {
   csTools.annotation.state.removeAllAnnotations();
   engine?.render();

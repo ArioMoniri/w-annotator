@@ -4,6 +4,7 @@ import { fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } 
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { getImage } from '../session';
 import { autoWindow } from '../io';
+import { BRUSH_MAX } from '../mask/brush';
 import { Choice, NumberField, Slider, useKeyHint } from './common';
 import { TOOLS } from './ToolRail';
 
@@ -25,12 +26,13 @@ const SHAPES = [
 
 function SizeField() {
   const size = useStore((s) => s.brushSize);
+  const min = useStore((s) => s.brushMin);
   const key = useKeyHint();
   return (
     <div className="field" data-tip={`Brush diameter  ${key('brush.smaller')}  ${key('brush.larger')}`.trimEnd()} data-tip-side="bottom">
       <span className="label">Size</span>
-      <Slider label="Brush size" min={1} max={100} value={size} onChange={setBrushSize} />
-      <NumberField label="Brush size in millimetres" value={size} min={1} max={100} onCommit={setBrushSize} />
+      <Slider label="Brush size" min={min} max={BRUSH_MAX} step={0.1} value={size} onChange={setBrushSize} />
+      <NumberField label="Brush size in millimetres" value={size} min={min} max={BRUSH_MAX} onCommit={setBrushSize} />
       <span className="unit">mm</span>
     </div>
   );

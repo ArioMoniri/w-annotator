@@ -144,9 +144,11 @@ export function Viewports() {
       resizeRaf = requestAnimationFrame(() => engine.resizeViewports());
     });
     ro.observe(gridRef.current!);
+    window.addEventListener('blur', engine.forgetHeldKey);
 
     return () => {
       ro.disconnect();
+      window.removeEventListener('blur', engine.forgetHeldKey);
       offs.forEach((f) => f());
       detach();
       cancelAnimationFrame(raf);
@@ -189,7 +191,10 @@ export function Viewports() {
           aria-label={`${v.label} view`}
           onFocus={() => activeView !== v.id && set({ activeView: v.id })}
           onMouseDownCapture={(e) => refuse(v.id, e)}
-          onPointerDownCapture={() => activeView !== v.id && set({ activeView: v.id })}
+          onPointerDownCapture={() => {
+            engine.forgetHeldKey();
+            if (activeView !== v.id) set({ activeView: v.id });
+          }}
           onMouseMove={(e) => onMove(v.id, e)}
           onMouseLeave={() => {
             set({ hover: null });
@@ -199,9 +204,18 @@ export function Viewports() {
             pressed.current = [e.clientX, e.clientY];
           }}
           onClick={(e) => {
+            const still = Math.hypot(e.clientX - pressed.current[0], e.clientY - pressed.current[1]) <= 3;
+            // The 3D view shows the mask; it cannot be painted on. Say so rather than do nothing.
+            if (v.id === 'volume3d' && EDIT_TOOLS.includes(tool) && still && !(e.target as HTMLElement).closest('button')) {
+              if (Date.now() - lastRefusal.current > 1500) {
+                lastRefusal.current = Date.now();
+                toast('info', 'Paint on the axial, sagittal or coronal view. The 3D view shows the result.');
+              }
+              return;
+            }
             // A plain click with the crosshair brings the other two views to that point.
             if (tool !== 'crosshair' || v.id === 'volume3d' || (e.target as HTMLElement).closest('button')) return;
-            if (Math.hypot(e.clientX - pressed.current[0], e.clientY - pressed.current[1]) > 3) return;
+            if (!still) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const w = engine.canvasToWorld(v.id, e.clientX - rect.left, e.clientY - rect.top);
             if (w) engine.jumpTo(w, v.id);
