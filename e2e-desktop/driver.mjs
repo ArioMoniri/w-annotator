@@ -113,7 +113,17 @@ export async function launch({ args = [], env = {} } = {}) {
       connectionRetryTimeout: 120_000,
       capabilities,
     });
-    await until(() => browser.execute(() => '__w' in window), Boolean, { timeout: 60_000, what: 'the app to load' });
+    // An attached driver may start on another target of the webview, so look through them all.
+    const findApp = async () => {
+      const seen = [];
+      for (const handle of await browser.getWindowHandles()) {
+        await browser.switchToWindow(handle);
+        if (await browser.execute(() => '__w' in window)) return true;
+        seen.push(await browser.getUrl());
+      }
+      return `no app window among: ${seen.join(', ') || 'no windows'}`;
+    };
+    await until(findApp, (found) => found === true, { timeout: 60_000, what: 'the app to load' });
     return {
       browser,
       quit: async () => {
