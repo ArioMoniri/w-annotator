@@ -24,7 +24,7 @@ function SizeField() {
   return (
     <div className="field" data-tip="Brush size  [  ]" data-tip-side="bottom">
       <span className="label">Size</span>
-      <Slider label="Brush size" min={1} max={60} value={Math.min(60, size)} onChange={setBrushSize} />
+      <Slider label="Brush size" min={1} max={100} value={size} onChange={setBrushSize} />
       <NumberField label="Brush size in millimetres" value={size} min={1} max={100} onCommit={setBrushSize} />
       <span className="unit">mm</span>
     </div>
@@ -113,7 +113,6 @@ function WindowFields() {
       >
         Reset
       </button>
-      <span className="hint">Right-drag on the image works with any tool.</span>
     </>
   );
 }
@@ -128,10 +127,10 @@ export function OptionsStrip() {
   let body;
   switch (tool) {
     case 'crosshair':
-      body = <span className="hint">Click to move all views to a point. Scroll to change slice.</span>;
+      body = <span className="hint">Click to move all views to a point.</span>;
       break;
     case 'pan':
-      body = <span className="hint">Drag to move the image. Middle-drag works with any tool.</span>;
+      body = <span className="hint">Drag to move the image.</span>;
       break;
     case 'zoom':
       body = (
@@ -185,7 +184,6 @@ export function OptionsStrip() {
         <>
           <ThresholdField />
           <SizeField />
-          <ShapeField />
         </>
       );
       break;
@@ -226,7 +224,7 @@ export function OptionsStrip() {
   }
 
   return (
-    <div className="strip">
+    <div className="strip" data-strip={tool}>
       <span className="toolname">{name}</span>
       <div className="options" key={tool}>
         {body}

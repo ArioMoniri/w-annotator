@@ -41,7 +41,7 @@ export function RoomModal() {
 
   if (started) {
     return (
-      <Modal title="Room started" onClose={close}>
+      <Modal key="started" title="Room started" onClose={close}>
         <button className="iconbtn close" aria-label="Close" onClick={close}>
           <X size={16} />
         </button>
@@ -59,6 +59,9 @@ export function RoomModal() {
           )}
         </div>
         <div className="footer">
+          <button className="btn text lg" onClick={close}>
+            Done
+          </button>
           <button className="btn secondary lg" onClick={async () => (await copyText(formatCode(started.code))) && toast('success', 'Code copied')}>
             Copy code
           </button>
@@ -75,7 +78,6 @@ export function RoomModal() {
       <button className="iconbtn close" aria-label="Close" onClick={close}>
         <X size={16} />
       </button>
-      <h2>Work together</h2>
       <div className="tabs">
         <div className="seg-control" role="tablist">
           <button role="tab" aria-selected={mode === 'start'} onClick={() => tab('start')}>
@@ -115,6 +117,11 @@ export function RoomModal() {
             {hasImage ? 'Anyone with the invite can view and edit this mask.' : 'Open an image first, then start a room.'}
           </span>
         )}
+        {error && (
+          <span className="error" role="alert">
+            {error}
+          </span>
+        )}
         <details>
           <summary>Server</summary>
           <label>
@@ -132,11 +139,6 @@ export function RoomModal() {
             </span>
           </label>
         </details>
-        {error && (
-          <span className="error" role="alert">
-            {error}
-          </span>
-        )}
         <div className="footer" style={{ marginTop: 8 }}>
           <button type="button" className="btn secondary lg" onClick={close}>
             Cancel

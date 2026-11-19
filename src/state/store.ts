@@ -50,6 +50,8 @@ export interface ConfirmRequest {
   body: string;
   confirm: string;
   danger?: boolean;
+  /** A third, quieter choice shown before Cancel. */
+  other?: { label: string; run: () => void };
   run: () => void;
 }
 

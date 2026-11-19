@@ -9,7 +9,7 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
         <Layers className="icon" size={32} strokeWidth={1.5} />
         <h1>{dragging ? 'Drop to open' : 'Drop an image and a mask'}</h1>
         <p>MHA, NIfTI, NRRD or a DICOM folder.</p>
-        <p>The mask is optional. You can add it later.</p>
+        <p>The mask is optional.</p>
         <div className="actions">
           <button className="btn primary lg" onClick={pickImage}>
             Open image

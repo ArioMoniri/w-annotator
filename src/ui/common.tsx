@@ -15,6 +15,8 @@ export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => v
       if (e.key === 'Escape') {
         e.stopPropagation();
         onAway();
+        // Put focus back on whatever opened the menu.
+        ref.current?.querySelector<HTMLElement>('[aria-haspopup]')?.focus();
       }
     };
     window.addEventListener('pointerdown', down, true);
@@ -31,8 +33,13 @@ export function Modal(props: { title: string; onClose: () => void; wide?: boolea
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('input:not([disabled]), button.primary, button');
-    first?.focus();
+    const root = ref.current;
+    const emptyInput = Array.from(root?.querySelectorAll<HTMLInputElement>('input[type="text"]:not([disabled])') ?? []).find((i) => !i.value);
+    const target =
+      emptyInput ??
+      root?.querySelector<HTMLElement>('button.primary:not([disabled])') ??
+      root?.querySelector<HTMLElement>('button:not(.close):not([disabled])');
+    target?.focus();
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
@@ -45,6 +52,11 @@ export function Modal(props: { title: string; onClose: () => void; wide?: boolea
         if (items.length === 0) return;
         const first = items[0];
         const last = items[items.length - 1];
+        if (!ref.current.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+          return;
+        }
         if (e.shiftKey && document.activeElement === first) {
           e.preventDefault();
           last.focus();

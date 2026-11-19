@@ -1,15 +1,37 @@
 import { Ellipsis, Eye, EyeOff, Lock, LockOpen, Plus } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { SegmentInfo } from '../collab/protocol';
 import { SEGMENT_COLORS, useStore } from '../state/store';
 import { addSegment, clearSegment, deleteSegment, patchSegment, selectSegment, setOpacity, setOutlineOnly, showOnly } from '../session';
 import { Slider, useDismiss } from './common';
 
+/** When each row first appeared, so only a newly added one animates in. */
+const created = new Map<number, number>();
+let listReady = false;
+
 function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
   const [renaming, setRenaming] = useState(false);
-  const [menu, setMenu] = useState<'menu' | 'color' | null>(null);
-  const close = useCallback(() => setMenu(null), []);
+  const [menu, setMenuState] = useState<'menu' | 'color' | null>(null);
+  const [anchor, setAnchor] = useState<React.CSSProperties>({});
+  const setMenu = (next: 'menu' | 'color' | null, from?: HTMLElement | null) => {
+    const row = from?.closest('.segrow') as HTMLElement | null;
+    if (next && row) {
+      const r = row.getBoundingClientRect();
+      const height = next === 'menu' ? 176 : 108;
+      const up = r.bottom + height > window.innerHeight - 8;
+      setAnchor({
+        position: 'fixed',
+        top: up ? undefined : r.bottom - 2,
+        bottom: up ? window.innerHeight - r.top - 2 : undefined,
+        ...(next === 'menu' ? { right: window.innerWidth - r.right + 4 } : { left: r.left + 4 }),
+      });
+    }
+    setMenuState(next);
+  };
+  const close = useCallback(() => setMenuState(null), []);
   const ref = useDismiss<HTMLDivElement>(menu !== null, close);
+
+  if (!created.has(seg.index)) created.set(seg.index, listReady ? Date.now() : 0);
 
   const commit = (value: string) => {
     const name = value.trim().slice(0, 40);
@@ -19,11 +41,12 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
 
   return (
     <div
-      className="segrow"
+      className={`segrow${Date.now() - (created.get(seg.index) ?? 0) < 600 ? ' new' : ''}`}
       role="option"
       aria-selected={active}
       data-hidden={!seg.visible}
       data-segment={seg.index}
+      data-renaming={renaming}
       tabIndex={0}
       onClick={() => selectSegment(seg.index)}
       onKeyDown={(e) => {
@@ -39,7 +62,7 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
         style={{ color: seg.color }}
         onClick={(e) => {
           e.stopPropagation();
-          setMenu(menu === 'color' ? null : 'color');
+          setMenu(menu === 'color' ? null : 'color', e.currentTarget);
         }}
       >
         <span className="swatch" style={{ background: seg.color }} />
@@ -61,7 +84,7 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
           }}
         />
       ) : (
-        <span className="name" onDoubleClick={() => setRenaming(true)}>
+        <span className="name" title={seg.name} onDoubleClick={() => setRenaming(true)}>
           {seg.name}
         </span>
       )}
@@ -71,7 +94,7 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
         aria-label={seg.visible ? 'Hide' : 'Show'}
         aria-pressed={!seg.visible}
         data-tip={seg.visible ? 'Hide' : 'Show'}
-        data-tip-side="left"
+        data-tip-side="top"
         onClick={(e) => {
           e.stopPropagation();
           patchSegment(seg.index, { visible: !seg.visible });
@@ -85,7 +108,7 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
         aria-label={seg.locked ? 'Unlock' : 'Lock'}
         aria-pressed={seg.locked}
         data-tip={seg.locked ? 'Unlock' : 'Lock'}
-        data-tip-side="left"
+        data-tip-side="top"
         onClick={(e) => {
           e.stopPropagation();
           patchSegment(seg.index, { locked: !seg.locked });
@@ -100,17 +123,17 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
         aria-haspopup="menu"
         onClick={(e) => {
           e.stopPropagation();
-          setMenu(menu === 'menu' ? null : 'menu');
+          setMenu(menu === 'menu' ? null : 'menu', e.currentTarget);
         }}
       >
         <Ellipsis size={14} />
       </button>
       {menu === 'menu' && (
-        <div className="menu" role="menu" ref={ref} style={{ right: 4, top: 30 }} onClick={(e) => e.stopPropagation()}>
+        <div className="menu" role="menu" ref={ref} style={anchor} onClick={(e) => e.stopPropagation()}>
           <button className="item" role="menuitem" onClick={() => (setMenu(null), setRenaming(true))}>
             Rename <kbd>F2</kbd>
           </button>
-          <button className="item" role="menuitem" onClick={() => setMenu('color')}>
+          <button className="item" role="menuitem" onClick={(e) => setMenu('color', e.currentTarget.closest('.segrow') as HTMLElement)}>
             Change colour
           </button>
           <button className="item" role="menuitem" onClick={() => (setMenu(null), showOnly(seg.index))}>
@@ -126,7 +149,7 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
         </div>
       )}
       {menu === 'color' && (
-        <div className="menu palette" ref={ref} style={{ left: 4, top: 30 }} onClick={(e) => e.stopPropagation()}>
+        <div className="menu palette" ref={ref} style={anchor} onClick={(e) => e.stopPropagation()}>
           {SEGMENT_COLORS.map((c) => (
             <button
               key={c}
@@ -147,6 +170,12 @@ export function SegmentsPanel() {
   const active = useStore((s) => s.activeSegment);
   const opacity = useStore((s) => s.opacity);
   const outlineOnly = useStore((s) => s.outlineOnly);
+
+  useEffect(() => {
+    listReady = segments.length >= 0;
+    const live = new Set(segments.map((x) => x.index));
+    for (const key of created.keys()) if (!live.has(key)) created.delete(key);
+  }, [segments]);
 
   return (
     <aside className="panel" aria-label="Segments">

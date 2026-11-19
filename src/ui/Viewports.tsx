@@ -1,7 +1,7 @@
 import { Box, Maximize2, Minimize2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { attachEditTracking, getImage, getMask, setShow3dImage, setVoi, shareCursor } from '../session';
-import { set, useStore, type ViewId } from '../state/store';
+import { EDIT_TOOLS, activeSegmentInfo, set, toast, useStore, type ViewId } from '../state/store';
 import * as engine from '../viewer/engine';
 import { voxelAt } from '../viewer/geometry';
 
@@ -71,6 +71,21 @@ export function Viewports() {
   const hasSegments = useStore((s) => s.segments.length > 0);
   const show3dImage = useStore((s) => s.show3dImage);
   const [tick, setTick] = useState(0);
+  const tool = useStore((s) => s.tool);
+  const activeSeg = useStore(activeSegmentInfo);
+  // Painting on a locked or hidden segment is refused rather than done silently.
+  const blocked = EDIT_TOOLS.includes(tool) && !!activeSeg && (activeSeg.locked || !activeSeg.visible);
+  const lastRefusal = useRef(0);
+  const refuse = (id: ViewId, e: React.MouseEvent) => {
+    if (!blocked || id === 'volume3d' || e.button !== 0 || !activeSeg) return;
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (Date.now() - lastRefusal.current > 1500) {
+      lastRefusal.current = Date.now();
+      toast('info', activeSeg.locked ? `${activeSeg.name} is locked. Unlock it to edit.` : `${activeSeg.name} is hidden. Show it to edit.`);
+    }
+  };
 
   useLayoutEffect(() => {
     const els = refs.current as Record<ViewId, HTMLDivElement>;
@@ -159,6 +174,11 @@ export function Viewports() {
           data-view={v.id}
           data-active={activeView === v.id}
           data-max={maximized ? maximized === v.id : undefined}
+          data-blocked={blocked && v.id !== 'volume3d'}
+          tabIndex={0}
+          aria-label={`${v.label} view`}
+          onFocus={() => activeView !== v.id && set({ activeView: v.id })}
+          onMouseDownCapture={(e) => refuse(v.id, e)}
           onPointerDownCapture={() => activeView !== v.id && set({ activeView: v.id })}
           onMouseMove={(e) => onMove(v.id, e)}
           onMouseLeave={() => {

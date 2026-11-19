@@ -47,6 +47,17 @@ export function ConfirmDialog() {
       <h2>{confirm.title}</h2>
       <p>{confirm.body}</p>
       <div className="footer">
+        {confirm.other && (
+          <button
+            className="btn text lg"
+            onClick={() => {
+              close();
+              confirm.other!.run();
+            }}
+          >
+            {confirm.other.label}
+          </button>
+        )}
         <button className="btn secondary lg" onClick={close}>
           Cancel
         </button>
@@ -126,7 +137,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
     'Mouse, with any tool',
     [
       ['Change slice', 'Scroll'],
-      ['Zoom', 'Ctrl+Scroll'],
+      ['Zoom', `${MOD}+Scroll`],
       ['Pan', 'Middle-drag'],
       ['Window / Level', 'Right-drag'],
       ['Maximise a view', 'Double-click'],

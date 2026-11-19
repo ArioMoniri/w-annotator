@@ -22,7 +22,13 @@ function FileMenu() {
   };
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
-      <button className="filebtn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        className="filebtn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={maskName ? `${image?.name} · ${maskName}` : image?.name}
+        onClick={() => setOpen(!open)}
+      >
         <span className="name">{image?.name ?? 'No image'}</span>
         {maskName && <span className="sub">· {maskName}</span>}
         {dirty && <span className="dot" title="Unsaved changes" />}
@@ -89,15 +95,32 @@ function RoomButton() {
     <div ref={ref} style={{ position: 'relative' }}>
       <div className="avatars" style={{ display: 'inline-flex', marginRight: 8, verticalAlign: 'middle' }}>
         {peers.slice(0, 4).map((p) => (
-          <span key={p.id} className="avatar" style={{ background: p.color }} title={p.name}>
+          <button
+            key={p.id}
+            className="avatar"
+            style={{ background: p.color }}
+            title={p.name}
+            aria-label={`Go to ${p.name}'s view`}
+            onClick={() => p.cursor && jumpTo(p.cursor.w)}
+          >
             {initials(p.name)}
-          </span>
+          </button>
         ))}
         {peers.length > 4 && <span className="avatar more">+{peers.length - 4}</span>}
       </div>
-      <button className="pill" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="room-pill">
+      <button
+        className="pill"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Room ${code}, ${peers.length + 1} people`}
+        data-tip={open ? undefined : `Room ${code} · ${peers.length + 1} ${peers.length ? 'people' : 'person'}`}
+        data-tip-align="end"
+        onClick={() => setOpen(!open)}
+        data-testid="room-pill"
+      >
         <span className={`dot ${room.status === 'online' ? 'ok' : 'warn'}`} />
         <span className="num">{code}</span>
+        {room.status !== 'online' && <span>{room.status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span>}
       </button>
       {open && (
         <div className="menu" role="menu" style={{ right: 0, top: 34, width: 280 }}>

@@ -96,6 +96,7 @@ function looksLikeMask(vol: VolumeData, name: string): boolean {
 function describeError(err: unknown, name: string): string {
   const text = err instanceof Error ? err.message : String(err);
   if (/memory|allocation|Array buffer/i.test(text)) return 'This image is too large to open on this device.';
+  if (/not a supported/i.test(text)) return `Can't open ${name}. Use MHA, NIfTI, NRRD or DICOM.`;
   return text.length < 160 ? text : `Can't read ${name}. The file may be damaged or incomplete.`;
 }
 
@@ -270,7 +271,15 @@ export function closeImage(): void {
     set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {} });
   };
   if (get().dirty) {
-    set({ confirm: { title: 'Close without saving?', body: 'Unsaved mask changes will be lost.', confirm: 'Close', danger: true, run: go } });
+    set({
+      confirm: {
+        title: `Save changes to ${defaultMaskName()}?`,
+        body: 'Your mask edits have not been saved to a file.',
+        confirm: 'Save',
+        run: () => void saveMask().then(() => !get().dirty && go()),
+        other: { label: "Don't save", run: go },
+      },
+    });
   } else go();
 }
 
@@ -541,8 +550,8 @@ export function fillBetweenSlices(): void {
     toast('info', 'Add a segment to start editing.');
     return;
   }
-  if (seg.locked) {
-    toast('info', `${seg.name} is locked. Unlock it to edit.`);
+  if (seg.locked || !seg.visible) {
+    toast('info', seg.locked ? `${seg.name} is locked. Unlock it to edit.` : `${seg.name} is hidden. Show it to edit.`);
     return;
   }
   const view = s.activeView === 'volume3d' ? 'axial' : s.activeView;

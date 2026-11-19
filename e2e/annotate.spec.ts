@@ -42,7 +42,7 @@ test('brush paints, undo and redo restore the mask', async ({ page }) => {
   expect(await maskVoxels(page, 1)).toBe(painted);
 });
 
-test('eraser removes voxels and a locked segment is protected', async ({ page }) => {
+test('eraser removes voxels', async ({ page }) => {
   await openPhantom(page);
   const before = await maskVoxels(page);
   await page.keyboard.press('e');
@@ -120,4 +120,25 @@ test('fill between slices joins two painted slices', async ({ page }) => {
   await page.keyboard.press('Control+z');
   await page.waitForTimeout(300);
   expect(await maskVoxels(page, 1)).toBe(two);
+});
+
+test('a locked or hidden segment cannot be painted', async ({ page }) => {
+  await openPhantom(page);
+  const before = await maskVoxels(page, 1);
+  await page.keyboard.press('b');
+  await page.locator('.segrow').first().hover();
+  await page.getByRole('button', { name: 'Lock', exact: true }).click();
+  await drag(page, 'axial', [-60, 40], [-20, 70]);
+  expect(await maskVoxels(page, 1)).toBe(before);
+  await expect(page.getByText('Segment 1 is locked. Unlock it to edit.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await page.locator('.segrow').first().hover();
+  await page.getByRole('button', { name: 'Hide', exact: true }).click();
+  await drag(page, 'axial', [-60, 40], [-20, 70]);
+  expect(await maskVoxels(page, 1)).toBe(before);
+
+  await page.getByRole('button', { name: 'Show', exact: true }).click();
+  await drag(page, 'axial', [-60, 40], [-20, 70]);
+  expect(await maskVoxels(page, 1)).toBeGreaterThan(before);
 });

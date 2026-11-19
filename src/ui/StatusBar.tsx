@@ -12,7 +12,7 @@ export function StatusBar() {
   const segName = hover && hover.segment ? (segments.find((x) => x.index === hover.segment)?.name ?? `Segment ${hover.segment}`) : 'none';
 
   let sync = dirty ? 'Unsaved changes' : 'Saved';
-  if (room) sync = room.status === 'online' ? (dirty ? 'Synced · unsaved' : 'Synced') : room.status === 'connecting' ? 'Connecting…' : 'Reconnecting…';
+  if (room) sync = room.status === 'online' ? (dirty ? 'Synced · not saved to file' : 'Synced') : room.status === 'connecting' ? 'Connecting…' : 'Reconnecting…';
 
   return (
     <footer className="status" role="status" aria-live="off">
