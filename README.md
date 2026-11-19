@@ -12,6 +12,10 @@ A desktop app for macOS, Windows and Linux that opens 3D medical images and lets
   <a href="https://github.com/ArioMoniri/w-annotator/releases/latest/download/W-Annotator-Linux.AppImage"><img height="50" src="docs/assets/download-linux.svg" alt="Download for Linux"></a>
 </p>
 
+<sub>Other formats (.msi, .deb, .rpm) and older versions are on the <a href="https://github.com/ArioMoniri/w-annotator/releases">releases page</a>.</sub>
+
+<br>
+
 <sub>macOS builds are signed and notarised. The app updates itself from GitHub Releases.</sub>
 
 <br><br>
