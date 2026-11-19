@@ -12,7 +12,12 @@
     "process:allow-restart",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://github.com/ArioMoniri/w-annotator/*" }]
+      "allow": [
+        { "url": "https://github.com/ArioMoniri/w-annotator/*" },
+        { "url": "https://luna16.grand-challenge.org/" },
+        { "url": "https://www.cancerimagingarchive.net/collection/lidc-idri/" },
+        { "url": "https://creativecommons.org/licenses/by/4.0/" }
+      ]
     }
   ]
 }
