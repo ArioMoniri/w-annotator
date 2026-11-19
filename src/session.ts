@@ -75,6 +75,26 @@ export function getMask(): VolumeData | null {
   return mask;
 }
 
+/**
+ * What autosave listens for. `edit`: the mask or its segments changed. `opened`: an image
+ * or mask finished loading. `saved`: the mask was written to a file. `discarded`: the user
+ * chose not to save. `closed`: nothing is open any more.
+ */
+export type SessionEvent = 'edit' | 'opened' | 'saved' | 'discarded' | 'closed';
+const watchers = new Set<(event: SessionEvent) => void>();
+
+export function onSessionEvent(fn: (event: SessionEvent) => void): () => void {
+  watchers.add(fn);
+  return () => void watchers.delete(fn);
+}
+
+function emit(event: SessionEvent): void {
+  for (const fn of watchers) fn(event);
+}
+
+/** True during a stroke. */
+export const isPointerDown = (): boolean => pointerDown;
+
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 function sliceSize(): number {
@@ -181,6 +201,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
       const go = async () => {
         await loadImage(next.vol);
         if (nextMask) await loadMask(nextMask.vol);
+        emit('opened');
       };
       if (image && get().dirty) {
         set({
@@ -201,6 +222,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
       await go();
     } else if (msk) {
       await loadMask(msk.vol);
+      emit('opened');
     }
   } catch (err) {
     unexpected(err, files[0].name);
@@ -328,6 +350,7 @@ export function closeImage(): void {
     history.clear();
     engine.unmountViewports();
     set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false });
+    emit('closed');
   };
   if (get().dirty) {
     set({
@@ -336,7 +359,13 @@ export function closeImage(): void {
         body: 'Your mask edits have not been saved to a file.',
         confirm: 'Save',
         run: () => void saveMask().then(() => !get().dirty && go()),
-        other: { label: "Don't save", run: go },
+        other: {
+          label: "Don't save",
+          run: () => {
+            emit('discarded');
+            go();
+          },
+        },
       },
     });
   } else go();
@@ -463,6 +492,7 @@ function flushEdits(): void {
   scheduleStats();
   if (!get().dirty) set({ dirty: true });
   syncHistoryFlags();
+  emit('edit');
 }
 
 /** Write a patch into the mask from outside the tools (undo, redo, room). */
@@ -521,6 +551,7 @@ export function undo(): void {
   for (const p of patches) writeOwn(p, 'before');
   set({ dirty: true });
   syncHistoryFlags();
+  emit('edit');
 }
 
 export function redo(): void {
@@ -529,6 +560,7 @@ export function redo(): void {
   for (const p of patches) writeOwn(p, 'after');
   set({ dirty: true });
   syncHistoryFlags();
+  emit('edit');
 }
 
 /** Run a direct edit of the mask buffer as one undo step. Returns changed voxel count. */
@@ -548,7 +580,28 @@ function editMask(fn: (data: Uint8Array) => void): number {
   syncHistoryFlags();
   scheduleDigest();
   scheduleStats();
+  emit('edit');
   return patch.after.length;
+}
+
+/**
+ * Put back a recovered mask as one undo step. In a room the others get it like any
+ * other edit. Returns false when the copy does not fit the mask on screen.
+ */
+export function restoreMask(data: Uint8Array, segments: Omit<SegmentInfo, 'visible'>[], maskName: string | null): boolean {
+  if (!mask || data.length !== mask.data.length) return false;
+  editMask((d) => d.set(data));
+  ensureSegments(data);
+  const s = get();
+  const restored = new Map(segments.map((x) => [x.index, x]));
+  const shown = new Map(s.segments.map((x) => [x.index, x]));
+  // Names, colours and locks come from the copy; segments that only exist on screen stay.
+  const list = [...new Set([...restored.keys(), ...shown.keys()])]
+    .sort((a, b) => a - b)
+    .map((index) => ({ ...shown.get(index), ...restored.get(index), visible: shown.get(index)?.visible ?? true }) as SegmentInfo);
+  updateSegments(list, list.some((x) => x.index === s.activeSegment) ? s.activeSegment : (list[0]?.index ?? 0));
+  set({ dirty: true, maskName: s.maskName ?? maskName });
+  return true;
 }
 
 /* ───────────────────────── segments ───────────────────────── */
@@ -566,6 +619,7 @@ function updateSegments(list: SegmentInfo[], active = get().activeSegment): void
   set({ segments: list, activeSegment: active });
   pushSegments();
   sendSegments();
+  emit('edit');
 }
 
 export function addSegment(): void {
@@ -859,6 +913,7 @@ export async function saveMask(): Promise<void> {
     });
     if (!saved) return;
     set({ dirty: false, maskName: saved });
+    emit('saved');
     toast('success', `Saved to ${saved}`);
   } catch {
     toast('error', "Couldn't save the mask. Check that the folder is writable.", { label: 'Retry', run: () => void saveMask() });
@@ -1106,6 +1161,7 @@ function applyRemotePatch(payload: Uint8Array): void {
     writePatch(decodePatch(payload), 'after');
     scheduleDigest();
     if (!get().dirty) set({ dirty: true });
+    emit('edit');
   } catch {
     /* a patch for a different mask; ignore it */
   }
@@ -1158,6 +1214,7 @@ async function finishSnapshot(all: Uint8Array): Promise<void> {
     awaitingSnapshot = false;
     for (const p of queuedPatches) applyRemotePatch(p);
     queuedPatches = [];
+    if (!meta.resync) emit('opened');
   } catch (err) {
     unexpected(err, 'the room data');
   } finally {

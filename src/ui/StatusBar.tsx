@@ -1,3 +1,5 @@
+import { statusText } from '../mask/recovery';
+import { useRecovery } from '../recovery';
 import { useStore } from '../state/store';
 
 export function StatusBar() {
@@ -10,6 +12,9 @@ export function StatusBar() {
   const dims = useStore((s) => s.image?.dims);
   const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2)).replace('-', '−');
   const segName = hover && hover.segment ? (segments.find((x) => x.index === hover.segment)?.name ?? `Segment ${hover.segment}`) : 'none';
+
+  // A recovery copy is not a saved file, so it is named next to "Unsaved changes", never instead of it.
+  const copyAt = useRecovery((s) => s.savedAt);
 
   let sync = dirty ? 'Unsaved changes' : 'Saved';
   if (room) sync = room.status === 'online' ? (dirty ? 'Synced · not saved to file' : 'Synced') : room.status === 'connecting' ? 'Connecting…' : 'Reconnecting…';
@@ -41,7 +46,15 @@ export function StatusBar() {
           <b>Zoom</b> {Math.round(zoom * 100)}%
         </span>
       )}
-      <span data-testid="sync">{sync}</span>
+      <span className="syncgroup">
+        <span data-testid="sync">{sync}</span>
+        {dirty && copyAt != null && (
+          <span className="recovery-note" data-testid="recovery-note">
+            {' · '}
+            {statusText(copyAt)}
+          </span>
+        )}
+      </span>
     </footer>
   );
 }

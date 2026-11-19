@@ -1,6 +1,7 @@
 import { Layers } from 'lucide-react';
 import { set } from '../state/store';
 import { pickDicomFolder, pickImage } from './files';
+import { RecoveryWaiting } from './RecoveryBar';
 import { ThemeControl } from './ThemeControl';
 
 export function EmptyState({ dragging }: { dragging: boolean }) {
@@ -23,6 +24,7 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
       <button className="btn text" onClick={() => set({ roomModal: 'join' })}>
         Join a room
       </button>
+      <RecoveryWaiting />
       <div className="corner">
         <ThemeControl compact />
       </div>
