@@ -1,0 +1,872 @@
+import { gunzip, gzip } from 'fflate';
+import {
+  autoWindow,
+  baseName,
+  fileKind,
+  labelValues,
+  readVolume,
+  resampleNearest,
+  sameGrid,
+  toLabelmap,
+  toRenderable,
+  writeVolume,
+  type InputFile,
+} from './io';
+import type { ScalarArray, VolumeData } from './io/types';
+import { History } from './mask/history';
+import { applyPatch, decodePatch, diffMask, encodePatch, patchSlices, type Patch } from './mask/patch';
+import { RoomClient } from './collab/client';
+import {
+  Assembler,
+  FrameKind,
+  chunk,
+  formatCode,
+  inviteLink,
+  makeCode,
+  parseInvite,
+  userColor,
+  type PeerMessage,
+  type SegmentInfo,
+  type VolumeMeta,
+} from './collab/protocol';
+import * as engine from './viewer/engine';
+import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, type ToolId, type ViewId } from './state/store';
+import * as platform from './platform';
+
+let image: VolumeData | null = null;
+let mask: VolumeData | null = null;
+let shadow: Uint8Array | null = null;
+const history = new History();
+let pointerDown = false;
+let room: RoomClient | null = null;
+
+export function getImage(): VolumeData | null {
+  return image;
+}
+
+export function getMask(): VolumeData | null {
+  return mask;
+}
+
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+function sliceSize(): number {
+  return mask ? mask.dims[0] * mask.dims[1] : 1;
+}
+
+function syncHistoryFlags(): void {
+  set({ canUndo: history.canUndo || history.hasPending, canRedo: history.canRedo });
+}
+
+/* ───────────────────────── opening files ───────────────────────── */
+
+const COMPANION = /\.(raw|zraw|img|img\.gz|raw\.gz)$/i;
+
+function groupFiles(files: InputFile[]): InputFile[][] {
+  const companions = files.filter((f) => COMPANION.test(f.name));
+  const groups: InputFile[][] = [];
+  const dicom: InputFile[] = [];
+  for (const f of files) {
+    if (COMPANION.test(f.name)) continue;
+    const kind = fileKind(f.name);
+    if (kind === 'dicom' || kind === 'unknown') dicom.push(f);
+    else groups.push([f, ...companions]);
+  }
+  if (dicom.length) groups.push(dicom);
+  return groups;
+}
+
+function looksLikeMask(vol: VolumeData, name: string): boolean {
+  const d = vol.data;
+  if (d instanceof Float32Array || d instanceof Float64Array) {
+    if (!/seg|mask|label/i.test(name)) return false;
+  }
+  const step = Math.max(1, Math.floor(d.length / 50000));
+  const seen = new Set<number>();
+  for (let i = 0; i < d.length; i += step) {
+    const v = d[i];
+    if (v < 0 || v > 255 || !Number.isInteger(v)) return false;
+    seen.add(v);
+    if (seen.size > 64) return false;
+  }
+  return true;
+}
+
+function describeError(err: unknown, name: string): string {
+  const text = err instanceof Error ? err.message : String(err);
+  if (/memory|allocation|Array buffer/i.test(text)) return 'This image is too large to open on this device.';
+  return text.length < 160 ? text : `Can't read ${name}. The file may be damaged or incomplete.`;
+}
+
+export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Promise<void> {
+  if (files.length === 0) return;
+  const groups = groupFiles(files);
+  const loaded: { vol: VolumeData; name: string }[] = [];
+  try {
+    for (const group of groups) {
+      const name = group[0].name;
+      set({ busy: `Opening ${name}…` });
+      await nextFrame();
+      try {
+        const vol = readVolume(group);
+        loaded.push({ vol: { ...vol, name }, name });
+      } catch (err) {
+        toast('error', describeError(err, name));
+      }
+    }
+    if (loaded.length === 0) return;
+
+    let img: (typeof loaded)[number] | undefined;
+    let msk: (typeof loaded)[number] | undefined;
+    if (role === 'mask') msk = loaded[0];
+    else if (role === 'image') img = loaded[0];
+    else if (loaded.length >= 2) {
+      msk = loaded.find((l) => /seg|mask|label/i.test(l.name)) ?? loaded.find((l) => looksLikeMask(l.vol, l.name));
+      img = loaded.find((l) => l !== msk);
+    } else if (image && looksLikeMask(loaded[0].vol, loaded[0].name)) msk = loaded[0];
+    else img = loaded[0];
+
+    if (msk && !img && !image) {
+      toast('error', 'Open an image first, then add the mask.');
+      return;
+    }
+    if (img) {
+      const next = img;
+      const nextMask = msk;
+      const go = async () => {
+        await loadImage(next.vol);
+        if (nextMask) await loadMask(nextMask.vol);
+      };
+      if (image && get().dirty) {
+        set({
+          confirm: {
+            title: 'Replace the current image?',
+            body: 'Unsaved mask changes will be lost.',
+            confirm: 'Replace',
+            danger: true,
+            run: () => void guarded(go),
+          },
+        });
+        return;
+      }
+      if (room && image) {
+        toast('error', 'Leave the room before opening another image.');
+        return;
+      }
+      await go();
+    } else if (msk) {
+      await loadMask(msk.vol);
+    }
+  } catch (err) {
+    toast('error', describeError(err, files[0].name));
+  } finally {
+    set({ busy: null });
+  }
+}
+
+async function guarded(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    toast('error', describeError(err, 'the file'));
+  } finally {
+    set({ busy: null });
+  }
+}
+
+function dataRange(d: ScalarArray): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < d.length; i++) {
+    const v = d[i];
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
+  return [lo, hi];
+}
+
+async function loadImage(vol: VolumeData): Promise<void> {
+  set({ busy: `Opening ${vol.name}…` });
+  await nextFrame();
+  const renderable = toRenderable(vol);
+  const voi = autoWindow(renderable);
+  const range = dataRange(renderable.data);
+  image = renderable;
+  set({ image: { name: vol.name, dims: vol.dims, range }, voi, hover: null, maximized: null });
+  // The viewport elements mount when `image` is set; wait for them.
+  await nextFrame();
+  await engine.showImage(renderable, voi);
+  const span = range[1] - range[0];
+  set({ threshold: [Math.round(range[0] + span * 0.5), Math.round(range[1])] });
+  installMask({
+    name: '',
+    dims: vol.dims,
+    spacing: vol.spacing,
+    origin: vol.origin,
+    direction: vol.direction,
+    data: new Uint8Array(vol.dims[0] * vol.dims[1] * vol.dims[2]),
+  });
+  set({ maskName: null, dirty: false });
+  setTool('crosshair');
+}
+
+async function loadMask(vol: VolumeData): Promise<void> {
+  if (!image) return;
+  set({ busy: `Opening ${vol.name}…` });
+  await nextFrame();
+  let fitted = vol;
+  const sameDims = vol.dims.every((n, i) => n === image!.dims[i]);
+  if (!sameGrid(vol, image)) {
+    if (sameDims) {
+      toast('warning', "This mask's position data differs from the image. It was placed on the image grid.");
+    } else {
+      fitted = resampleNearest(vol, image);
+      toast('warning', `The mask is ${vol.dims.join(' × ')} but the image is ${image.dims.join(' × ')}. It was resampled to fit.`);
+    }
+  }
+  const label = toLabelmap(fitted);
+  const data = label.data === vol.data ? (label.data as Uint8Array).slice() : (label.data as Uint8Array);
+  const before = mask?.data as Uint8Array | undefined;
+  installMask({ ...image, name: vol.name, data, labels: vol.labels });
+  const values = labelValues(mask!);
+  const segments: SegmentInfo[] = values.map((index) => ({
+    index,
+    name: vol.labels?.[index] ?? `Segment ${index}`,
+    color: SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
+    visible: true,
+    locked: false,
+  }));
+  set({ segments, activeSegment: segments[0]?.index ?? 0, maskName: vol.name, dirty: false });
+  pushSegments();
+  if (room && before) {
+    // Share the newly opened mask with the room as one edit.
+    const patch = diffMask(before, data, sliceSize());
+    if (patch) room.sendFrame(FrameKind.Patch, encodePatch(patch));
+    sendSegments();
+  }
+}
+
+function installMask(vol: VolumeData): void {
+  mask = vol;
+  shadow = (vol.data as Uint8Array).slice();
+  history.clear();
+  syncHistoryFlags();
+  engine.showMask(vol);
+  set({ segments: [], activeSegment: 0 });
+  engine.setMaskStyle(get().opacity, get().outlineOnly);
+  engine.set3dImageVisible(get().show3dImage);
+}
+
+export function closeImage(): void {
+  const go = () => {
+    leaveRoom(true);
+    image = null;
+    mask = null;
+    shadow = null;
+    history.clear();
+    engine.unmountViewports();
+    set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {} });
+  };
+  if (get().dirty) {
+    set({ confirm: { title: 'Close without saving?', body: 'Unsaved mask changes will be lost.', confirm: 'Close', danger: true, run: go } });
+  } else go();
+}
+
+/* ───────────────────────── tools ───────────────────────── */
+
+export function setTool(tool: ToolId): void {
+  const s = get();
+  if (!image) return;
+  if (EDIT_TOOLS.includes(tool) && s.segments.length === 0) {
+    toast('info', 'Add a segment to start editing.');
+    return;
+  }
+  set({ tool });
+  applyTool();
+}
+
+function applyTool(): void {
+  const s = get();
+  engine.setBrushSize(s.brushSize);
+  engine.setThreshold(s.threshold);
+  engine.setTool(s.tool, { brushShape: s.brushShape, scissorsShape: s.scissorsShape, scissorsAction: s.scissorsAction });
+}
+
+export function setBrushSize(mm: number): void {
+  const size = Math.min(100, Math.max(1, Math.round(mm)));
+  set({ brushSize: size });
+  engine.setBrushSize(size);
+}
+
+export function setToolOption(
+  patch: Partial<Pick<ReturnType<typeof get>, 'brushShape' | 'scissorsShape' | 'scissorsAction' | 'threshold'>>,
+): void {
+  set(patch);
+  applyTool();
+}
+
+export function setVoi(lower: number, upper: number): void {
+  if (upper <= lower) upper = lower + 1;
+  set({ voi: { lower, upper } });
+  engine.setVoi(lower, upper);
+}
+
+/* ───────────────────────── mask edits ───────────────────────── */
+
+export function attachEditTracking(): () => void {
+  const off = engine.onMaskEdited((slices) => recordEdit(slices));
+  const down = () => {
+    pointerDown = true;
+  };
+  const up = () => {
+    pointerDown = false;
+    // Tools write their last voxels on mouse up; let that land first.
+    setTimeout(() => {
+      if (!pointerDown) {
+        recordEdit(undefined, true);
+        history.commit();
+        syncHistoryFlags();
+      }
+    }, 30);
+  };
+  window.addEventListener('pointerdown', down, true);
+  window.addEventListener('pointerup', up, true);
+  window.addEventListener('pointercancel', up, true);
+  return () => {
+    off();
+    window.removeEventListener('pointerdown', down, true);
+    window.removeEventListener('pointerup', up, true);
+    window.removeEventListener('pointercancel', up, true);
+  };
+}
+
+let dirtySlices: Set<number> | 'all' | null = null;
+
+function recordEdit(slices: number[] | undefined, flush = false): void {
+  if (!mask || !shadow) return;
+  // While dragging, remember which slices changed and diff them in one go per frame.
+  if (!flush) {
+    if (!slices || slices.length === 0) dirtySlices = 'all';
+    else if (dirtySlices !== 'all') {
+      dirtySlices ??= new Set();
+      for (const s of slices) dirtySlices.add(s);
+    }
+    scheduleFlush();
+    return;
+  }
+  flushEdits();
+}
+
+let flushQueued = false;
+function scheduleFlush(): void {
+  if (flushQueued) return;
+  flushQueued = true;
+  requestAnimationFrame(() => {
+    flushQueued = false;
+    flushEdits();
+    if (!pointerDown) {
+      history.commit();
+      syncHistoryFlags();
+    }
+  });
+}
+
+function flushEdits(): void {
+  if (!mask || !shadow || !dirtySlices) return;
+  const which = dirtySlices === 'all' ? undefined : [...dirtySlices];
+  dirtySlices = null;
+  const patch = diffMask(shadow, mask.data as Uint8Array, sliceSize(), which);
+  if (!patch) return;
+  applyPatch(shadow, patch, 'after');
+  history.add(patch);
+  room?.sendFrame(FrameKind.Patch, encodePatch(patch));
+  if (!get().dirty) set({ dirty: true });
+  syncHistoryFlags();
+}
+
+/** Write a patch into the mask from outside the tools (undo, redo, room). */
+function writePatch(patch: Patch, side: 'before' | 'after'): void {
+  if (!mask || !shadow) return;
+  applyPatch(mask.data as Uint8Array, patch, side);
+  applyPatch(shadow, patch, side);
+  ensureSegments(patch[side]);
+  engine.refreshMask(patchSlices(patch, sliceSize()));
+}
+
+function ensureSegments(values: Uint8Array): void {
+  const s = get();
+  const known = new Set(s.segments.map((x) => x.index));
+  const missing = new Set<number>();
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v !== 0 && !known.has(v)) missing.add(v);
+  }
+  if (missing.size === 0) return;
+  const added = [...missing].map((index) => ({
+    index,
+    name: `Segment ${index}`,
+    color: SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
+    visible: true,
+    locked: false,
+  }));
+  set({ segments: [...s.segments, ...added].sort((a, b) => a.index - b.index) });
+  pushSegments();
+}
+
+export function undo(): void {
+  flushEdits();
+  const patches = history.undo();
+  if (!patches) return;
+  for (const p of patches) {
+    writePatch(p, 'before');
+    room?.sendFrame(FrameKind.Patch, encodePatch({ ...p, after: p.before }));
+  }
+  set({ dirty: true });
+  syncHistoryFlags();
+}
+
+export function redo(): void {
+  const patches = history.redo();
+  if (!patches) return;
+  for (const p of patches) {
+    writePatch(p, 'after');
+    room?.sendFrame(FrameKind.Patch, encodePatch(p));
+  }
+  set({ dirty: true });
+  syncHistoryFlags();
+}
+
+/** Run a direct edit of the mask buffer as one undo step. Returns changed voxel count. */
+function editMask(fn: (data: Uint8Array) => void): number {
+  if (!mask || !shadow) return 0;
+  flushEdits();
+  history.commit();
+  fn(mask.data as Uint8Array);
+  const patch = diffMask(shadow, mask.data as Uint8Array, sliceSize());
+  if (!patch) return 0;
+  applyPatch(shadow, patch, 'after');
+  history.add(patch);
+  history.commit();
+  room?.sendFrame(FrameKind.Patch, encodePatch(patch));
+  engine.refreshMask(patchSlices(patch, sliceSize()));
+  set({ dirty: true });
+  syncHistoryFlags();
+  return patch.after.length;
+}
+
+/* ───────────────────────── segments ───────────────────────── */
+
+function pushSegments(): void {
+  const s = get();
+  engine.applySegments(s.segments, s.activeSegment);
+}
+
+function sendSegments(): void {
+  room?.send({ t: 'segments', list: get().segments });
+}
+
+function updateSegments(list: SegmentInfo[], active = get().activeSegment): void {
+  set({ segments: list, activeSegment: active });
+  pushSegments();
+  sendSegments();
+}
+
+export function addSegment(): void {
+  const s = get();
+  if (!image) return;
+  const used = new Set(s.segments.map((x) => x.index));
+  let index = 1;
+  while (used.has(index)) index++;
+  if (index > 255) {
+    toast('error', 'A mask can hold up to 255 segments.');
+    return;
+  }
+  const seg: SegmentInfo = {
+    index,
+    name: `Segment ${index}`,
+    color: SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
+    visible: true,
+    locked: false,
+  };
+  updateSegments([...s.segments, seg].sort((a, b) => a.index - b.index), index);
+  if (!EDIT_TOOLS.includes(s.tool)) setTool('brush');
+}
+
+export function selectSegment(index: number): void {
+  if (!get().segments.some((x) => x.index === index)) return;
+  set({ activeSegment: index });
+  pushSegments();
+}
+
+export function patchSegment(index: number, patch: Partial<Omit<SegmentInfo, 'index'>>): void {
+  updateSegments(get().segments.map((x) => (x.index === index ? { ...x, ...patch } : x)));
+}
+
+export function showOnly(index: number): void {
+  const list = get().segments;
+  const alreadyOnly = list.every((x) => x.visible === (x.index === index));
+  updateSegments(list.map((x) => ({ ...x, visible: alreadyOnly ? true : x.index === index })));
+}
+
+export function clearSegment(index: number): void {
+  const seg = get().segments.find((x) => x.index === index);
+  if (!seg) return;
+  const n = editMask((d) => {
+    for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
+  });
+  if (n > 0) toast('info', `${seg.name} cleared`, { label: 'Undo', run: undo });
+}
+
+export function deleteSegment(index: number): void {
+  const s = get();
+  const seg = s.segments.find((x) => x.index === index);
+  if (!seg) return;
+  const n = editMask((d) => {
+    for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
+  });
+  const rest = s.segments.filter((x) => x.index !== index);
+  const active = s.activeSegment === index ? (rest[0]?.index ?? 0) : s.activeSegment;
+  updateSegments(rest, active);
+  if (rest.length === 0 && EDIT_TOOLS.includes(s.tool)) setTool('crosshair');
+  toast('info', `${seg.name} deleted`, n > 0 ? { label: 'Undo', run: undo } : undefined);
+}
+
+export function setOpacity(opacity: number): void {
+  set({ opacity });
+  engine.setMaskStyle(opacity, get().outlineOnly);
+}
+
+export function setOutlineOnly(outlineOnly: boolean): void {
+  set({ outlineOnly });
+  engine.setMaskStyle(get().opacity, outlineOnly);
+}
+
+export function setShow3dImage(show: boolean): void {
+  set({ show3dImage: show });
+  engine.set3dImageVisible(show);
+}
+
+/* ───────────────────────── saving ───────────────────────── */
+
+type MaskFormat = 'nii.gz' | 'nii' | 'mha' | 'nrrd';
+
+function formatOf(name: string): MaskFormat {
+  const n = name.toLowerCase();
+  if (n.endsWith('.nii')) return 'nii';
+  if (n.endsWith('.mha')) return 'mha';
+  if (n.endsWith('.nrrd')) return 'nrrd';
+  return 'nii.gz';
+}
+
+export function defaultMaskName(): string {
+  const s = get();
+  if (s.maskName && /\.(nii|nii\.gz|mha|nrrd)$/i.test(s.maskName)) return s.maskName;
+  return `${baseName(s.maskName ?? s.image?.name ?? 'mask')}${s.maskName ? '' : '_mask'}.nii.gz`;
+}
+
+export async function saveMask(): Promise<void> {
+  if (!mask) return;
+  flushEdits();
+  const suggested = defaultMaskName();
+  try {
+    const labels: Record<number, string> = {};
+    for (const seg of get().segments) labels[seg.index] = seg.name;
+    const saved = await platform.saveBytes(suggested, (name) => {
+      return writeVolume({ ...mask!, name, labels }, formatOf(name));
+    });
+    if (!saved) return;
+    set({ dirty: false, maskName: saved });
+    toast('success', `Saved to ${saved}`);
+  } catch {
+    toast('error', "Couldn't save the mask. Check that the folder is writable.", { label: 'Retry', run: () => void saveMask() });
+  }
+}
+
+/* ───────────────────────── rooms ───────────────────────── */
+
+const DTYPES: Record<string, new (buffer: ArrayBuffer) => ScalarArray> = {
+  Uint8Array,
+  Int8Array,
+  Uint16Array,
+  Int16Array,
+  Uint32Array,
+  Int32Array,
+  Float32Array,
+  Float64Array,
+};
+
+const gz = (data: Uint8Array) =>
+  new Promise<Uint8Array>((resolve, reject) => gzip(data, { level: 1 }, (err, out) => (err ? reject(err) : resolve(out))));
+const gunz = (data: Uint8Array) =>
+  new Promise<Uint8Array>((resolve, reject) => gunzip(data, (err, out) => (err ? reject(err) : resolve(out))));
+
+function metaOf(vol: VolumeData, bytes: number): VolumeMeta {
+  return { name: vol.name, dims: vol.dims, spacing: vol.spacing, origin: vol.origin, direction: vol.direction, dtype: vol.data.constructor.name, bytes };
+}
+
+function bytesOf(d: ScalarArray): Uint8Array {
+  return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+}
+
+let incoming: { meta: Extract<PeerMessage, { t: 'snapshot' }>; assembler: Assembler; queued: Uint8Array[] } | null = null;
+let awaitingSnapshot = false;
+let queuedPatches: Uint8Array[] = [];
+let hostingLocally = false;
+
+export async function startRoom(name: string): Promise<{ code: string; link: string } | string> {
+  if (!image) return 'Open an image first.';
+  let server = platform.relayServer();
+  hostingLocally = false;
+  if (!server) {
+    const hosted = await platform.hostRoom();
+    if (!hosted) return "Rooms need a room server. Add one under 'Server'.";
+    server = hosted;
+    hostingLocally = true;
+  }
+  const code = makeCode();
+  return connect(server, code, name, true);
+}
+
+export async function joinRoom(name: string, invite: string): Promise<{ code: string; link: string } | string> {
+  const parsed = parseInvite(invite, platform.relayServer() ?? '');
+  if (!parsed) return 'Enter the room code or paste the invite link.';
+  return connect(parsed.server, parsed.code, name, false);
+}
+
+function connect(server: string, code: string, name: string, starting: boolean): Promise<{ code: string; link: string } | string> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: { code: string; link: string } | string) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const link = inviteLink(server, code);
+    const client = new RoomClient(server, code, name, {
+      onStatus: (status) => {
+        const r = get().room;
+        if (r) set({ room: { ...r, status } });
+        if (status === 'reconnecting' && r?.status === 'online') {
+          toast('warning', 'Connection lost. Reconnecting…');
+        }
+      },
+      onWelcome: (msg, reconnected) => {
+        if (!starting && !reconnected && msg.peers.length === 0) {
+          client.close();
+          room = null;
+          finish('No room with that code. Check the code and try again.');
+          return;
+        }
+        set({
+          room: { status: 'online', code, link, selfId: msg.id, name, hosting: hostingLocally },
+          peers: msg.peers.map((p) => ({ ...p, color: userColor(p.id) })),
+        });
+        if (msg.peers.length > 0) {
+          const source = Math.min(...msg.peers.map((p) => p.id));
+          awaitingSnapshot = true;
+          queuedPatches = [];
+          client.send({ t: 'need-snapshot', to: source, imageToo: !image });
+          if (!image) set({ busy: 'Getting the image from the room…', progress: 0 });
+          if (reconnected) toast('info', 'Back online. The mask was refreshed from the room.');
+        } else if (reconnected) {
+          toast('info', 'Back online.');
+        }
+        finish({ code, link });
+      },
+      onJoin: (id, peerName) => {
+        set((s) => ({ peers: [...s.peers.filter((p) => p.id !== id), { id, name: peerName, color: userColor(id) }] }));
+        toast('info', `${peerName} joined`);
+      },
+      onLeave: (id) => {
+        const peer = get().peers.find((p) => p.id === id);
+        set((s) => ({ peers: s.peers.filter((p) => p.id !== id) }));
+        if (peer) toast('info', `${peer.name} left`);
+      },
+      onMessage: (msg) => void onPeerMessage(client, msg),
+      onFrame: (from, kind, payload) => void onPeerFrame(from, kind, payload),
+      onClosed: (reason) => {
+        const wasIn = !!get().room;
+        room = null;
+        set({ room: null, peers: [], busy: null, progress: null });
+        if (hostingLocally) void platform.stopHosting();
+        const text =
+          reason === 'full'
+            ? 'This room is full.'
+            : reason === 'lost'
+              ? 'Still offline. Your changes are kept on this device.'
+              : "Can't connect. Check the address and your network, then try again.";
+        if (wasIn) toast('error', text);
+        finish(text);
+      },
+    });
+    room?.close();
+    room = client;
+    set({ room: { status: 'connecting', code, link, selfId: 0, name, hosting: hostingLocally }, peers: [] });
+    client.connect();
+  });
+}
+
+export function leaveRoom(silent = false): void {
+  if (!room) return;
+  room.close();
+  room = null;
+  incoming = null;
+  awaitingSnapshot = false;
+  set({ room: null, peers: [], progress: null });
+  if (hostingLocally) void platform.stopHosting();
+  hostingLocally = false;
+  if (!silent) toast('info', 'You left the room');
+}
+
+async function onPeerMessage(client: RoomClient, msg: PeerMessage): Promise<void> {
+  switch (msg.t) {
+    case 'cursor': {
+      set((s) => ({
+        peers: s.peers.map((p) =>
+          p.id === msg.from ? { ...p, cursor: msg.vp && msg.w ? { vp: msg.vp as ViewId, w: msg.w, r: msg.r } : undefined } : p,
+        ),
+      }));
+      break;
+    }
+    case 'segments': {
+      const s = get();
+      const active = msg.list.some((x) => x.index === s.activeSegment) ? s.activeSegment : (msg.list[0]?.index ?? 0);
+      // Visibility is a personal view setting; keep ours.
+      const mine = new Map(s.segments.map((x) => [x.index, x.visible]));
+      set({ segments: msg.list.map((x) => ({ ...x, visible: mine.get(x.index) ?? true })), activeSegment: active });
+      pushSegments();
+      break;
+    }
+    case 'need-snapshot':
+      await sendSnapshot(client, msg.from, msg.imageToo);
+      break;
+    case 'no-snapshot':
+      awaitingSnapshot = false;
+      set({ busy: null, progress: null });
+      break;
+    case 'snapshot':
+      incoming = { meta: msg, assembler: new Assembler(msg.total), queued: [] };
+      if (msg.total === 0) await finishSnapshot(new Uint8Array(0));
+      break;
+  }
+}
+
+async function sendSnapshot(client: RoomClient, to: number, imageToo: boolean): Promise<void> {
+  if (!image || !mask) {
+    client.send({ t: 'no-snapshot', to });
+    return;
+  }
+  flushEdits();
+  // Copy the mask now so later strokes do not end up half inside the snapshot.
+  const maskCopy = (mask.data as Uint8Array).slice();
+  const segments = get().segments;
+  const maskName = get().maskName;
+  const maskZ = await gz(maskCopy);
+  const imageZ = imageToo ? await gz(bytesOf(image.data).slice()) : null;
+  const total = maskZ.length + (imageZ?.length ?? 0);
+  client.send({
+    t: 'snapshot',
+    to,
+    image: imageZ ? metaOf(image, imageZ.length) : null,
+    mask: metaOf(mask, maskZ.length),
+    maskName,
+    segments,
+    total,
+  });
+  const parts = [...(imageZ ? chunk(imageZ, 1 << 20) : []), ...chunk(maskZ, 1 << 20)];
+  for (const part of parts) {
+    while (client.backlog > 8 << 20) await new Promise((r) => setTimeout(r, 30));
+    if (!client.open) return;
+    client.sendFrame(FrameKind.Snapshot, part, to);
+  }
+}
+
+async function onPeerFrame(_from: number, kind: number, payload: Uint8Array): Promise<void> {
+  if (kind === FrameKind.Patch) {
+    if (awaitingSnapshot) {
+      queuedPatches.push(payload.slice());
+      return;
+    }
+    applyRemotePatch(payload);
+  } else if (kind === FrameKind.Snapshot && incoming) {
+    const done = incoming.assembler.push(payload);
+    set({ progress: incoming.assembler.progress });
+    if (done) await finishSnapshot(done);
+  }
+}
+
+function applyRemotePatch(payload: Uint8Array): void {
+  if (!mask) return;
+  try {
+    writePatch(decodePatch(payload), 'after');
+    if (!get().dirty) set({ dirty: true });
+  } catch {
+    /* a patch for a different mask; ignore it */
+  }
+}
+
+async function finishSnapshot(all: Uint8Array): Promise<void> {
+  const snap = incoming;
+  if (!snap) return;
+  incoming = null;
+  const { meta } = snap;
+  try {
+    let offset = 0;
+    if (meta.image) {
+      const raw = await gunz(all.subarray(0, meta.image.bytes));
+      offset = meta.image.bytes;
+      const Ctor = DTYPES[meta.image.dtype];
+      if (!Ctor) throw new Error('Unknown image data type');
+      const buffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+      await loadImage({
+        name: meta.image.name,
+        dims: meta.image.dims,
+        spacing: meta.image.spacing,
+        origin: meta.image.origin,
+        direction: meta.image.direction,
+        data: new Ctor(buffer),
+      });
+    }
+    if (!image || !mask) throw new Error('No image');
+    if (!meta.mask.dims.every((n, i) => n === image!.dims[i])) {
+      toast('error', 'The room is working on a different image. Close this one and join again.');
+      leaveRoom(true);
+      return;
+    }
+    const maskRaw = await gunz(all.subarray(offset, offset + meta.mask.bytes));
+    const data = mask.data as Uint8Array;
+    data.set(maskRaw);
+    shadow = data.slice();
+    history.clear();
+    syncHistoryFlags();
+    engine.refreshMask();
+    const active = meta.segments[0]?.index ?? 0;
+    set({ segments: meta.segments.map((x) => ({ ...x, visible: true })), activeSegment: active, maskName: meta.maskName, dirty: false });
+    pushSegments();
+    awaitingSnapshot = false;
+    for (const p of queuedPatches) applyRemotePatch(p);
+    queuedPatches = [];
+  } catch (err) {
+    toast('error', describeError(err, 'the room data'));
+  } finally {
+    awaitingSnapshot = false;
+    set({ busy: null, progress: null });
+  }
+}
+
+let lastCursor = 0;
+export function shareCursor(vp: ViewId | null, w?: [number, number, number]): void {
+  if (!room || get().peers.length === 0) return;
+  const now = performance.now();
+  if (vp && now - lastCursor < 60) return;
+  lastCursor = now;
+  const s = get();
+  const painting = s.tool === 'brush' || s.tool === 'eraser' || s.tool === 'threshold';
+  room.send({ t: 'cursor', vp, w, r: painting ? s.brushSize : undefined });
+}
+
+export function roomCodeLabel(): string {
+  const r = get().room;
+  return r ? formatCode(r.code) : '';
+}

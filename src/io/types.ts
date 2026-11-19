@@ -23,3 +23,9 @@ export interface VolumeData {
   /** Segment names keyed by label value, when the file carries them. */
   labels?: Record<number, string>;
 }
+
+/** A file picked by the user: its name (a path is fine) and its content. */
+export interface InputFile {
+  name: string;
+  bytes: Uint8Array;
+}
