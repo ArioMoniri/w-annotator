@@ -154,6 +154,9 @@ jobs:
           curl -fsSL --retry 3 -o driver.zip "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip"
           unzip -o -q driver.zip msedgedriver.exe
           echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
+      - name: Probe the Edge driver (temporary)
+        if: runner.os == 'Windows'
+        run: bash e2e-desktop/win-probe.sh 2>&1 | tee "$RUNNER_TEMP/probe.log"
       - name: Desktop e2e (Linux)
         if: runner.os == 'Linux' && !cancelled()
         run: xvfb-run -a pnpm e2e:desktop
@@ -164,7 +167,7 @@ jobs:
           W_DIAG_FILE: ${{ runner.temp }}\driver-diag.log
       - name: What happened (Windows)
         if: runner.os == 'Windows' && failure()
-        run: cat "$RUNNER_TEMP/selftest.log" "$RUNNER_TEMP/driver-diag.log" || true
+        run: cat "$RUNNER_TEMP/driver-diag.log" "$RUNNER_TEMP/probe.log" || true
 
   # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
   # WebKit, and the built app testing itself (W_SELFTEST).
