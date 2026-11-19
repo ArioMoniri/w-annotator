@@ -16,6 +16,30 @@ describe('parseSettings', () => {
     expect(s.displayName).toBe('Mina');
     expect('extra' in s).toBe(false);
   });
+  it('starts with mouse and trackpad defaults that suit both', () => {
+    const s = parseSettings(null);
+    expect(s.scrollDirection).toBe('natural');
+    expect(s.trackpadSpeed).toBe(5);
+    expect(s.twoFingerScroll).toBe('slice');
+    expect(s.pinchZoom).toBe(true);
+    expect(s.wheelZooms).toBe(false);
+    expect(s.zoomSpeed).toBe(5);
+  });
+  it('keeps saved mouse and trackpad choices', () => {
+    const s = parseSettings('{"scrollDirection":"reversed","trackpadSpeed":8,"twoFingerScroll":"pan","pinchZoom":false,"wheelZooms":true,"zoomSpeed":2}');
+    expect(s).toMatchObject({ scrollDirection: 'reversed', trackpadSpeed: 8, twoFingerScroll: 'pan', pinchZoom: false, wheelZooms: true, zoomSpeed: 2 });
+  });
+  it('falls back to the default for a choice that does not exist', () => {
+    const s = parseSettings('{"scrollDirection":"sideways","twoFingerScroll":"rotate"}');
+    expect(s.scrollDirection).toBe('natural');
+    expect(s.twoFingerScroll).toBe('slice');
+  });
+  it('keeps speeds within 1 to 10', () => {
+    const s = parseSettings('{"trackpadSpeed":400,"zoomSpeed":-2}');
+    expect(s.trackpadSpeed).toBe(10);
+    expect(s.zoomSpeed).toBe(1);
+    expect(parseSettings('{"trackpadSpeed":null}').trackpadSpeed).toBe(5);
+  });
 });
 
 describe('cleanName', () => {

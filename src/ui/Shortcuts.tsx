@@ -18,7 +18,10 @@ import { MOD, isMac } from './common';
 
 const MOUSE: [string, string][] = [
   ['Change slice', 'Scroll'],
-  ['Zoom', `${MOD}+Scroll`],
+  ['Change slice, five at a time', 'Shift+Scroll'],
+  ['Zoom', `${MOD}+Scroll or pinch`],
+  ['Zoom the 3D view', 'Scroll or pinch'],
+  ['Brush size, with a brush tool', `${isMac ? '⌥' : 'Alt'}+Scroll`],
   ['Pan', 'Middle-drag'],
   ['Window / Level', 'Right-drag'],
   ['Erase with the brush', 'Shift-drag'],
@@ -111,7 +114,7 @@ export function ShortcutsList() {
             ))}
           </div>
         ))}
-        <h4>Mouse and fixed keys</h4>
+        <h4>Mouse and trackpad</h4>
         {MOUSE.map(([label, key]) => (
           <div key={label}>
             <span>{label}</span>

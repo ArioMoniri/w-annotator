@@ -209,10 +209,12 @@ export function Choice<T extends string>(props: {
   value: T;
   options: { value: T; label: string }[];
   label: string;
+  /** Id of a visible label, used in place of `label` when there is one. */
+  labelledBy?: string;
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="seg-control" role="group" aria-label={props.label}>
+    <div className="seg-control" role="group" aria-label={props.labelledBy ? undefined : props.label} aria-labelledby={props.labelledBy}>
       {props.options.map((o) => (
         <button key={o.value} aria-pressed={o.value === props.value} onClick={() => props.onChange(o.value)}>
           {o.label}

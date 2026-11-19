@@ -74,7 +74,7 @@ With the server field left empty, the desktop app hosts the room itself. That wo
 | `Ctrl+O` | Open image | `Ctrl+Shift+O` | Open mask |
 | `Ctrl+S` | Save mask | `?` | All shortcuts |
 
-On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice, `Ctrl`+scroll zooms, middle-drag pans and right-drag changes window/level. Press `?` in the app to see every shortcut and change any of them.
+On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans and right-drag changes window/level. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
 
 ## Build from source
 
