@@ -12,7 +12,8 @@
  *   W_REALDATA_URL=http://localhost:4173   optional: test a built app instead of the dev server
  */
 import { expect, test, type Page } from '@playwright/test';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { drag, maskVoxels } from './helpers';
@@ -26,7 +27,8 @@ interface Case {
 }
 const cases: Case[] = manifest && existsSync(manifest) ? (JSON.parse(readFileSync(manifest, 'utf8')) as Case[]) : [];
 
-test.skip(cases.length === 0, 'Set W_REALDATA_DIR to a folder with cases.json to run the real-data checks.');
+const SKIP = 'Set W_REALDATA_DIR to a folder with cases.json to run the real-data checks.';
+if (cases.length === 0) test('real data checks', () => test.skip(true, SKIP));
 test.use({ viewport: { width: 1440, height: 900 }, ...(process.env.W_REALDATA_URL ? { baseURL: process.env.W_REALDATA_URL } : {}) });
 test.setTimeout(240_000);
 
@@ -257,21 +259,23 @@ for (const c of cases) {
       // Reopening the saved file gives the same mask.
       const again = await (await browser.newContext()).newPage();
       await openImage(again, abs(c.image));
-      const download = join(test.info().outputDir, 'saved.nii.gz');
-      mkdirSync(test.info().outputDir, { recursive: true });
+      // Kept outside the repository: the file is derived from real data.
+      const folder = mkdtempSync(join(tmpdir(), 'w-realdata-'));
+      const download = join(folder, 'saved.nii.gz');
       writeFileSync(download, savedFile);
       await openMask(again, [download]);
       expect(await maskHash(again)).toBe(await maskHash(page));
       await again.context().close();
+      rmSync(folder, { recursive: true, force: true });
     });
 
     test('threshold brush only paints voxels inside its range', async ({ page }) => {
       await openImage(page, abs(c.image));
       await openMask(page, abs(c.mask));
       const { range } = await state(page);
-      // A band that cannot contain zero, so "paint everything" and "paint nothing" both show up.
-      const lo = Math.round(range[0] + (range[1] - range[0]) * 0.35);
-      const hi = Math.round(range[0] + (range[1] - range[0]) * 0.9);
+      // A band that leaves zero out, so "paint everything" and "paint nothing" both show up.
+      const span = range[1] - range[0];
+      const [lo, hi] = range[0] < 0 ? [range[0], -1] : [Math.round(range[0] + span * 0.35), Math.round(range[0] + span * 0.9)];
       await page.keyboard.press('t');
       await page.evaluate((r) => (window as any).__w.session.setToolOption({ threshold: r }), [lo, hi]);
       const stroke: [[number, number], [number, number]][] = [
