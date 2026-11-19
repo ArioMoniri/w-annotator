@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Go to segment: move all views to the middle of a segment.
 - The volume of each segment next to its name, and a measurements sheet (volume, voxels, mean ± SD, min, max) that can be copied as CSV.
 - Brush option "Paint over: Everything / Empty only". With "Empty only", painting never takes voxels from another segment.
+- Room server: groundwork for the next version of rooms (member keys, invite links that expire, edits in one order, rooms where guests view through the host). Rooms in the app work as before; see `docs/design/ROOMS-PROTOCOL.md`.
 
 ## [0.1.0] - 2026-11-19
 

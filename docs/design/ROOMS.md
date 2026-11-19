@@ -282,3 +282,38 @@ Sizes: S ≤ 2 days, M ≤ 1 week, L ≤ 2 weeks, one engineer each. Tests named
 - WebCrypto Ed25519/X25519 availability: https://blogs.igalia.com/jfernandez/?p=1913 , https://blog.ipfs.tech/2025-08-ed25519/
 - WKWebView and `ws://` mixed content: https://developer.apple.com/forums/thread/120869
 - TURN relay share (vendor estimates, 10–25 % typical, higher on corporate networks): https://www.forasoft.com/learn/video-streaming/articles-streaming/ice-stun-turn-deep-dive
+
+## Decisions made during implementation
+
+Relay side of phase 1 (1.0, 1.1, 1.2, 1.3, relay half of 1.5, 1.8). The owner answered every question in F with the recommended default. Where the design left a detail open, the simpler option was taken; where the implementation differs from the text above, this section wins. The wire contract is `ROOMS-PROTOCOL.md`.
+
+| # | Topic | Decision | Why |
+|---|---|---|---|
+| 1 | `/r/…` → 426 (C8) | **Not yet.** v1 stays on by default so today's app keeps working against the same relay; `--no-v1` (`RelayConfig.v1 = false`) gives the 426 | The v2 client does not exist yet. Turn v1 off in the release that ships it |
+| 2 | Member id | First 4 bytes of SHA-256(public key), little-endian `u32`. A key whose id is 0 or collides inside the room is refused; the client makes another | The header has 32 bits for `from`/`to`; a hash keeps the id stable across reconnects and relay restarts without relay state |
+| 3 | Sign-in | Ed25519 signature over `w-rooms/2 <op> <ROOM> <nonce>`, the nonce fresh per connection in `hello` | No replay across connections, rooms or operations |
+| 4 | Invite proof | HMAC-SHA256 with `authKey` over room, nonce and the redeemer's key. `redeem` also carries a signature by the new key | Proof is bound to the key and the connection |
+| 5 | Invite derivations | HKDF-SHA256, empty salt, `info` = `w-rooms/2 invite id` / `invite auth` / `invite wrap`; invite id is 16 bytes. Expiry is `ttl` seconds counted by the relay's clock, not a timestamp from the host | Fixed so two apps agree; relay time avoids client clock skew |
+| 6 | Redeem twice with the same key | Signs in, spends nothing | A client that lost `welcome` must be able to retry a single-use link |
+| 7 | Removal and links | Removing a member also revokes the invite they came in through; `revokeInvites: true` revokes all | A ban by key is defeated by a multi-use link (C5) |
+| 8 | `cid` | The client's op id travels in the header's `seq` field; the relay overwrites it with the sequence number and returns `ack{cid,seq}` | No extra header field. On unordered frames the field passes through and can carry a request id |
+| 9 | Own frames in replay | Replay includes the asker's own frames | Lets a client settle ops whose ack was lost; the relay does not deduplicate |
+| 10 | Replay | `resume` in `auth`, or a `replay{after}` message; `replay-too-old` / `replay-ahead` errors; log bound 2048 frames and 8 MiB | One mechanism for reconnect and for gaps; the log must fit a member's queue |
+| 11 | `room.session` | A random value per room record in `welcome` | Tells a client that the relay lost the room and sequence numbers restarted |
+| 12 | Frame kind 9, `sync-request` | Added. Kinds 3, 4, 9 must name one recipient | C6 needs a member-to-member request and C8's kind list had none for shared-copy rooms |
+| 13 | Kind 8 (key) | Shared copy: host only. View-through-host: host ↔ guest | Matches C7; tighter is easier to loosen later |
+| 14 | Ordering in view-through-host | Only the host's edit frames are ordered. A guest's patch goes to the host alone, unstamped; the host applies and re-sends | Star routing means other guests never see a guest's frame, so stamping it would leave gaps |
+| 15 | Host leaves (view-through-host) | `room-close`, or a clean WebSocket close by the host, ends the room at once. A broken socket gives `host-away` and 15 s to sign in again. Silence is caught by ping after 15 s and ends the room directly | "Close at once on clean exit, within 15 s on hard loss". A silent host cannot be told apart from a slow one earlier than the timeout, so there is no `host-away` phase in that case |
+| 16 | Who gets the 5 s ping | Only the host of a view-through-host room; guests and shared-copy members keep 20 s / 60 s | Only the host's loss must be noticed within seconds |
+| 17 | Rates | Host of a view-through-host room gets the room allowance (800 msg/s) instead of 200. Slice requests are also counted by the relay (30 burst, 600/min per guest). Over the room allowance frames are dropped, not connections | The host answers up to 15 guests. The relay's count backs up the host app's own |
+| 18 | Joins per IP | 30 per minute, not 10 | 16 people behind one NAT reconnect together after a blip |
+| 19 | Tombstones | Deleted **and closed** ids answer 4410 for 30 days and cannot be re-created; at most 4096 remembered | A closed view-through-host session must not be reopened under the same links |
+| 20 | Dormant rooms, idle members | Kept in memory; members lapse after 30 idle days, rooms after 30 days with nobody connected. The sweeper (2.5) is done now | Owner's answer to F3; bounded memory needs it anyway |
+| 21 | Re-registering after a restart | `create` may carry `members` (keys and roles) | C3 says the host re-registers from its local record; without this every member would need a new invite |
+| 22 | Close codes added | 4002 too slow, 4003 signed in elsewhere, 4400 bad handshake, 4409 room id taken | The design's list had no code for these |
+| 23 | Editors inviting, role `viewer` | "Can invite" is not built (2.5). `viewer` is built: its edit frames are refused | Cheap, and the matrix in C2 needs it |
+| 24 | Fault hooks | A `Faults` handle in `RelayConfig`, not a cargo feature and not an HTTP endpoint | Works in integration tests without feature flags; nothing reachable from the network. Playwright-side helpers come with the v2 client |
+| 25 | Modules | `v1`, `proto`, `auth`, `invites`, `limits`, `rooms`, `conn`, `faults`. No `storage` or `admin` yet | Those are phase 2 |
+| 26 | Not built here | `/metrics`, admin delete, key rotation, storage; TypeScript client | Phase 2, or the client engineer's work |
+
+Open risk: anyone who can reach a relay can create rooms up to its cap, and an abandoned room lives 30 days. Until phase 2 adds an admin token, keep a relay private or keep `--max-rooms` low (`relay/README.md`).

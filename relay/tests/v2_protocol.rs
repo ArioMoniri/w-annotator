@@ -468,3 +468,19 @@ async fn the_invite_page_is_static_and_tells_nothing_about_rooms() {
         .await
         .starts_with("HTTP/1.1 404"));
 }
+
+#[tokio::test]
+async fn shutdown_closes_v2_connections_and_returns() {
+    let mut relay = TestRelay::start().await;
+    let (mut host, mut members) = relay.room("STOP0001", "host-view", 1).await;
+    let (_pending, _) = relay.open("STOP0001").await; // connected, not signed in
+    relay.stop.take().unwrap().send(()).unwrap();
+    // Everyone is let go; a shutdown is not "host lost" or "room closed".
+    assert_ne!(host.closed().await.code, 4410);
+    assert_ne!(members[0].closed().await.code, 4410);
+    let result = tokio::time::timeout(WAIT, &mut relay.task)
+        .await
+        .expect("the relay did not stop")
+        .unwrap();
+    assert!(result.is_ok());
+}
