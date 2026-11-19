@@ -20,7 +20,7 @@ The cursor, the zoom towards the action and the window on a background follow th
 cd video
 npm install
 npm run render      # renders out/launch-full.mp4, then ffmpeg writes ../docs/assets/launch.mp4 (1920x1080, 30 fps, H.264, no audio)
-npm run preview     # writes ../docs/assets/launch.webp from that file (needs ffmpeg)
+npm run preview     # writes ../docs/assets/launch.webp from that file (needs ffmpeg and Python with Pillow)
 npm run studio      # opens the Remotion editor
 ```
 
