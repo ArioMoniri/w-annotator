@@ -11,7 +11,8 @@ How to use it:
 
 | Date | Question | Decision | Why |
 | --- | --- | --- | --- |
-|  |  |  |  |
+| 2026-11-19 | Should the app have a light theme, and what happens to the image? | Three appearance modes: Light, Dark and System (default, follows the OS live). Viewports, the gaps between them and everything drawn over the image stay dark in both themes. | Requested in issue #1. A black surround is how images are read; a bright frame or bright overlays would change perceived contrast. |
+| 2026-11-19 | Which light palette? | The optional light palette in `DESIGN.md` section 3, with `--text-3`, `--accent`, `--ok`, `--warn`, `--danger` darkened and `--border-control` added. | As drafted, several pairs fell below 4.5:1 for text or 3:1 for control borders. Measured values are in `DESIGN.md` 3.2. |
 |  |  |  |  |
 |  |  |  |  |
 |  |  |  |  |

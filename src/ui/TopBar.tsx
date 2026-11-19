@@ -7,6 +7,7 @@ import { copyText } from '../platform';
 import { jumpTo } from '../viewer/engine';
 import { MOD, useDismiss } from './common';
 import { pickDicomFolder, pickImage, pickMask } from './files';
+import { ThemeControl } from './ThemeControl';
 
 function FileMenu() {
   const image = useStore((s) => s.image);
@@ -53,6 +54,11 @@ function FileMenu() {
           <button className="item" role="menuitem" onClick={run(() => set({ shortcutsOpen: true }))}>
             Keyboard shortcuts <kbd>?</kbd>
           </button>
+          <div className="row">
+            Appearance
+            <ThemeControl />
+          </div>
+          <hr />
           {update && (
             <button className="item" role="menuitem" onClick={run(() => void update.install())}>
               Restart to update
