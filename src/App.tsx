@@ -79,6 +79,9 @@ function useHotkeys() {
         case ' ':
           e.preventDefault();
           return session.setTool(previousTool.current);
+        case 'i':
+        case 'I':
+          return session.fillBetweenSlices();
         case 'n':
         case 'N':
           return session.addSegment();

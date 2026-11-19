@@ -1,5 +1,5 @@
 import { activeSegmentInfo, useStore } from '../state/store';
-import { setBrushSize, setToolOption, setVoi } from '../session';
+import { fillBetweenSlices, setBrushSize, setToolOption, setVoi } from '../session';
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { getImage } from '../session';
 import { autoWindow } from '../io';
@@ -157,6 +157,21 @@ export function OptionsStrip() {
       );
       break;
     case 'brush':
+      body = (
+        <>
+          <SizeField />
+          <ShapeField />
+          <button
+            className="btn secondary"
+            data-tip="Paint every few slices, then fill the gaps  I"
+            data-tip-side="bottom"
+            onClick={fillBetweenSlices}
+          >
+            Fill between slices
+          </button>
+        </>
+      );
+      break;
     case 'eraser':
       body = (
         <>

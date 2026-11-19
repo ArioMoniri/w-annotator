@@ -14,6 +14,7 @@ import {
 } from './io';
 import type { ScalarArray, VolumeData } from './io/types';
 import { History } from './mask/history';
+import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
 import { applyPatch, decodePatch, diffMask, encodePatch, patchSlices, type Patch } from './mask/patch';
 import { RoomClient } from './collab/client';
 import {
@@ -530,6 +531,27 @@ export function deleteSegment(index: number): void {
   updateSegments(rest, active);
   if (rest.length === 0 && EDIT_TOOLS.includes(s.tool)) setTool('crosshair');
   toast('info', `${seg.name} deleted`, n > 0 ? { label: 'Undo', run: undo } : undefined);
+}
+
+/** Fill the gaps between painted slices of the active segment, in the plane of the active view. */
+export function fillBetweenSlices(): void {
+  const s = get();
+  const seg = s.segments.find((x) => x.index === s.activeSegment);
+  if (!mask || !seg) {
+    toast('info', 'Add a segment to start editing.');
+    return;
+  }
+  if (seg.locked) {
+    toast('info', `${seg.name} is locked. Unlock it to edit.`);
+    return;
+  }
+  const view = s.activeView === 'volume3d' ? 'axial' : s.activeView;
+  const axis = sliceAxisFor(mask.direction, view);
+  const n = editMask((d) => {
+    interpolateSlices(d, mask!.dims, seg.index, axis);
+  });
+  if (n > 0) toast('info', `Filled ${n.toLocaleString('en-US')} voxels between ${view} slices`, { label: 'Undo', run: undo });
+  else toast('info', `Paint ${seg.name} on two ${view} slices with a gap between them, then fill.`);
 }
 
 export function setOpacity(opacity: number): void {

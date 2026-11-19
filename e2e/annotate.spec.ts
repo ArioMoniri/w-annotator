@@ -104,3 +104,20 @@ test('shortcut sheet opens with ?', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+test('fill between slices joins two painted slices', async ({ page }) => {
+  await openPhantom(page, false);
+  await page.getByRole('button', { name: 'Add segment' }).first().click();
+  await drag(page, 'axial', [-20, 0], [20, 0]);
+  const one = await maskVoxels(page, 1);
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp');
+  await drag(page, 'axial', [-20, 0], [20, 0]);
+  const two = await maskVoxels(page, 1);
+  expect(two).toBeGreaterThan(one);
+  await page.getByRole('button', { name: 'Fill between slices' }).click();
+  const filled = await maskVoxels(page, 1);
+  expect(filled).toBeGreaterThan(two * 1.5);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  expect(await maskVoxels(page, 1)).toBe(two);
+});
