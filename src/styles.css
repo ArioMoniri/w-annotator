@@ -24,10 +24,11 @@
   /* The unfilled part of a slider: 3:1 or better against the surface it sits on. */
   --track: var(--border-control);
   --swatch-ring: transparent;
-  --thumb: var(--text-1);
-  --thumb-ring: transparent;
+  /* The halo around a slider thumb on hover and drag. */
+  --halo: var(--accent-soft);
   --row-selected: var(--accent-soft);
-  --tool-disabled: var(--text-disabled);
+  /* A tool that cannot be used yet is still an icon to find: 3:1 against the rail. */
+  --tool-disabled: #666e7a;
   --text-1: #e7e9ec;
   --text-2: #a6adb7;
   --text-3: #808894;
@@ -59,13 +60,17 @@
   --bg-raised: #ffffff;
   --bg-hover: #eceef1;
   --bg-active: #e1e4e8;
-  --bg-scrim: rgba(15, 17, 20, 0.32);
+  --bg-scrim: rgba(15, 17, 20, 0.48);
   --border: #dde0e5;
   --border-strong: #c4c9d1;
   --border-control: #7a828e;
   --border-button: var(--border-control);
   --track: var(--border-control);
   --swatch-ring: rgba(16, 18, 22, 0.28);
+  --halo: rgba(29, 88, 216, 0.22);
+  /* Stronger than hover grey, so the selected row is told apart by more than its hue. */
+  --row-selected: rgba(29, 88, 216, 0.16);
+  --tool-disabled: #868d98;
   --text-1: #16181c;
   --text-2: #4d545e;
   --text-3: #5e6570;
@@ -393,7 +398,7 @@ kbd {
   padding: 4px 8px;
   font: 400 12px/16px var(--font-ui);
   color: var(--text-1);
-  white-space: nowrap;
+  white-space: pre;
   pointer-events: none;
   opacity: 0;
   z-index: 70;
@@ -714,11 +719,11 @@ input[type='range']::-moz-range-thumb {
 }
 
 input[type='range']:hover::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  box-shadow: 0 0 0 4px var(--halo);
 }
 
 input[type='range']:active::-webkit-slider-thumb {
-  box-shadow: 0 0 0 6px var(--accent-soft);
+  box-shadow: 0 0 0 6px var(--halo);
 }
 
 input[type='range']:focus-visible {
@@ -1080,7 +1085,8 @@ input[type='range']:focus-visible {
 
 .segrow[data-hidden='true'] .swatchbtn .swatch {
   background: transparent !important;
-  box-shadow: inset 0 0 0 1px currentColor;
+  /* The outer ring keeps a pale colour (yellow, pink) visible on a light surface. */
+  box-shadow: inset 0 0 0 1.5px currentColor, 0 0 0 1px var(--swatch-ring);
 }
 
 .segrow .act {
@@ -1257,10 +1263,15 @@ input[type='range']:focus-visible {
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px var(--swatch-ring);
 }
 
 .palette button[aria-pressed='true'] {
-  box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--swatch-ring), 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--text-1);
+}
+
+.palette button:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 
 /* ── Status bar ────────────────────────────────── */
@@ -1386,7 +1397,9 @@ input[type='range']:focus-visible {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: var(--bg-scrim);
+  /* Dark in both themes: most of what it covers is the black viewport. */
+  background: rgba(0, 0, 0, 0.56);
+  color: #e7e9ec;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1843,7 +1856,7 @@ input[type='range']:focus-visible {
 
 @media (max-width: 1279px) {
   .dual {
-    width: 96px;
+    width: 80px;
   }
   .strip[data-strip='threshold'] input[aria-label='Brush size'] {
     display: none;
