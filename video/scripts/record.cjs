@@ -141,7 +141,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     // ── 4. refine: grow the new segment and watch its volume ──
     scene = 'refine';
     const row = (pg, name) => pg.locator('.segrow', { hasText: name });
-    cam('A', 1.25, 1440, 0);
+    cam('A', 1.5, 1440, 0);
     await move('A', ...(await center(row(A, 'Mediastinum').locator('.name'))), 24, 2);
     await hold(8);
     await move('A', ...(await center(row(A, 'Mediastinum').getByLabel(/^More for/))), 12, 2);
