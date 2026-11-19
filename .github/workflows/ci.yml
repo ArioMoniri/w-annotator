@@ -141,18 +141,19 @@ jobs:
           cd "$RUNNER_TEMP/edgedriver"
           "$HOME/.cargo/bin/msedgedriver-tool.exe"
           echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
-      - name: Desktop e2e (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm e2e:desktop
-      - name: Desktop e2e (Windows)
-        if: runner.os == 'Windows'
-        run: pnpm e2e:desktop
+      # The self-test needs no driver, so it also tells an app problem from a driver problem.
       - name: Self-test (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm selftest:desktop
       - name: Self-test (Windows)
         if: runner.os == 'Windows'
         run: pnpm selftest:desktop
+      - name: Desktop e2e (Linux)
+        if: runner.os == 'Linux' && !cancelled()
+        run: xvfb-run -a pnpm e2e:desktop
+      - name: Desktop e2e (Windows)
+        if: runner.os == 'Windows' && !cancelled()
+        run: pnpm e2e:desktop
 
   # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
   # WebKit, and the built app testing itself (W_SELFTEST).

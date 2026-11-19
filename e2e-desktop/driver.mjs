@@ -97,6 +97,11 @@ export async function launch({ args = [], env = {} } = {}) {
       },
     };
   } catch (err) {
+    if (process.platform === 'win32') {
+      // Shows whether the app and its WebView2 processes came up at all.
+      const list = spawnSync('tasklist', [], { encoding: 'utf8' }).stdout ?? '';
+      console.error(`Processes when the session failed:\n${list.split('\n').filter((l) => /w-annotator|msedge|webview/i.test(l)).join('\n')}`);
+    }
     await stop();
     throw err;
   }
