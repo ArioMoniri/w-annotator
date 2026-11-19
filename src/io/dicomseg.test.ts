@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { isDicomSeg, readDicomSeg, writeDicomSeg } from './dicomseg';
 import { readVolume, readVolumeAsync, resampleNearest, writeMask } from './index';
@@ -534,6 +535,34 @@ describe('readDicomSeg with files from other software', () => {
     v.direction.forEach((x, n) => expect(x).toBeCloseTo(mask.direction[n], 9));
     [-12.3, 45.6 - 2.5 * s, -78.9 + 2.5 * c].forEach((x, n) => expect(v.origin[n]).toBeCloseTo(x, 9));
     expect(Array.from(v.data)).toEqual(Array.from(mask.data.subarray(COLS * ROWS, 5 * COLS * ROWS)));
+  });
+
+  it('reads a segmentation written by highdicom', () => {
+    // See fixtures/make_seg_fixture.py for what is in the file.
+    const bytes = new Uint8Array(readFileSync(new URL('./fixtures/highdicom_seg.dcm', import.meta.url)));
+    expect(isDicomSeg(file(bytes))).toBe(true);
+    const v = readDicomSeg(file(bytes));
+    expect(v.name).toBe('Made by highdicom');
+    // Frames exist for slices 1, 2 and 4 of the source image, so the grid spans slices 1..4.
+    expect(v.dims).toEqual([5, 3, 4]);
+    expect(v.spacing).toEqual([0.7, 0.9, 2.5]);
+    v.origin.forEach((x, n) => expect(x).toBeCloseTo([-12.3, 45.6, -76.4][n], 9));
+    expect(v.direction).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const want = new Array<number>(5 * 3 * 4).fill(0);
+    const set = (i: number, j: number, k: number, value: number) => (want[i + j * 5 + (k - 1) * 15] = value);
+    set(0, 0, 1, 1);
+    set(1, 0, 1, 1);
+    set(4, 2, 1, 2);
+    set(2, 1, 2, 2);
+    set(0, 2, 2, 1);
+    set(0, 1, 4, 1);
+    expect(Array.from(v.data)).toEqual(want);
+    expect(v.labels).toEqual({ 1: 'Liver', 2: 'Tumour' });
+    // highdicom encodes colours against a D50 white point; this app, like DCMTK, dcmqi and dcmjs, uses D65.
+    // The same red and blue come back recognisably, but not equal.
+    [220, 20, 60].forEach((x, n) => expect(Math.abs((v.colors?.[1][n] ?? -99) - x)).toBeLessThanOrEqual(32));
+    [30, 144, 255].forEach((x, n) => expect(Math.abs((v.colors?.[2][n] ?? -99) - x)).toBeLessThanOrEqual(32));
+    expect(v.warnings).toBeUndefined();
   });
 
   it('explains what it cannot read', () => {

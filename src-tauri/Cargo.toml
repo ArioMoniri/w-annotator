@@ -1,5 +1,7 @@
 [package]
 name = "w-annotator"
+authors = ["Ariorad Moniri"]
+license = "PolyForm-Noncommercial-1.0.0"
 version = "0.1.0"
 description = "Open medical volumes and correct segmentation masks."
 edition = "2021"

@@ -41,25 +41,34 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["nii"],
+        "ext": [
+          "nii"
+        ],
         "name": "NIfTI volume",
         "description": "NIfTI volume",
         "role": "Editor"
       },
       {
-        "ext": ["mha", "mhd"],
+        "ext": [
+          "mha",
+          "mhd"
+        ],
         "name": "MetaImage volume",
         "description": "MetaImage volume",
         "role": "Editor"
       },
       {
-        "ext": ["nrrd"],
+        "ext": [
+          "nrrd"
+        ],
         "name": "NRRD volume",
         "description": "NRRD volume",
         "role": "Editor"
       },
       {
-        "ext": ["dcm"],
+        "ext": [
+          "dcm"
+        ],
         "name": "DICOM image",
         "description": "DICOM image",
         "mimeType": "application/dicom",
@@ -75,7 +84,10 @@
       "deb": {
         "section": "science"
       }
-    }
+    },
+    "copyright": "Copyright © 2026 Ariorad Moniri",
+    "publisher": "Ariorad Moniri",
+    "license": "PolyForm-Noncommercial-1.0.0"
   },
   "plugins": {
     "updater": {

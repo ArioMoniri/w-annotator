@@ -12,7 +12,7 @@ Harassment, insults, personal attacks, sexual or discriminatory language or imag
 
 ## Reporting
 
-If you see or experience behaviour that breaks these rules, tell the maintainer, [Ario Moniri](https://github.com/ArioMoniri), through GitHub. You can use the "Report content" option on the comment or issue, or contact the maintainer through their profile if you prefer not to post publicly. Reports are read by the maintainer and kept private.
+If you see or experience behaviour that breaks these rules, tell the maintainer, [Ariorad Moniri](https://github.com/ArioMoniri), through GitHub. You can use the "Report content" option on the comment or issue, or contact the maintainer through their profile if you prefer not to post publicly. Reports are read by the maintainer and kept private.
 
 ## What happens next
 

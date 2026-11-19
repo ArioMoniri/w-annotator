@@ -30,4 +30,4 @@ W Annotator opens a medical volume, overlays a segmentation mask and lets you co
 
 ## Licence
 
-W Annotator is released under the [PolyForm Noncommercial License 1.0.0](../LICENSE). It is free for personal, research, teaching and other non-commercial use. Commercial use needs written permission from Ario Moniri. Third-party components keep their own licences, including Cornerstone3D (MIT) and Tauri (MIT or Apache-2.0). The software is not a medical device and comes without warranty.
+W Annotator is released under the [PolyForm Noncommercial License 1.0.0](../LICENSE). It is free for personal, research, teaching and other non-commercial use. Commercial use needs written permission from Ariorad Moniri. Third-party components keep their own licences, including Cornerstone3D (MIT) and Tauri (MIT or Apache-2.0). The software is not a medical device and comes without warranty.

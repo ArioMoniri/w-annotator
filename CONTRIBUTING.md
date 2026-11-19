@@ -64,4 +64,4 @@ Use the "Report a problem" item in the app, which opens the bug form with the ve
 
 ## Licence
 
-The project is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). By submitting a contribution you agree that it is licensed under the same terms, and that Ario Moniri, as the licensor, may also grant others permission to use it commercially. Only submit work you have the right to contribute.
+The project is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). By submitting a contribution you agree that it is licensed under the same terms, and that Ariorad Moniri, as the licensor, may also grant others permission to use it commercially. Only submit work you have the right to contribute.
