@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- W Annotator app icon, Windows and Linux source: same artwork, tile enlarged to 960, no shadow -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22252C"/>
+      <stop offset="1" stop-color="#0E1013"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="0.22" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.04"/>
+    </linearGradient>
+    <clipPath id="tile"><path d="M362.19 32 L661.81 32 C756.89 32 804.42 32 855.6 48.18 C911.47 68.52 955.48 112.53 975.82 168.4 C992 219.58 992 267.11 992 362.19 L992 661.81 C992 756.89 992 804.42 975.82 855.6 C955.48 911.47 911.47 955.48 855.6 975.82 C804.42 992 756.89 992 661.81 992 L362.19 992 C267.11 992 219.58 992 168.4 975.82 C112.53 955.48 68.52 911.47 48.18 855.6 C32 804.42 32 756.89 32 661.81 L32 362.19 C32 267.11 32 219.58 48.18 168.4 C68.52 112.53 112.53 68.52 168.4 48.18 C219.58 32 267.11 32 362.19 32 Z"/></clipPath>
+    <!-- Limits the contact shadow to the orange region -->
+    <mask id="on-orange" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <path d="M270 366 L391 676 L512 404" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#FFF" stroke-width="110"/>
+    </mask>
+    <filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+  <!-- Tile: continuous-corner squircle, 960x960, radius 216 -->
+  <path d="M362.19 32 L661.81 32 C756.89 32 804.42 32 855.6 48.18 C911.47 68.52 955.48 112.53 975.82 168.4 C992 219.58 992 267.11 992 362.19 L992 661.81 C992 756.89 992 804.42 975.82 855.6 C955.48 911.47 911.47 955.48 855.6 975.82 C804.42 992 756.89 992 661.81 992 L362.19 992 C267.11 992 219.58 992 168.4 975.82 C112.53 955.48 68.52 911.47 48.18 855.6 C32 804.42 32 756.89 32 661.81 L32 362.19 C32 267.11 32 219.58 48.18 168.4 C68.52 112.53 112.53 68.52 168.4 48.18 C219.58 32 267.11 32 362.19 32 Z" fill="url(#bg)"/>
+  <g clip-path="url(#tile)">
+    <g transform="translate(512 512) scale(1.16505) translate(-526 -498)">
+      <!-- Layer 1: orange label region (left half of the W) -->
+      <path d="M270 366 L391 676 L512 404" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#E69F00" stroke-width="110"/>
+      <g mask="url(#on-orange)">
+        <path d="M512 404 L633 676 L754 366" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#3A2600" stroke-opacity="0.75" stroke-width="110" filter="url(#soft)" transform="translate(-12 6)"/>
+      </g>
+      <!-- Layer 2: sky label region (right half), lying over the orange one -->
+      <path d="M512 404 L633 676 L754 366" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#56B4E9" stroke-width="110"/>
+      <!-- Brush cursor ring at the end of the stroke -->
+      <circle cx="754" cy="366" r="90" fill="none" stroke="#FFFFFF" stroke-width="18"/>
+    </g>
+    <!-- Inner highlight, strongest at the top edge -->
+    <path d="M362.19 32 L661.81 32 C756.89 32 804.42 32 855.6 48.18 C911.47 68.52 955.48 112.53 975.82 168.4 C992 219.58 992 267.11 992 362.19 L992 661.81 C992 756.89 992 804.42 975.82 855.6 C955.48 911.47 911.47 955.48 855.6 975.82 C804.42 992 756.89 992 661.81 992 L362.19 992 C267.11 992 219.58 992 168.4 975.82 C112.53 955.48 68.52 911.47 48.18 855.6 C32 804.42 32 756.89 32 661.81 L32 362.19 C32 267.11 32 219.58 48.18 168.4 C68.52 112.53 112.53 68.52 168.4 48.18 C219.58 32 267.11 32 362.19 32 Z" fill="none" stroke="url(#rim)" stroke-width="7"/>
+  </g>
+</svg>

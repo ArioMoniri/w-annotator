@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="162 147 720 720">
+  <!-- W Annotator mark on a transparent background. The ring is mid-grey so it holds on light and dark pages. -->
+  <defs>
+    <!-- Limits the contact shadow to the orange region -->
+    <mask id="on-orange" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <path d="M270 366 L391 676 L512 404" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#FFF" stroke-width="110"/>
+    </mask>
+    <filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+  <g transform="translate(10 8)">
+    <!-- Layer 1: orange label region (left half of the W) -->
+    <path d="M270 366 L391 676 L512 404" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#E69F00" stroke-width="110"/>
+    <g mask="url(#on-orange)">
+      <path d="M512 404 L633 676 L754 366" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#3A2600" stroke-opacity="0.75" stroke-width="110" filter="url(#soft)" transform="translate(-12 6)"/>
+    </g>
+    <!-- Layer 2: sky label region (right half), lying over the orange one -->
+    <path d="M512 404 L633 676 L754 366" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#56B4E9" stroke-width="110"/>
+    <!-- Brush cursor ring at the end of the stroke -->
+    <circle cx="754" cy="366" r="90" fill="none" stroke="#8B93A1" stroke-width="18"/>
+  </g>
+</svg>

@@ -2,7 +2,7 @@
   <img src="docs/assets/hero.gif" width="800" alt="Two people drawing on the same mask over a scan slice">
 </p>
 
-# W Annotator
+<h1><img src="docs/assets/logo.png" width="36" align="top" alt=""> W Annotator</h1>
 
 W Annotator is a desktop app for macOS, Windows and Linux that opens 3D medical images and lets you edit segmentation masks, alone or with other people in the same mask at once.
 

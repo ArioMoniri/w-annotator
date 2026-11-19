@@ -1,12 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- W Annotator app icon, macOS source: 824 tile centred on a 1024 canvas, with drop shadow -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#23262E"/>
-      <stop offset="1" stop-color="#121418"/>
+      <stop offset="0" stop-color="#22252C"/>
+      <stop offset="1" stop-color="#0E1013"/>
     </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="0.22" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.04"/>
+    </linearGradient>
+    <filter id="drop" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dy="10"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+    </filter>
+    <clipPath id="tile"><path d="M382.8 100 L641.2 100 C722.63 100 763.34 100 807.17 113.86 C855.03 131.28 892.72 168.97 910.14 216.83 C924 260.66 924 301.37 924 382.8 L924 641.2 C924 722.63 924 763.34 910.14 807.17 C892.72 855.03 855.03 892.72 807.17 910.14 C763.34 924 722.63 924 641.2 924 L382.8 924 C301.37 924 260.66 924 216.83 910.14 C168.97 892.72 131.28 855.03 113.86 807.17 C100 763.34 100 722.63 100 641.2 L100 382.8 C100 301.37 100 260.66 113.86 216.83 C131.28 168.97 168.97 131.28 216.83 113.86 C260.66 100 301.37 100 382.8 100 Z"/></clipPath>
+    <!-- Limits the contact shadow to the orange region -->
+    <mask id="on-orange" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <path d="M270 366 L391 676 L512 404" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#FFF" stroke-width="110"/>
+    </mask>
+    <filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
-  <path d="M300 388 L392 660 L512 430 L632 660 L700 460" fill="none" stroke="#FFFFFF"
-        stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="734" cy="362" r="50" fill="#5B9DFF"/>
+  <!-- Drop shadow: y 10, blur 20, black 30% -->
+  <path d="M382.8 100 L641.2 100 C722.63 100 763.34 100 807.17 113.86 C855.03 131.28 892.72 168.97 910.14 216.83 C924 260.66 924 301.37 924 382.8 L924 641.2 C924 722.63 924 763.34 910.14 807.17 C892.72 855.03 855.03 892.72 807.17 910.14 C763.34 924 722.63 924 641.2 924 L382.8 924 C301.37 924 260.66 924 216.83 910.14 C168.97 892.72 131.28 855.03 113.86 807.17 C100 763.34 100 722.63 100 641.2 L100 382.8 C100 301.37 100 260.66 113.86 216.83 C131.28 168.97 168.97 131.28 216.83 113.86 C260.66 100 301.37 100 382.8 100 Z" filter="url(#drop)"/>
+  <!-- Tile: continuous-corner squircle, 824x824, radius 185 -->
+  <path d="M382.8 100 L641.2 100 C722.63 100 763.34 100 807.17 113.86 C855.03 131.28 892.72 168.97 910.14 216.83 C924 260.66 924 301.37 924 382.8 L924 641.2 C924 722.63 924 763.34 910.14 807.17 C892.72 855.03 855.03 892.72 807.17 910.14 C763.34 924 722.63 924 641.2 924 L382.8 924 C301.37 924 260.66 924 216.83 910.14 C168.97 892.72 131.28 855.03 113.86 807.17 C100 763.34 100 722.63 100 641.2 L100 382.8 C100 301.37 100 260.66 113.86 216.83 C131.28 168.97 168.97 131.28 216.83 113.86 C260.66 100 301.37 100 382.8 100 Z" fill="url(#bg)"/>
+  <g clip-path="url(#tile)">
+    <g transform="translate(-14 14)">
+      <!-- Layer 1: orange label region (left half of the W) -->
+      <path d="M270 366 L391 676 L512 404" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#E69F00" stroke-width="110"/>
+      <g mask="url(#on-orange)">
+        <path d="M512 404 L633 676 L754 366" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#3A2600" stroke-opacity="0.75" stroke-width="110" filter="url(#soft)" transform="translate(-12 6)"/>
+      </g>
+      <!-- Layer 2: sky label region (right half), lying over the orange one -->
+      <path d="M512 404 L633 676 L754 366" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke="#56B4E9" stroke-width="110"/>
+      <!-- Brush cursor ring at the end of the stroke -->
+      <circle cx="754" cy="366" r="90" fill="none" stroke="#FFFFFF" stroke-width="18"/>
+    </g>
+    <!-- Inner highlight, strongest at the top edge -->
+    <path d="M382.8 100 L641.2 100 C722.63 100 763.34 100 807.17 113.86 C855.03 131.28 892.72 168.97 910.14 216.83 C924 260.66 924 301.37 924 382.8 L924 641.2 C924 722.63 924 763.34 910.14 807.17 C892.72 855.03 855.03 892.72 807.17 910.14 C763.34 924 722.63 924 641.2 924 L382.8 924 C301.37 924 260.66 924 216.83 910.14 C168.97 892.72 131.28 855.03 113.86 807.17 C100 763.34 100 722.63 100 641.2 L100 382.8 C100 301.37 100 260.66 113.86 216.83 C131.28 168.97 168.97 131.28 216.83 113.86 C260.66 100 301.37 100 382.8 100 Z" fill="none" stroke="url(#rim)" stroke-width="6"/>
+  </g>
 </svg>
