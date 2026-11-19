@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+// Ports can be moved so several checkouts can run their tests side by side.
+const port = Number(process.env.W_PORT ?? 1420);
+const relayPort = Number(process.env.W_RELAY_PORT ?? 8787);
+
 const gl = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
 export default defineConfig({
@@ -9,16 +13,22 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:1420',
+    baseURL: `http://localhost:${port}`,
     viewport: { width: 1280, height: 800 },
     launchOptions: { args: gl },
     trace: 'off',
   },
   webServer: [
-    { command: 'pnpm dev', url: 'http://localhost:1420', reuseExistingServer: true, timeout: 60_000 },
     {
-      command: 'cargo run --quiet -p w-relay -- --port 8787',
-      url: 'http://localhost:8787/health',
+      command: `pnpm vite --port ${port} --strictPort`,
+      url: `http://localhost:${port}`,
+      env: { VITE_RELAY_URL: `ws://localhost:${relayPort}` },
+      reuseExistingServer: true,
+      timeout: 60_000,
+    },
+    {
+      command: `cargo run --quiet -p w-relay -- --port ${relayPort}`,
+      url: `http://localhost:${relayPort}/health`,
       reuseExistingServer: true,
       timeout: 300_000,
     },

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { findUpdate, launchFiles } from './platform';
 import * as session from './session';
+import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/shortcuts';
 import { EDIT_TOOLS, get, set, useStore, type ToolId } from './state/store';
 import { initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
@@ -14,24 +15,24 @@ import { TopBar } from './ui/TopBar';
 import { Viewports } from './ui/Viewports';
 import { droppedFiles, pickImage, pickMask, toInputFiles } from './ui/files';
 
-const TOOL_KEYS: Record<string, ToolId> = {
-  c: 'crosshair',
-  h: 'pan',
-  z: 'zoom',
-  w: 'window',
-  r: 'measure',
-  b: 'brush',
-  e: 'eraser',
-  t: 'threshold',
-  s: 'scissors',
-  f: 'fill',
-};
-
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
   if (el.tagName === 'INPUT') return (el as HTMLInputElement).type !== 'range' && (el as HTMLInputElement).type !== 'checkbox';
   return el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
+}
+
+function cycleSegment(step: number): void {
+  const s = get();
+  if (s.segments.length === 0) return;
+  const at = s.segments.findIndex((x) => x.index === s.activeSegment);
+  const next = s.segments[(at + step + s.segments.length) % s.segments.length];
+  session.selectSegment(next.index);
+}
+
+function scrollActive(delta: number): void {
+  const view = get().activeView;
+  if (view !== 'volume3d') scrollSlices(view, delta);
 }
 
 function useHotkeys() {
@@ -40,73 +41,65 @@ function useHotkeys() {
     const unsub = useStore.subscribe((s, p) => {
       if (s.tool !== p.tool) previousTool.current = p.tool;
     });
+    const run: Record<ActionId, () => void> = {
+      'tool.crosshair': () => session.setTool('crosshair'),
+      'tool.pan': () => session.setTool('pan'),
+      'tool.zoom': () => session.setTool('zoom'),
+      'tool.window': () => session.setTool('window'),
+      'tool.measure': () => session.setTool('measure'),
+      'tool.brush': () => session.setTool('brush'),
+      'tool.eraser': () => session.setTool('eraser'),
+      'tool.threshold': () => session.setTool('threshold'),
+      'tool.scissors': () => session.setTool('scissors'),
+      'tool.fill': () => session.setTool('fill'),
+      'tool.last': () => session.setTool(previousTool.current),
+      'brush.smaller': () => session.setBrushSize(get().brushSize - (get().brushSize > 10 ? 2 : 1)),
+      'brush.larger': () => session.setBrushSize(get().brushSize + (get().brushSize >= 10 ? 2 : 1)),
+      'mask.interpolate': () => session.fillBetweenSlices(),
+      'segment.new': () => session.addSegment(),
+      'segment.next': () => cycleSegment(1),
+      'segment.previous': () => cycleSegment(-1),
+      'mask.outline': () => session.setOutlineOnly(!get().outlineOnly),
+      'mask.toggle': () => session.setOpacity(get().opacity > 0 ? 0 : 0.5),
+      'slice.previous': () => scrollActive(-1),
+      'slice.next': () => scrollActive(1),
+      'slice.back5': () => scrollActive(-5),
+      'slice.forward5': () => scrollActive(5),
+      'view.maximise': () => set({ maximized: get().maximized ? null : get().activeView }),
+      'view.panel': () => set({ panelOpen: !get().panelOpen }),
+      'edit.undo': () => session.undo(),
+      'edit.redo': () => session.redo(),
+      'file.openImage': () => pickImage(),
+      'file.openMask': () => pickMask(),
+      'file.save': () => void session.saveMask(),
+      'help.shortcuts': () => set({ shortcutsOpen: !get().shortcutsOpen }),
+    };
+    // These work with nothing open; the rest need an image.
+    const always = new Set<ActionId>(['file.openImage', 'help.shortcuts']);
+
     const onKey = (e: KeyboardEvent) => {
       const s = get();
-      const mod = e.metaKey || e.ctrlKey;
-      const key = e.key.toLowerCase();
-      if (mod) {
-        if (key === 'z') {
-          e.preventDefault();
-          if (e.shiftKey) session.redo();
-          else session.undo();
-        } else if (key === 'y') {
-          e.preventDefault();
-          session.redo();
-        } else if (key === 'o') {
-          e.preventDefault();
-          if (e.shiftKey) pickMask();
-          else pickImage();
-        } else if (key === 's') {
-          e.preventDefault();
-          void session.saveMask();
-        } else if (key === '\\') {
-          e.preventDefault();
-          set({ panelOpen: !s.panelOpen });
-        }
-        return;
+      if (s.capturingShortcut) return;
+      const combo = comboFromEvent(e);
+      if (!combo) return;
+      const withModifier = combo.startsWith('mod+');
+      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm)) return;
+      if (combo === 'mod+y') {
+        e.preventDefault();
+        return session.redo();
       }
-      if (isTyping(e.target) || e.altKey || s.roomModal || s.confirm) return;
-      if (e.key === '?') return set({ shortcutsOpen: !s.shortcutsOpen });
+      const action = actionFor(useShortcuts.getState().bindings, combo);
+      if (action) {
+        if (s.shortcutsOpen && action !== 'help.shortcuts') return;
+        if (!s.image && !always.has(action)) return;
+        e.preventDefault();
+        return run[action]();
+      }
       if (!s.image || s.shortcutsOpen) return;
-
-      if (TOOL_KEYS[key]) return session.setTool(TOOL_KEYS[key]);
-      if (e.key >= '1' && e.key <= '9') return session.selectSegment(Number(e.key));
-      switch (e.key) {
-        case '[':
-          return session.setBrushSize(s.brushSize - (s.brushSize > 10 ? 2 : 1));
-        case ']':
-          return session.setBrushSize(s.brushSize + (s.brushSize >= 10 ? 2 : 1));
-        case ' ':
-          e.preventDefault();
-          return session.setTool(previousTool.current);
-        case 'i':
-        case 'I':
-          return session.fillBetweenSlices();
-        case 'n':
-        case 'N':
-          return session.addSegment();
-        case 'o':
-        case 'O':
-          return session.setOutlineOnly(!s.outlineOnly);
-        case 'x':
-        case 'X':
-          return session.setOpacity(s.opacity > 0 ? 0 : 0.5);
-        case 'm':
-        case 'M':
-          return set({ maximized: s.maximized ? null : s.activeView });
-        case 'Escape':
-          if (s.maximized) return set({ maximized: null });
-          if (EDIT_TOOLS.includes(s.tool)) return session.setTool('crosshair');
-          return;
-        case 'ArrowUp':
-        case 'ArrowDown':
-        case 'PageUp':
-        case 'PageDown': {
-          if (s.activeView === 'volume3d') return;
-          e.preventDefault();
-          const step = e.key.startsWith('Page') || e.shiftKey ? 5 : 1;
-          return scrollSlices(s.activeView, e.key === 'ArrowUp' || e.key === 'PageUp' ? -step : step);
-        }
+      if (e.key >= '1' && e.key <= '9' && combo.length === 1) return session.selectSegment(Number(e.key));
+      if (e.key === 'Escape') {
+        if (s.maximized) return set({ maximized: null });
+        if (EDIT_TOOLS.includes(s.tool)) return session.setTool('crosshair');
       }
     };
     window.addEventListener('keydown', onKey);

@@ -95,6 +95,8 @@ interface State {
   peers: Peer[];
   roomModal: 'start' | 'join' | null;
   shortcutsOpen: boolean;
+  /** True while the shortcut sheet is waiting for a new key, so nothing else reacts to it. */
+  capturingShortcut: boolean;
   confirm: ConfirmRequest | null;
   toasts: Toast[];
   update: { version: string; install: () => Promise<void> } | null;
@@ -135,6 +137,7 @@ export const useStore = create<State>(() => ({
   peers: [],
   roomModal: null,
   shortcutsOpen: false,
+  capturingShortcut: false,
   confirm: null,
   toasts: [],
   update: null,

@@ -1,6 +1,8 @@
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from 'lucide-react';
 import { dismissToast, set, useStore } from '../state/store';
-import { MOD, Modal } from './common';
+import { useEffect, useState } from 'react';
+import { ACTIONS, comboFromEvent, formatCombo, isReserved, labelOf, resetShortcuts, setShortcut, useShortcuts, type ActionId } from '../state/shortcuts';
+import { MOD, Modal, isMac } from './common';
 
 export function Toasts() {
   const toasts = useStore((s) => s.toasts);
@@ -114,82 +116,96 @@ export function Busy() {
   );
 }
 
-const SHORTCUTS: [string, [string, string][]][] = [
-  [
-    'Tools',
-    [
-      ['Crosshair', 'C'],
-      ['Pan', 'H'],
-      ['Zoom', 'Z'],
-      ['Window / Level', 'W'],
-      ['Ruler', 'R'],
-      ['Brush', 'B'],
-      ['Eraser', 'E'],
-      ['Threshold brush', 'T'],
-      ['Scissors', 'S'],
-      ['Fill', 'F'],
-      ['Brush size', '[  ]'],
-      ['Erase with the brush', 'Shift-drag'],
-      ['Fill between slices', 'I'],
-      ['Last tool', 'Space'],
-    ],
-  ],
-  [
-    'Mouse, with any tool',
-    [
-      ['Change slice', 'Scroll'],
-      ['Zoom', `${MOD}+Scroll`],
-      ['Pan', 'Middle-drag'],
-      ['Window / Level', 'Right-drag'],
-      ['Maximise a view', 'Double-click'],
-    ],
-  ],
-  [
-    'Segments',
-    [
-      ['Select segment 1–9', '1 – 9'],
-      ['New segment', 'N'],
-      ['Outline only', 'O'],
-      ['Hide or show the mask', 'X'],
-    ],
-  ],
-  [
-    'View and file',
-    [
-      ['Next / previous slice', '↑ ↓'],
-      ['Maximise or restore', 'M'],
-      ['Show or hide segments', `${MOD}+\\`],
-      ['Undo', `${MOD}+Z`],
-      ['Redo', `${MOD}+Shift+Z`],
-      ['Open image', `${MOD}+O`],
-      ['Open mask', `${MOD}+Shift+O`],
-      ['Save mask', `${MOD}+S`],
-    ],
-  ],
+const MOUSE: [string, string][] = [
+  ['Change slice', 'Scroll'],
+  ['Zoom', `${MOD}+Scroll`],
+  ['Pan', 'Middle-drag'],
+  ['Window / Level', 'Right-drag'],
+  ['Erase with the brush', 'Shift-drag'],
+  ['Maximise a view', 'Double-click'],
+  ['Select segment 1–9', '1 – 9'],
 ];
+
+const GROUPS = ['Tools', 'Segments', 'View and file'] as const;
 
 export function ShortcutsSheet() {
   const open = useStore((s) => s.shortcutsOpen);
+  const bindings = useShortcuts((s) => s.bindings);
+  const [editing, setEditing] = useState<ActionId | null>(null);
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    set({ capturingShortcut: editing !== null });
+    if (!editing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') return setEditing(null);
+      const combo = comboFromEvent(e);
+      if (!combo) return;
+      if (isReserved(combo)) return setNote(`${formatCombo(combo, isMac)} is fixed and can't be reassigned.`);
+      const displaced = setShortcut(editing, combo);
+      setNote(displaced ? `${labelOf(displaced)} no longer has a shortcut.` : '');
+      setEditing(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [editing]);
+
   if (!open) return null;
-  const close = () => set({ shortcutsOpen: false });
+  const close = () => {
+    setEditing(null);
+    setNote('');
+    set({ shortcutsOpen: false, capturingShortcut: false });
+  };
+  const changed = ACTIONS.some((a) => bindings[a.id] !== a.key);
   return (
-    <Modal title="Keyboard shortcuts" onClose={close} wide>
+    <Modal title="Keyboard shortcuts" onClose={editing ? () => setEditing(null) : close} wide>
       <button className="iconbtn close" aria-label="Close" onClick={close}>
         <X size={16} />
       </button>
       <h2>Keyboard shortcuts</h2>
+      <p className="sheet-help" role="status">
+        {editing ? `Press the new keys for ${labelOf(editing)}. Esc cancels.` : note || 'Click a shortcut, then press the keys you want.'}
+      </p>
       <div className="shortcuts">
-        {SHORTCUTS.map(([group, rows]) => (
+        {GROUPS.map((group) => (
           <div key={group} style={{ display: 'contents' }}>
             <h3>{group}</h3>
-            {rows.map(([label, key]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <kbd>{key}</kbd>
+            {ACTIONS.filter((a) => a.group === group).map((a) => (
+              <div key={a.id}>
+                <span>{a.label}</span>
+                <button
+                  className="keybtn"
+                  data-editing={editing === a.id}
+                  data-action={a.id}
+                  aria-label={`Change shortcut for ${a.label}, now ${formatCombo(bindings[a.id], isMac)}`}
+                  onClick={() => {
+                    setNote('');
+                    setEditing(editing === a.id ? null : a.id);
+                  }}
+                >
+                  {editing === a.id ? 'Press keys…' : formatCombo(bindings[a.id], isMac)}
+                </button>
               </div>
             ))}
           </div>
         ))}
+        <h3>Mouse and fixed keys</h3>
+        {MOUSE.map(([label, key]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <kbd>{key}</kbd>
+          </div>
+        ))}
+      </div>
+      <div className="footer">
+        <button className="btn secondary lg" disabled={!changed} onClick={() => (resetShortcuts(), setNote('Shortcuts are back to the defaults.'))}>
+          Reset to defaults
+        </button>
+        <button className="btn primary lg" onClick={close}>
+          Done
+        </button>
       </div>
     </Modal>
   );

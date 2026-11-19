@@ -2,7 +2,8 @@ import { Blend, Brush, Contrast, Crosshair, Eraser, Hand, PaintBucket, Redo2, Ru
 import type { ReactNode } from 'react';
 import { EDIT_TOOLS, set, useStore, type ToolId } from '../state/store';
 import { redo, setTool, undo } from '../session';
-import { MOD } from './common';
+import { formatCombo, useShortcuts, type ActionId } from '../state/shortcuts';
+import { isMac } from './common';
 
 export const TOOLS: { id: ToolId; name: string; key: string; icon: ReactNode }[] = [
   { id: 'crosshair', name: 'Crosshair', key: 'C', icon: <Crosshair size={18} strokeWidth={1.5} /> },
@@ -22,6 +23,8 @@ export function ToolRail() {
   const hasSegments = useStore((s) => s.segments.length > 0);
   const canUndo = useStore((s) => s.canUndo);
   const canRedo = useStore((s) => s.canRedo);
+  const bindings = useShortcuts((s) => s.bindings);
+  const key = (id: ActionId) => (bindings[id] ? `  ${formatCombo(bindings[id], isMac)}` : '');
 
   const button = (t: (typeof TOOLS)[number]) => {
     const disabled = EDIT_TOOLS.includes(t.id) && !hasSegments;
@@ -34,7 +37,7 @@ export function ToolRail() {
         aria-disabled={disabled}
         aria-label={t.name}
         data-tool={t.id}
-        data-tip={disabled ? 'Add a segment to start editing.' : `${t.name}  ${t.key}`}
+        data-tip={disabled ? 'Add a segment to start editing.' : `${t.name}${key(`tool.${t.id}` as ActionId)}`}
         data-tip-side="right"
         onClick={() => setTool(t.id)}
       >
@@ -49,13 +52,13 @@ export function ToolRail() {
       <hr />
       {TOOLS.slice(5).map(button)}
       <div className="grow" />
-      <button className="toolbtn" aria-label="Undo" data-tip={`Undo  ${MOD}+Z`} data-tip-side="right" disabled={!canUndo} onClick={undo}>
+      <button className="toolbtn" aria-label="Undo" data-tip={`Undo${key('edit.undo')}`} data-tip-side="right" disabled={!canUndo} onClick={undo}>
         <Undo2 size={18} strokeWidth={1.5} />
       </button>
-      <button className="toolbtn" aria-label="Redo" data-tip={`Redo  ${MOD}+Shift+Z`} data-tip-side="right" disabled={!canRedo} onClick={redo}>
+      <button className="toolbtn" aria-label="Redo" data-tip={`Redo${key('edit.redo')}`} data-tip-side="right" disabled={!canRedo} onClick={redo}>
         <Redo2 size={18} strokeWidth={1.5} />
       </button>
-      <button className="toolbtn" aria-label="Keyboard shortcuts" data-tip="Shortcuts  ?" data-tip-side="right" onClick={() => set({ shortcutsOpen: true })}>
+      <button className="toolbtn" aria-label="Keyboard shortcuts" data-tip={`Shortcuts${key('help.shortcuts')}`} data-tip-side="right" onClick={() => set({ shortcutsOpen: true })}>
         <Keyboard size={18} strokeWidth={1.5} />
       </button>
     </nav>

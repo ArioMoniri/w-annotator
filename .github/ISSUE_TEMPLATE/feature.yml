@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a change or an addition.
+title: "Feature: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The app has no AI features and none are planned. The UI is kept simple on purpose, so a request is more likely to be taken up if it describes the problem clearly.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you would like the app to do.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you have considered, or how you work around it now.
+    validations:
+      required: false

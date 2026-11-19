@@ -1,0 +1,67 @@
+name: Bug report
+description: Something does not work as it should.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach patient data or screenshots that show patient details. Use a synthetic or public file if one is needed.
+        For a security problem, do not open an issue. See SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Say what you saw, including any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a volume
+        2. Open a mask
+        3. ...
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: The version of W Annotator you are running.
+      placeholder: "0.1.0"
+    validations:
+      required: false
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: false
+  - type: input
+    id: data
+    attributes:
+      label: File formats involved
+      description: For example NIfTI image with an NRRD mask. Never attach patient data.
+      placeholder: ".nii.gz image, .nrrd mask"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Any log or console output. Check it for patient names and file paths before pasting.
+      render: shell
+    validations:
+      required: false

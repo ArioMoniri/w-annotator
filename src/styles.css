@@ -1711,3 +1711,31 @@ button.avatar {
 .app:has(.update) .toasts {
   bottom: calc(var(--status-h) + 132px);
 }
+
+.keybtn {
+  font: 11px/16px var(--font-mono);
+  min-width: 44px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-active);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: background var(--dur-instant) linear, color var(--dur-instant) linear;
+}
+
+.keybtn:hover {
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--border-control);
+}
+
+.keybtn[data-editing='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.modal p.sheet-help {
+  margin: -8px 0 4px;
+  min-height: 20px;
+}

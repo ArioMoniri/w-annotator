@@ -300,3 +300,31 @@ test('undoing a segment delete brings back its name and colour', async ({ page }
   await page.keyboard.press('Control+z');
   await expect(page.locator('.segrow').first()).toContainText('Liver');
 });
+
+test('a shortcut can be changed from the sheet and is remembered', async ({ page }) => {
+  await openPhantom(page);
+  await page.keyboard.press('?');
+  await page.locator('[data-action="tool.brush"]').click();
+  await expect(page.locator('[data-action="tool.brush"]')).toHaveText('Press keys…');
+  await page.keyboard.press('q');
+  await expect(page.locator('[data-action="tool.brush"]')).toHaveText('Q');
+  // Taking a key that is in use leaves the other action without one.
+  await page.locator('[data-action="tool.pan"]').click();
+  await page.keyboard.press('e');
+  await expect(page.locator('[data-action="tool.eraser"]')).toHaveText('—');
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await page.keyboard.press('b');
+  await expect(page.locator('[data-tool="brush"]')).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('q');
+  await expect(page.locator('[data-tool="brush"]')).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('e');
+  await expect(page.locator('[data-tool="pan"]')).toHaveAttribute('aria-checked', 'true');
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Drop an image and a mask' })).toBeVisible();
+  await page.keyboard.press('?');
+  await expect(page.locator('[data-action="tool.brush"]')).toHaveText('Q');
+  await page.getByRole('button', { name: 'Reset to defaults' }).click();
+  await expect(page.locator('[data-action="tool.brush"]')).toHaveText('B');
+});
