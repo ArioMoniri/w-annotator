@@ -1849,6 +1849,17 @@ input[type='range']:focus-visible {
   align-self: stretch;
 }
 
+/* Start-aligned, so a tooltip on a narrow field is not cut by the sideways clip. */
+.strip .options .field[data-tip]::after {
+  left: 0;
+  transform: translate(0, -4px);
+}
+
+.strip .options .field[data-tip]:hover::after,
+.strip .options .field[data-tip]:focus-visible::after {
+  transform: translate(0, 0);
+}
+
 /* Buttons keep their width; hints are what gives way. */
 .strip .btn {
   flex: none;

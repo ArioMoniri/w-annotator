@@ -208,6 +208,7 @@ export function OptionsStrip() {
             data-tour="interpolate"
             data-tip={`Paint every few slices, then fill the gaps  ${key('mask.interpolate')}`.trimEnd()}
             data-tip-side="bottom"
+            data-tip-align="end"
             onClick={fillBetweenSlices}
           >
             <span className="long">Fill between slices</span>
