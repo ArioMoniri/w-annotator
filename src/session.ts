@@ -144,11 +144,16 @@ function looksLikeMask(vol: VolumeData, name: string): boolean {
   return true;
 }
 
+/** Reader messages that only say the bytes made no sense. They get the file name and a next step instead. */
+const PARSE_FAILURE = /not a valid|incomplete or damaged|invalid image size|not a DICOM segmentation|^RLE /i;
+
 function describeError(err: unknown, name: string): string {
   const text = err instanceof Error ? err.message : String(err);
   if (/memory|allocation|Array buffer/i.test(text)) return 'This image is too large to open on this device.';
   if (/not a supported/i.test(text)) return `Can't open ${name}. Use MHA, NIfTI, NRRD or DICOM.`;
-  return text.length < 160 ? text : `Can't read ${name}. The file may be damaged or incomplete.`;
+  // Readers word their other messages for the user (a missing data file, an unsupported compression).
+  const worded = err instanceof Error && err.name === 'IoError' && !PARSE_FAILURE.test(text);
+  return worded ? text : `Can't read ${name}. The file may be damaged or incomplete.`;
 }
 
 /**
@@ -266,7 +271,7 @@ async function loadImage(vol: VolumeData): Promise<void> {
   const auto = autoWindow(renderable);
   const voi = looksLikeCt ? { lower: -160, upper: 240 } : auto;
   image = renderable;
-  set({ image: { name: vol.name, dims: vol.dims, range }, voi, hover: null, maximized: null });
+  set({ image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt }, voi, hover: null, maximized: null });
   // The viewport elements mount when `image` is set; wait for them.
   await nextFrame();
   await engine.showImage(renderable, voi);
@@ -337,7 +342,8 @@ function installMask(vol: VolumeData): void {
   history.clear();
   syncHistoryFlags();
   engine.showMask(vol);
-  set({ segments: [], activeSegment: 0 });
+  // A newly opened mask is shown, whatever the last one was set to.
+  set({ segments: [], activeSegment: 0, maskHidden: false, newSegment: null });
   engine.setMaskStyle(get().opacity, get().outlineOnly);
   engine.set3dImageVisible(get().show3dImage);
   set({ stats: {} });
@@ -611,8 +617,17 @@ export function restoreMask(data: Uint8Array, segments: Omit<SegmentInfo, 'visib
 
 function pushSegments(): void {
   const s = get();
-  engine.applySegments(s.segments, s.activeSegment);
+  engine.applySegments(s.segments, s.activeSegment, s.maskHidden);
 }
+
+/** Turns the whole mask off or back on. Opacity, outline-only and each segment's own setting are untouched. */
+export function setMaskHidden(maskHidden: boolean): void {
+  set({ maskHidden });
+  pushSegments();
+}
+
+/** How long a new row keeps its highlight (DESIGN.md 5.3, segment add). */
+const NEW_ROW_MS = 600;
 
 function sendSegments(): void {
   room?.send({ t: 'segments', list: get().segments });
@@ -643,6 +658,9 @@ export function addSegment(): void {
     locked: false,
   };
   updateSegments([...s.segments, seg].sort((a, b) => a.index - b.index), index);
+  // Its row animates in and holds a highlight; rows that come from a file or the room do not.
+  set({ newSegment: index });
+  setTimeout(() => get().newSegment === index && set({ newSegment: null }), NEW_ROW_MS);
   if (!EDIT_TOOLS.includes(s.tool)) setTool('brush');
 }
 
@@ -694,8 +712,11 @@ export function fillBetweenSlices(): void {
     toast('info', 'Add a segment to start editing.');
     return;
   }
-  if (seg.locked || !seg.visible) {
-    toast('info', seg.locked ? `${seg.name} is locked. Unlock it to edit.` : `${seg.name} is hidden. Show it to edit.`);
+  if (seg.locked || !seg.visible || s.maskHidden) {
+    toast(
+      'info',
+      seg.locked ? `${seg.name} is locked. Unlock it to edit.` : s.maskHidden ? 'The mask is hidden. Show it to edit.' : `${seg.name} is hidden. Show it to edit.`,
+    );
     return;
   }
   const view = s.activeView === 'volume3d' ? 'axial' : s.activeView;

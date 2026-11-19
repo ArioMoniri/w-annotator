@@ -69,7 +69,7 @@ function useHotkeys() {
       'segment.next': () => cycleSegment(1),
       'segment.previous': () => cycleSegment(-1),
       'mask.outline': () => session.setOutlineOnly(!get().outlineOnly),
-      'mask.toggle': () => session.setOpacity(get().opacity > 0 ? 0 : 0.5),
+      'mask.toggle': () => session.setMaskHidden(!get().maskHidden),
       'slice.previous': () => scrollActive(-1),
       'slice.next': () => scrollActive(1),
       'slice.back5': () => scrollActive(-5),

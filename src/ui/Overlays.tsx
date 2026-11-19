@@ -7,7 +7,7 @@ export function Toasts() {
   return (
     <div className="toasts">
       {toasts.map((t) => (
-        <div key={t.id} className="toast" data-kind={t.kind} role={t.kind === 'error' ? 'alert' : 'status'}>
+        <div key={t.id} className="toast" data-kind={t.kind} data-leaving={t.leaving || undefined} role={t.kind === 'error' ? 'alert' : 'status'}>
           {t.kind === 'success' ? (
             <CircleCheck size={16} />
           ) : t.kind === 'warning' ? (

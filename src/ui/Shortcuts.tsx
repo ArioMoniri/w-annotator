@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react';
-import { ACTIONS, comboFromEvent, formatCombo, isReserved, labelOf, resetShortcuts, setShortcut, useShortcuts, type ActionId } from '../state/shortcuts';
+import {
+  ACTIONS,
+  comboFromEvent,
+  formatCombo,
+  isReserved,
+  labelOf,
+  rebindNote,
+  resetShortcuts,
+  setShortcut,
+  setShortcuts,
+  useShortcuts,
+  type ActionId,
+  type Bindings,
+} from '../state/shortcuts';
 import { set } from '../state/store';
 import { MOD, isMac } from './common';
 
@@ -20,19 +33,32 @@ export function ShortcutsList() {
   const bindings = useShortcuts((s) => s.bindings);
   const [editing, setEditing] = useState<ActionId | null>(null);
   const [note, setNote] = useState('');
+  // The bindings from before the last change, when that change took a key from another action.
+  const [undo, setUndo] = useState<Bindings | null>(null);
 
   useEffect(() => {
     set({ capturingShortcut: editing !== null });
     if (!editing) return;
+    const cancel = () => {
+      setEditing(null);
+      setNote('');
+    };
     const onKey = (e: KeyboardEvent) => {
+      // Tab moves on as usual and drops the capture; it is never taken as the new key.
+      if (e.key === 'Tab') return cancel();
       e.preventDefault();
-      e.stopPropagation();
-      if (e.key === 'Escape') return setEditing(null);
+      // Nothing else may act on this key: Esc here cancels the capture, not the dialog.
+      e.stopImmediatePropagation();
+      if (e.key === 'Escape') return cancel();
       const combo = comboFromEvent(e);
       if (!combo) return;
-      if (isReserved(combo)) return setNote(`${formatCombo(combo, isMac)} is fixed and can't be reassigned.`);
+      if (isReserved(combo)) {
+        return setNote(`${formatCombo(combo, isMac)} is fixed and can't be reassigned. Press other keys, or Esc to cancel.`);
+      }
+      const before = useShortcuts.getState().bindings;
       const displaced = setShortcut(editing, combo);
-      setNote(displaced ? `${labelOf(displaced)} no longer has a shortcut.` : '');
+      setNote(rebindNote(editing, combo, displaced, isMac));
+      setUndo(displaced ? before : null);
       setEditing(null);
     };
     window.addEventListener('keydown', onKey, true);
@@ -46,7 +72,19 @@ export function ShortcutsList() {
   return (
     <>
       <p className="sheet-help" role="status">
-        {editing ? `Press the new keys for ${labelOf(editing)}. Esc cancels.` : note || 'Click a shortcut, then press the keys you want.'}
+        {note || (editing ? `Press the new keys for ${labelOf(editing)}. Esc cancels.` : 'Click a shortcut, then press the keys you want.')}
+        {undo && !editing && (
+          <button
+            className="btn text"
+            onClick={() => {
+              setShortcuts(undo);
+              setUndo(null);
+              setNote('');
+            }}
+          >
+            Undo
+          </button>
+        )}
       </p>
       <div className="shortcuts">
         {GROUPS.map((group) => (
@@ -58,10 +96,12 @@ export function ShortcutsList() {
                 <button
                   className="keybtn"
                   data-editing={editing === a.id}
+                  data-empty={!bindings[a.id] || undefined}
                   data-action={a.id}
-                  aria-label={`Change shortcut for ${a.label}, now ${formatCombo(bindings[a.id], isMac)}`}
+                  aria-label={`Change shortcut for ${a.label}, now ${bindings[a.id] ? formatCombo(bindings[a.id], isMac) : 'none'}`}
                   onClick={() => {
                     setNote('');
+                    setUndo(null);
                     setEditing(editing === a.id ? null : a.id);
                   }}
                 >
@@ -80,7 +120,18 @@ export function ShortcutsList() {
         ))}
       </div>
       <div className="pane-actions">
-        <button className="btn secondary" disabled={!changed} onClick={() => (resetShortcuts(), setNote('Shortcuts are back to the defaults.'))}>
+        <button
+          className="btn secondary"
+          disabled={!changed}
+          onClick={() => {
+            resetShortcuts();
+            setEditing(null);
+            setUndo(null);
+            setNote('Shortcuts are back to the defaults.');
+            // Reset is disabled from here on, so focus would otherwise drop to the page.
+            document.getElementById('settings-tab-shortcuts')?.focus();
+          }}
+        >
           Reset to defaults
         </button>
       </div>

@@ -1,7 +1,7 @@
 import { Ellipsis, Eye, EyeOff, Lock, LockOpen, Plus } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { SegmentInfo } from '../collab/protocol';
-import { SEGMENT_COLORS, useStore } from '../state/store';
+import { SEGMENT_COLORS, SEGMENT_COLOR_NAMES, useStore } from '../state/store';
 import { formatVolume } from '../mask/ops';
 import {
   addSegment,
@@ -18,11 +18,7 @@ import {
   showOnly,
   type RefineOp,
 } from '../session';
-import { Slider, useDismiss } from './common';
-
-/** When each row first appeared, so only a newly added one animates in. */
-const created = new Map<number, number>();
-let listReady = false;
+import { Slider, useDismiss, useKeyHint } from './common';
 
 /** Operations that ask for one number first. */
 const AMOUNTS = {
@@ -137,14 +133,18 @@ function CombineForm({ seg, onClose }: { seg: SegmentInfo; onClose: () => void }
 
 type MenuKind = 'menu' | 'color' | 'combine' | AmountOp;
 
-function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
+function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew: boolean }) {
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenuState] = useState<MenuKind | null>(null);
   const [anchor, setAnchor] = useState<React.CSSProperties>({});
   const volume = useStore((s) => s.stats[seg.index]?.volumeMl ?? 0);
   const canCombine = useStore((s) => s.segments.length > 1);
+  const rowRef = useRef<HTMLDivElement>(null);
+  // The button that opened the menu or the palette, so Esc can hand focus back to it.
+  const opener = useRef<'more' | 'swatch'>('more');
   const setMenu = (next: MenuKind | null, from?: HTMLElement | null) => {
     const row = from?.closest('.segrow') as HTMLElement | null;
+    if (next && from) opener.current = from.classList.contains('swatchbtn') ? 'swatch' : 'more';
     if (next && row) {
       const r = row.getBoundingClientRect();
       setAnchor({
@@ -156,7 +156,9 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
     setMenuState(next);
   };
   const close = useCallback(() => setMenuState(null), []);
-  const ref = useDismiss<HTMLDivElement>(menu !== null, close);
+  const ref = useDismiss<HTMLDivElement>(menu !== null, close, () =>
+    rowRef.current?.querySelector<HTMLElement>(opener.current === 'swatch' ? '.swatchbtn' : '[aria-haspopup]') ?? null,
+  );
   // Keep the whole menu on screen when the row is near the bottom.
   useLayoutEffect(() => {
     const el = ref.current;
@@ -169,8 +171,6 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
     void refineSegment(seg.index, op);
   };
 
-  if (!created.has(seg.index)) created.set(seg.index, listReady ? Date.now() : 0);
-
   const commit = (value: string) => {
     const name = value.trim().slice(0, 40);
     if (name) patchSegment(seg.index, { name });
@@ -179,7 +179,8 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
 
   return (
     <div
-      className={`segrow${Date.now() - (created.get(seg.index) ?? 0) < 600 ? ' new' : ''}`}
+      className={`segrow${isNew ? ' new' : ''}`}
+      ref={rowRef}
       role="option"
       aria-selected={active}
       data-hidden={!seg.visible}
@@ -187,6 +188,10 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
       data-renaming={renaming}
       tabIndex={0}
       onClick={() => selectSegment(seg.index)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (!renaming) setMenu('menu', rowRef.current?.querySelector<HTMLElement>('[aria-haspopup]'));
+      }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') selectSegment(seg.index);
@@ -345,10 +350,11 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
       )}
       {menu === 'color' && (
         <div className="menu palette" ref={ref} style={anchor} onClick={(e) => e.stopPropagation()}>
-          {SEGMENT_COLORS.map((c) => (
+          {SEGMENT_COLORS.map((c, i) => (
             <button
               key={c}
-              aria-label={c}
+              aria-label={SEGMENT_COLOR_NAMES[i]}
+              title={SEGMENT_COLOR_NAMES[i]}
               aria-pressed={c === seg.color}
               style={{ background: c }}
               onClick={() => (patchSegment(seg.index, { color: c }), setMenu(null))}
@@ -365,18 +371,15 @@ export function SegmentsPanel() {
   const active = useStore((s) => s.activeSegment);
   const opacity = useStore((s) => s.opacity);
   const outlineOnly = useStore((s) => s.outlineOnly);
+  const key = useKeyHint();
 
-  useEffect(() => {
-    listReady = segments.length >= 0;
-    const live = new Set(segments.map((x) => x.index));
-    for (const key of created.keys()) if (!live.has(key)) created.delete(key);
-  }, [segments]);
+  const newSegment = useStore((s) => s.newSegment);
 
   return (
     <aside className="panel" aria-label="Segments" data-tour="segments">
       <header>
         <span>Segments</span>
-        <button className="iconbtn" aria-label="Add segment" data-tip="Add segment  N" data-tip-side="left" onClick={addSegment}>
+        <button className="iconbtn" aria-label="Add segment" data-tip={`Add segment  ${key('segment.new')}`.trimEnd()} data-tip-side="left" onClick={addSegment}>
           <Plus size={16} />
         </button>
       </header>
@@ -389,7 +392,7 @@ export function SegmentsPanel() {
             </button>
           </div>
         ) : (
-          segments.map((seg) => <Row key={seg.index} seg={seg} active={seg.index === active} />)
+          segments.map((seg) => <Row key={seg.index} seg={seg} active={seg.index === active} isNew={seg.index === newSegment} />)
         )}
       </div>
       <footer>

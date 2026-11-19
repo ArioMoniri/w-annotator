@@ -1,11 +1,23 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { formatCombo, useShortcuts, type ActionId } from '../state/shortcuts';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl';
 
-/** Calls `onAway` on a click outside the element or on Escape. */
-export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => void) {
+/** The key an action is bound to right now, ready to show, or '' when it has none. */
+export function useKeyHint(): (id: ActionId) => string {
+  const bindings = useShortcuts((s) => s.bindings);
+  return (id) => (bindings[id] ? formatCombo(bindings[id], isMac) : '');
+}
+
+/**
+ * Calls `onAway` on a click outside the element or on Escape. Escape puts focus back on what
+ * opened it: `trigger` when given, otherwise the `aria-haspopup` button inside the element.
+ */
+export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => void, trigger?: () => HTMLElement | null) {
   const ref = useRef<T>(null);
+  const triggerRef = useRef(trigger);
+  triggerRef.current = trigger;
   useEffect(() => {
     if (!open) return;
     const down = (e: PointerEvent) => {
@@ -15,8 +27,7 @@ export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => v
       if (e.key === 'Escape') {
         e.stopPropagation();
         onAway();
-        // Put focus back on whatever opened the menu.
-        ref.current?.querySelector<HTMLElement>('[aria-haspopup]')?.focus();
+        (triggerRef.current?.() ?? ref.current?.querySelector<HTMLElement>('[aria-haspopup]'))?.focus();
       }
     };
     window.addEventListener('pointerdown', down, true);
@@ -29,8 +40,43 @@ export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => v
   return ref;
 }
 
-export function Modal(props: { title: string; onClose: () => void; wide?: boolean; className?: string; children: ReactNode }) {
+/**
+ * Lets a closed dialog fade out: a lifeless copy of it stays for --dur-fast while the real
+ * one is already gone, so every way of closing gets the same exit.
+ */
+function fadeOut(scrim: HTMLElement): void {
+  const ms = parseFloat(getComputedStyle(scrim).getPropertyValue('--dur-fast')) || 0;
+  if (ms <= 0 || !scrim.parentElement) return;
+  const ghost = scrim.cloneNode(true) as HTMLElement;
+  ghost.setAttribute('data-leaving', '');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.inert = true;
+  for (const el of [ghost, ...ghost.querySelectorAll('*')]) {
+    for (const name of ['role', 'aria-modal', 'aria-label', 'data-testid', 'id']) el.removeAttribute(name);
+  }
+  scrim.parentElement.appendChild(ghost);
+  setTimeout(() => ghost.remove(), ms);
+}
+
+export function Modal(props: {
+  title: string;
+  onClose: () => void;
+  wide?: boolean;
+  className?: string;
+  /** Where focus goes on close when what opened the dialog is no longer on screen. A CSS selector. */
+  returnTo?: string;
+  children: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  // The latest handlers, so the listeners below never act on stale ones.
+  const live = useRef(props);
+  live.current = props;
+  useLayoutEffect(() => {
+    const scrim = ref.current?.parentElement;
+    return () => {
+      if (scrim) fadeOut(scrim);
+    };
+  }, []);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const root = ref.current;
@@ -43,7 +89,7 @@ export function Modal(props: { title: string; onClose: () => void; wide?: boolea
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        props.onClose();
+        live.current.onClose();
       }
       if (e.key === 'Tab' && ref.current) {
         const items = Array.from(
@@ -69,9 +115,13 @@ export function Modal(props: { title: string; onClose: () => void; wide?: boolea
     window.addEventListener('keydown', key, true);
     return () => {
       window.removeEventListener('keydown', key, true);
-      previous?.focus?.();
+      // Back to what opened the dialog. A menu item or a button that has since gone cannot take
+      // focus, so fall back to the control the dialog belongs to rather than to the page.
+      const find = (selector?: string) => (selector ? document.querySelector<HTMLElement>(selector) : null);
+      const opener = previous && previous !== document.body && previous.isConnected ? previous : null;
+      const target = find(live.current.returnTo) ?? opener ?? find('.filebtn, .dropzone .btn');
+      target?.focus?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <div className="scrim" onPointerDown={(e) => e.target === e.currentTarget && props.onClose()}>

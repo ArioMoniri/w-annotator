@@ -445,7 +445,27 @@ export function set3dImageVisible(visible: boolean): void {
   vp.render();
 }
 
-export function applySegments(list: SegmentInfo[], active: number): void {
+/**
+ * Which segments each viewport draws. Cornerstone keeps this per viewport representation and
+ * only lists the segments that existed when the representation was added, or that have been
+ * the active segment since. Its own setSegmentIndexVisibility returns without doing anything
+ * for a segment that is not listed, so the list is written here in full.
+ */
+function writeVisibility(list: SegmentInfo[], maskHidden: boolean): void {
+  for (const id of ALL_IDS) {
+    for (const rep of segmentation.state.getSegmentationRepresentations(id, { segmentationId: SEGMENTATION_ID, type: LABELMAP })) {
+      const shown = rep.segments as Record<number, { visible: boolean }>;
+      for (const key of Object.keys(shown)) {
+        if (!list.some((seg) => seg.index === Number(key))) delete shown[Number(key)];
+      }
+      for (const seg of list) shown[seg.index] = { ...shown[seg.index], visible: seg.visible && !maskHidden };
+      rep.visible = true;
+    }
+  }
+}
+
+/** `maskHidden` turns every segment off, fill and outline, without changing what each one is set to. */
+export function applySegments(list: SegmentInfo[], active: number, maskHidden = false): void {
   if (!maskLoaded) return;
   const state = segmentation.state.getSegmentation(SEGMENTATION_ID);
   if (!state) return;
@@ -466,12 +486,6 @@ export function applySegments(list: SegmentInfo[], active: number): void {
     for (const id of ALL_IDS) {
       try {
         segmentation.config.color.setSegmentIndexColor(id, SEGMENTATION_ID, seg.index, [r, g, b, 255]);
-        segmentation.config.visibility.setSegmentIndexVisibility(
-          id,
-          { segmentationId: SEGMENTATION_ID, type: LABELMAP },
-          seg.index,
-          seg.visible,
-        );
       } catch {
         /* representation not ready on this viewport yet */
       }
@@ -479,6 +493,8 @@ export function applySegments(list: SegmentInfo[], active: number): void {
     segmentation.segmentLocking.setSegmentIndexLocked(SEGMENTATION_ID, seg.index, seg.locked);
   }
   if (active > 0) segmentation.segmentIndex.setActiveSegmentIndex(SEGMENTATION_ID, active);
+  // After the active segment is set: that call lists the segment as visible when it is new.
+  writeVisibility(list, maskHidden);
   repaintMask();
 }
 

@@ -158,6 +158,20 @@ export function setShortcut(id: ActionId, combo: string): ActionId | null {
   return displaced;
 }
 
+/** Replaces every binding at once, for undoing a change. */
+export function setShortcuts(bindings: Bindings): void {
+  const next = { ...bindings };
+  useShortcuts.setState({ bindings: next });
+  save(next);
+}
+
+/** What to tell the user after `combo` went to `id` and `displaced` lost it. Empty when nothing was displaced. */
+export function rebindNote(id: ActionId, combo: string, displaced: ActionId | null, mac: boolean): string {
+  if (!displaced) return '';
+  const verb = id.startsWith('tool.') && id !== 'tool.last' ? 'now selects' : 'is now';
+  return `${formatCombo(combo, mac)} ${verb} ${labelOf(id)}. ${labelOf(displaced)} has no shortcut.`;
+}
+
 export function resetShortcuts(): void {
   const bindings = defaultBindings();
   useShortcuts.setState({ bindings });
