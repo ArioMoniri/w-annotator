@@ -97,7 +97,7 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Pan | Hint: `Drag to move the image.` |
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
 | Window / Level | Preset select (Soft tissue, Lung, Bone, Brain, Abdomen — CT only) · `W` number · `L` number · `Reset` |
-| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` |
+| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only` (default Everything; with Empty only a stroke never takes voxels from another segment). Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
 | Threshold brush | Range dual slider + two numbers (image units) · Size slider + number |
 | Scissors | Shape `Freehand / Rectangle / Circle` · Action `Erase inside / Erase outside / Fill inside` |
@@ -137,7 +137,9 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 
 - Header: title `Segments` (13/600) and an `Add segment` icon button.
 - List scrolls; footer is pinned and holds the two mask-wide display settings: Opacity (0–100 %, default 60) and `Outline only`.
-- Row context menu (right-click or `⋯` on hover): Rename, Change colour, Show only this, Clear, Delete.
+- Row context menu (right-click or `⋯` on hover): Rename, Change colour, Show only this, Go to segment · group `Refine`: Grow…, Shrink…, Smooth…, Fill holes, Keep largest island, Remove small islands… · Combine…, Measurements · Clear, Delete. Items ending in `…` swap the menu for a small popover with the segment name, one number field (mm, or mm³ for islands; the last value is remembered), `Cancel` and `Apply`. Combine shows a segment picker and `Add`.
+- Each row shows the segment's volume at the right in 11px mono `--text-2` (`12.4 mL`; `320 mm³` under 0.5 mL; nothing when empty). It updates shortly after edits stop and gives way to the row actions on hover and focus.
+- Measurements sheet (wide modal): table of Segment, Volume, Voxels, Mean ± SD, Min, Max for every segment, a one-line note, `Copy as CSV` and `Done`. Intensities carry no unit.
 - Empty: `No segments yet.` + text button `Add segment`.
 
 ### 2.6 Status bar — 26 high, `--bg-surface`, top border
@@ -534,7 +536,8 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Pan | Drag to move the image. |
 | Zoom | Drag up or down to zoom. · Fit |
 | Window / Level | Preset · Soft tissue · Lung · Bone · Brain · Abdomen · Custom · W · L · Reset |
-| Brush | Size · px · Shape · Circle · Sphere |
+| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only |
+| Paint over tooltip | Empty only keeps other segments as they are. |
 | Eraser | Size · px · Shape · Circle · Sphere · Active segment only |
 | Threshold brush | Range · to · Size · px |
 | Threshold brush tooltip | Paints only where the image value is inside the range. |
@@ -569,7 +572,10 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Empty | No segments yet. · Add segment |
 | Eye tooltip | Hide / Show |
 | Lock tooltip | Lock / Unlock |
-| Row menu | Rename · Change colour · Show only this · Clear · Delete |
+| Row menu | Rename · Change colour · Show only this · Go to segment · Refine · Grow… · Shrink… · Smooth… · Fill holes · Keep largest island · Remove small islands… · Combine… · Measurements · Clear · Delete |
+| Refine popovers | Grow by · Shrink by · Smooth by · mm · Remove islands under · mm³ · Cancel · Apply |
+| Combine popover | Add · Its voxels become part of Liver. · Cancel · Add |
+| Measurements | Measurements · Segment · Volume · Voxels · Mean ± SD · Min · Max · Mean, SD, min and max are the image values inside each segment. · Copy as CSV · Done |
 | Footer | Opacity · Outline only |
 | Remote editing tooltip | Mina is editing |
 | Delete confirm (only if segment has voxels) | Delete Liver? · This removes the segment from the mask. · Cancel · Delete |
@@ -624,6 +630,13 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Segment cleared | Liver cleared · Undo |
 | Large operation done (fill, whole volume) | Filled 18,204 voxels · Undo |
 | Nothing to fill | Nothing to fill here. |
+| Grow, shrink, smooth | Grew Liver by 2 mm · Undo / Shrank Liver by 2 mm · Undo / Smoothed Liver by 2 mm · Undo |
+| Fill holes | Filled 1,204 voxels in Liver · Undo / No holes in Liver. |
+| Islands | Removed 310 voxels outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 voxels in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
+| Combine | Added Tumour to Liver, 1,204 voxels · Undo |
+| Operation changed nothing | Liver did not change. |
+| Go to an empty segment | Liver is empty. |
+| Measurements copied | Measurements copied |
 | Threshold matched nothing | No voxels in this range under the brush. |
 
 ### 6.10 Errors

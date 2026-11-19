@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, patchVoxelCount } from './patch';
+import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, patchVoxelCount, restoreOverwritten } from './patch';
 
 const SLICE = 16; // 4 x 4
 
@@ -137,5 +137,24 @@ describe('applyPatchWhereUnchanged', () => {
     shared[3] = 2;
     expect(applyPatchWhereUnchanged(shared, p, 'before')).toBeNull();
     expect(shared[3]).toBe(2);
+  });
+});
+
+describe('restoreOverwritten', () => {
+  it('puts back voxels of other segments that a stroke painted over, and nothing else', () => {
+    const prev = Uint8Array.from([0, 2, 2, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const cur = Uint8Array.from([1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const patch = diffMask(prev, cur, SLICE)!;
+    expect(restoreOverwritten(cur, patch)).toBe(2);
+    // Painting empty space and erasing segment 3 stay; segment 2 is back.
+    expect(Array.from(cur.subarray(0, 6))).toEqual([1, 2, 2, 1, 0, 1]);
+  });
+
+  it('reports zero when the stroke only touched empty space', () => {
+    const prev = mask(1);
+    const cur = mask(1);
+    cur[3] = 4;
+    expect(restoreOverwritten(cur, diffMask(prev, cur, SLICE)!)).toBe(0);
+    expect(cur[3]).toBe(4);
   });
 });

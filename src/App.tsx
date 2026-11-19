@@ -7,6 +7,7 @@ import { initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
 import { OptionsStrip } from './ui/OptionsStrip';
 import { Busy, ConfirmDialog, ShortcutsSheet, Toasts, UpdateBanner } from './ui/Overlays';
+import { MeasurementsSheet } from './ui/Measurements';
 import { RoomModal } from './ui/RoomModal';
 import { SegmentsPanel } from './ui/SegmentsPanel';
 import { StatusBar } from './ui/StatusBar';
@@ -83,7 +84,7 @@ function useHotkeys() {
       const combo = comboFromEvent(e);
       if (!combo) return;
       const withModifier = combo.startsWith('mod+');
-      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm)) return;
+      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm || s.measurementsOpen)) return;
       if (combo === 'mod+y') {
         e.preventDefault();
         return session.redo();
@@ -191,6 +192,7 @@ export function App() {
       <RoomModal />
       <ConfirmDialog />
       <ShortcutsSheet />
+      <MeasurementsSheet />
     </div>
   );
 }

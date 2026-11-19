@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Refine a segment from its menu: grow, shrink and smooth by a distance in millimetres, fill holes, keep the largest island, remove small islands. Each is one undo step and is shared with the room.
+- Combine: add one segment into another.
+- Go to segment: move all views to the middle of a segment.
+- The volume of each segment next to its name, and a measurements sheet (volume, voxels, mean ± SD, min, max) that can be copied as CSV.
+- Brush option "Paint over: Everything / Empty only". With "Empty only", painting never takes voxels from another segment.
+
 ## [0.1.0] - 2026-11-19
 
 First release.

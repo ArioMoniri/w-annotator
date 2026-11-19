@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SegmentInfo } from '../collab/protocol';
+import type { SegmentStats } from '../mask/ops';
 
 export type ToolId =
   | 'crosshair'
@@ -74,12 +75,17 @@ interface State {
   threshold: [number, number];
   scissorsShape: 'rectangle' | 'circle' | 'sphere';
   scissorsAction: 'erase' | 'fill';
+  /** Whether painting may take voxels from other segments. */
+  paintOver: 'all' | 'empty';
 
   segments: SegmentInfo[];
   activeSegment: number;
   opacity: number;
   outlineOnly: boolean;
   show3dImage: boolean;
+  /** Measurements per segment index, refreshed shortly after edits stop. */
+  stats: Record<number, SegmentStats>;
+  measurementsOpen: boolean;
 
   maximized: ViewId | null;
   activeView: ViewId;
@@ -116,12 +122,15 @@ export const useStore = create<State>(() => ({
   threshold: [0, 0],
   scissorsShape: 'rectangle',
   scissorsAction: 'erase',
+  paintOver: 'all',
 
   segments: [],
   activeSegment: 0,
   opacity: 0.5,
   outlineOnly: false,
   show3dImage: false,
+  stats: {},
+  measurementsOpen: false,
 
   maximized: null,
   activeView: 'axial',

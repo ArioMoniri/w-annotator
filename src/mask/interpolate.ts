@@ -4,19 +4,30 @@
  * interpolation on signed distance maps). Runs locally, no downloads.
  */
 
-const INF = 1e20;
+export const INF = 1e20;
 
-/** 1D squared distance transform (Felzenszwalb and Huttenlocher). */
-function edt1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Float64Array): void {
-  let k = 0;
-  v[0] = 0;
-  z[0] = -INF;
-  z[1] = INF;
-  for (let q = 1; q < n; q++) {
+/**
+ * 1D squared distance transform (Felzenszwalb and Huttenlocher).
+ * `scale` is the sample spacing, so distances come out in its unit squared.
+ * Samples at INF are skipped; a line with none stays at INF.
+ */
+export function edt1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Float64Array, scale = 1): void {
+  const w = scale * scale;
+  let k = -1;
+  for (let q = 0; q < n; q++) {
+    const fq = f[q];
+    if (fq >= INF) continue;
+    if (k < 0) {
+      k = 0;
+      v[0] = q;
+      z[0] = -INF;
+      z[1] = INF;
+      continue;
+    }
     let s: number;
     for (;;) {
       const p = v[k];
-      s = (f[q] + q * q - (f[p] + p * p)) / (2 * q - 2 * p);
+      s = (fq + w * q * q - (f[p] + w * p * p)) / (2 * w * (q - p));
       if (s > z[k]) break;
       k--;
     }
@@ -25,11 +36,15 @@ function edt1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Fl
     z[k] = s;
     z[k + 1] = INF;
   }
+  if (k < 0) {
+    for (let q = 0; q < n; q++) d[q] = INF;
+    return;
+  }
   k = 0;
   for (let q = 0; q < n; q++) {
     while (z[k + 1] < q) k++;
     const p = v[k];
-    d[q] = (q - p) * (q - p) + f[p];
+    d[q] = w * (q - p) * (q - p) + f[p];
   }
 }
 

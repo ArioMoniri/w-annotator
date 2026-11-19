@@ -1,35 +1,173 @@
 import { Ellipsis, Eye, EyeOff, Lock, LockOpen, Plus } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import type { SegmentInfo } from '../collab/protocol';
 import { SEGMENT_COLORS, useStore } from '../state/store';
-import { addSegment, clearSegment, deleteSegment, patchSegment, selectSegment, setOpacity, setOutlineOnly, showOnly } from '../session';
+import { formatVolume } from '../mask/ops';
+import {
+  addSegment,
+  addSegmentInto,
+  clearSegment,
+  deleteSegment,
+  goToSegment,
+  openMeasurements,
+  patchSegment,
+  refineSegment,
+  selectSegment,
+  setOpacity,
+  setOutlineOnly,
+  showOnly,
+  type RefineOp,
+} from '../session';
 import { Slider, useDismiss } from './common';
 
 /** When each row first appeared, so only a newly added one animates in. */
 const created = new Map<number, number>();
 let listReady = false;
 
+/** Operations that ask for one number first. */
+const AMOUNTS = {
+  grow: { item: 'Grow…', lead: 'Grow by', unit: 'mm', min: 0.1, max: 50, start: 2 },
+  shrink: { item: 'Shrink…', lead: 'Shrink by', unit: 'mm', min: 0.1, max: 50, start: 2 },
+  smooth: { item: 'Smooth…', lead: 'Smooth by', unit: 'mm', min: 0.1, max: 50, start: 2 },
+  removeSmall: { item: 'Remove small islands…', lead: 'Remove islands under', unit: 'mm³', min: 1, max: 1_000_000, start: 10 },
+} as const;
+type AmountOp = keyof typeof AMOUNTS;
+
+const AMOUNT_KEY = 'w.refine';
+
+/** The last value used for each operation, kept between sessions. */
+const lastAmount: Record<AmountOp, number> = (() => {
+  const values: Record<AmountOp, number> = { grow: AMOUNTS.grow.start, shrink: AMOUNTS.shrink.start, smooth: AMOUNTS.smooth.start, removeSmall: AMOUNTS.removeSmall.start };
+  try {
+    const saved = JSON.parse(localStorage.getItem(AMOUNT_KEY) ?? '{}') as Record<string, unknown>;
+    for (const op of Object.keys(values) as AmountOp[]) {
+      const v = saved[op];
+      if (typeof v === 'number' && v >= AMOUNTS[op].min && v <= AMOUNTS[op].max) values[op] = v;
+    }
+  } catch {
+    /* nothing saved, or storage is unavailable */
+  }
+  return values;
+})();
+
+function rememberAmount(op: AmountOp, value: number): void {
+  lastAmount[op] = value;
+  try {
+    localStorage.setItem(AMOUNT_KEY, JSON.stringify(lastAmount));
+  } catch {
+    /* storage is unavailable; the value still lasts for this session */
+  }
+}
+
+function AmountForm({ op, seg, onClose }: { op: AmountOp; seg: SegmentInfo; onClose: () => void }) {
+  const spec = AMOUNTS[op];
+  const [text, setText] = useState(String(lastAmount[op]));
+  const value = Number(text.replace(',', '.'));
+  const valid = text.trim() !== '' && Number.isFinite(value) && value >= spec.min && value <= spec.max;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!valid) return;
+        rememberAmount(op, value);
+        onClose();
+        void refineSegment(seg.index, op, value);
+      }}
+    >
+      <div className="title">{seg.name}</div>
+      <label className="field">
+        <span className="label">{spec.lead}</span>
+        <input
+          className="numfield"
+          inputMode="decimal"
+          autoFocus
+          aria-invalid={!valid}
+          value={text}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <span className="unit">{spec.unit}</span>
+      </label>
+      <div className="actions">
+        <button type="button" className="btn secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="submit" className="btn primary" disabled={!valid}>
+          Apply
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function CombineForm({ seg, onClose }: { seg: SegmentInfo; onClose: () => void }) {
+  const others = useStore((s) => s.segments).filter((x) => x.index !== seg.index);
+  const [other, setOther] = useState(others[0]?.index ?? 0);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onClose();
+        void addSegmentInto(seg.index, other);
+      }}
+    >
+      <div className="title">{seg.name}</div>
+      <label className="field">
+        <span className="label">Add</span>
+        <select className="select" autoFocus value={other} onChange={(e) => setOther(Number(e.target.value))}>
+          {others.map((x) => (
+            <option key={x.index} value={x.index}>
+              {x.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="note">Its voxels become part of {seg.name}.</p>
+      <div className="actions">
+        <button type="button" className="btn secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="submit" className="btn primary">
+          Add
+        </button>
+      </div>
+    </form>
+  );
+}
+
+type MenuKind = 'menu' | 'color' | 'combine' | AmountOp;
+
 function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
   const [renaming, setRenaming] = useState(false);
-  const [menu, setMenuState] = useState<'menu' | 'color' | null>(null);
+  const [menu, setMenuState] = useState<MenuKind | null>(null);
   const [anchor, setAnchor] = useState<React.CSSProperties>({});
-  const setMenu = (next: 'menu' | 'color' | null, from?: HTMLElement | null) => {
+  const volume = useStore((s) => s.stats[seg.index]?.volumeMl ?? 0);
+  const canCombine = useStore((s) => s.segments.length > 1);
+  const setMenu = (next: MenuKind | null, from?: HTMLElement | null) => {
     const row = from?.closest('.segrow') as HTMLElement | null;
     if (next && row) {
       const r = row.getBoundingClientRect();
-      const height = next === 'menu' ? 176 : 108;
-      const up = r.bottom + height > window.innerHeight - 8;
       setAnchor({
         position: 'fixed',
-        top: up ? undefined : r.bottom - 2,
-        bottom: up ? window.innerHeight - r.top - 2 : undefined,
-        ...(next === 'menu' ? { right: window.innerWidth - r.right + 4 } : { left: r.left + 4 }),
+        top: r.bottom - 2,
+        ...(next === 'color' ? { left: r.left + 4 } : { right: window.innerWidth - r.right + 4 }),
       });
     }
     setMenuState(next);
   };
   const close = useCallback(() => setMenuState(null), []);
   const ref = useDismiss<HTMLDivElement>(menu !== null, close);
+  // Keep the whole menu on screen when the row is near the bottom.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!menu || !el) return;
+    const top = Math.max(8, Math.min(el.offsetTop, window.innerHeight - 8 - el.offsetHeight));
+    if (top !== el.offsetTop) setAnchor((a) => ({ ...a, top }));
+  }, [menu, ref]);
+  const run = (op: RefineOp) => {
+    setMenu(null);
+    void refineSegment(seg.index, op);
+  };
 
   if (!created.has(seg.index)) created.set(seg.index, listReady ? Date.now() : 0);
 
@@ -88,6 +226,11 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
           {seg.name}
         </span>
       )}
+      {volume > 0 && !renaming && (
+        <span className="vol" data-testid="segment-volume">
+          {formatVolume(volume)}
+        </span>
+      )}
       <button
         className="iconbtn sm act"
         data-on={!seg.visible}
@@ -139,6 +282,45 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
           <button className="item" role="menuitem" onClick={() => (setMenu(null), showOnly(seg.index))}>
             Show only this
           </button>
+          <button className="item" role="menuitem" onClick={() => (setMenu(null), goToSegment(seg.index))}>
+            Go to segment
+          </button>
+          <hr />
+          <div className="title" id={`refine-${seg.index}`}>
+            Refine
+          </div>
+          <div role="group" aria-labelledby={`refine-${seg.index}`}>
+            <button className="item" role="menuitem" onClick={(e) => setMenu('grow', e.currentTarget.closest('.segrow') as HTMLElement)}>
+              {AMOUNTS.grow.item}
+            </button>
+            <button className="item" role="menuitem" onClick={(e) => setMenu('shrink', e.currentTarget.closest('.segrow') as HTMLElement)}>
+              {AMOUNTS.shrink.item}
+            </button>
+            <button className="item" role="menuitem" onClick={(e) => setMenu('smooth', e.currentTarget.closest('.segrow') as HTMLElement)}>
+              {AMOUNTS.smooth.item}
+            </button>
+            <button className="item" role="menuitem" onClick={() => run('fillHoles')}>
+              Fill holes
+            </button>
+            <button className="item" role="menuitem" onClick={() => run('keepLargest')}>
+              Keep largest island
+            </button>
+            <button className="item" role="menuitem" onClick={(e) => setMenu('removeSmall', e.currentTarget.closest('.segrow') as HTMLElement)}>
+              {AMOUNTS.removeSmall.item}
+            </button>
+          </div>
+          <hr />
+          <button
+            className="item"
+            role="menuitem"
+            disabled={!canCombine}
+            onClick={(e) => setMenu('combine', e.currentTarget.closest('.segrow') as HTMLElement)}
+          >
+            Combine…
+          </button>
+          <button className="item" role="menuitem" onClick={() => (setMenu(null), openMeasurements())}>
+            Measurements
+          </button>
           <hr />
           <button className="item" role="menuitem" onClick={() => (setMenu(null), clearSegment(seg.index))}>
             Clear
@@ -146,6 +328,19 @@ function Row({ seg, active }: { seg: SegmentInfo; active: boolean }) {
           <button className="item danger" role="menuitem" onClick={() => (setMenu(null), deleteSegment(seg.index))}>
             Delete
           </button>
+        </div>
+      )}
+      {menu !== null && menu !== 'menu' && menu !== 'color' && (
+        <div
+          className="menu ask"
+          role="dialog"
+          aria-label={menu === 'combine' ? `Combine with ${seg.name}` : `${AMOUNTS[menu].item.replace('…', '')} ${seg.name}`}
+          ref={ref}
+          style={anchor}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          {menu === 'combine' ? <CombineForm seg={seg} onClose={close} /> : <AmountForm op={menu} seg={seg} onClose={close} />}
         </div>
       )}
       {menu === 'color' && (
