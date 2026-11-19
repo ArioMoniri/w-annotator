@@ -10,19 +10,19 @@ The video is real footage of the app, recorded by a script and composed with [Re
 2. `scripts/build-footage.cjs` turns the screenshots into `public/footage-a.mp4` (the host's window) and `public/footage-b.mp4` (the second person's window), and writes `src/track.json` with the cursor path, the scene ranges and the eased camera path.
 3. `src/Launch.tsx` is the composition: a title card, the footage in a window frame with zoom-ins, a cursor drawn from the recorded path, one short caption per scene, and an end card.
 
-The cursor, the zoom towards the action and the window frame on a plain background follow the approach of screen recorders such as [Recordly](https://github.com/webadderall/Recordly). Recordly itself is not used: it is a desktop app that records a real screen, and it cannot run without a display. No code from it is included.
+The cursor, the zoom towards the action and the window frame on a plain background follow the approach of screen recorders such as [Recordly](https://github.com/webadderall/Recordly). Recordly itself is not used: it is a desktop app that records a real screen and has its own editor, not something a script can drive on a machine without a display. No code from it is included.
 
 ## Render
 
 ```
 cd video
 npm install
-npm run render      # writes ../docs/assets/launch.mp4 (1920x1080, 30 fps, H.264, no audio)
+npm run render      # renders out/launch-full.mp4, then ffmpeg writes ../docs/assets/launch.mp4 (1920x1080, 30 fps, H.264, no audio)
 npm run preview     # writes ../docs/assets/launch.webp from that file (needs ffmpeg)
 npm run studio      # opens the Remotion editor
 ```
 
-Remotion downloads a headless Chrome the first time. To use one that is already installed, add `-- --browser-executable=/path/to/chrome-headless-shell` to `npm run render`.
+Remotion downloads a headless Chrome the first time. To use one that is already installed, run the `remotion render` command from `package.json` with `--browser-executable=/path/to/chrome-headless-shell` added. The second step re-encodes with ffmpeg because x264's slow preset gives a smaller file than Remotion's own encode at the same quality.
 
 ## Record again
 
