@@ -2045,3 +2045,53 @@ button.avatar {
 }
 
 /* ── End of segment operations and measurements ─────────────────── */
+
+
+/* ── Options strip: tighten until it fits ──────── */
+
+.strip .btn .short {
+  display: none;
+}
+
+.strip[data-compact='1'] .hint,
+.strip[data-compact='2'] .hint,
+.strip[data-compact='3'] .hint,
+.strip[data-compact='1'] .field > .label,
+.strip[data-compact='2'] .field > .label,
+.strip[data-compact='3'] .field > .label,
+.strip[data-compact='1'] .field > label,
+.strip[data-compact='2'] .field > label,
+.strip[data-compact='3'] .field > label {
+  display: none;
+}
+
+.strip[data-compact='2'] .options,
+.strip[data-compact='3'] .options {
+  gap: 8px;
+}
+
+.strip[data-compact='2'] .btn .long,
+.strip[data-compact='3'] .btn .long {
+  display: none;
+}
+
+.strip[data-compact='2'] .btn .short,
+.strip[data-compact='3'] .btn .short {
+  display: inline;
+}
+
+.strip[data-compact='2'] .seg-control button,
+.strip[data-compact='3'] .seg-control button {
+  padding: 0 6px;
+}
+
+.strip[data-compact='2'] .unit,
+.strip[data-compact='3'] .unit,
+.strip[data-compact='3'] input[type='range'],
+.strip[data-compact='3'] .dual {
+  display: none;
+}
+
+.strip[data-compact='3'] .chip span:last-child {
+  display: none;
+}
