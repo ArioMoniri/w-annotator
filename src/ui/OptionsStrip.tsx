@@ -12,6 +12,9 @@ const CT_PRESETS: { name: string; w: number; l: number }[] = [
   { name: 'Bone', w: 1800, l: 400 },
   { name: 'Brain', w: 80, l: 40 },
   { name: 'Abdomen', w: 350, l: 50 },
+  { name: 'Liver', w: 150, l: 30 },
+  { name: 'Stroke', w: 40, l: 40 },
+  { name: 'Subdural', w: 200, l: 75 },
 ];
 
 const SHAPES = [
@@ -22,7 +25,7 @@ const SHAPES = [
 function SizeField() {
   const size = useStore((s) => s.brushSize);
   return (
-    <div className="field" data-tip="Brush size  [  ]" data-tip-side="bottom">
+    <div className="field" data-tip="Brush diameter  [  ]" data-tip-side="bottom">
       <span className="label">Size</span>
       <Slider label="Brush size" min={1} max={100} value={size} onChange={setBrushSize} />
       <NumberField label="Brush size in millimetres" value={size} min={1} max={100} onCommit={setBrushSize} />
@@ -85,6 +88,8 @@ function WindowFields() {
             onChange={(e) => {
               const p = CT_PRESETS.find((x) => x.name === e.target.value);
               if (p) apply(p.w, p.l);
+              // Give the keyboard back to the tool shortcuts.
+              e.target.blur();
             }}
           >
             <option value="" disabled>
@@ -160,6 +165,7 @@ export function OptionsStrip() {
         <>
           <SizeField />
           <ShapeField />
+          <span className="hint">Shift-drag erases.</span>
           <button
             className="btn secondary"
             data-tip="Paint every few slices, then fill the gaps  I"

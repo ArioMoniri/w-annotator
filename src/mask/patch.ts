@@ -120,3 +120,50 @@ export function decodePatch(bytes: Uint8Array): Patch {
   if (bytes.length !== 4 + n * 8 + total) throw new Error('Patch length does not match its header');
   return { starts, lengths, before: new Uint8Array(0), after: bytes.slice(4 + n * 8) };
 }
+
+/**
+ * Undo or redo in a shared mask: a voxel is only changed if it still holds the
+ * value this patch left there, so someone else's later edit is never erased.
+ * Returns what was actually written, or null if nothing was.
+ */
+export function applyPatchWhereUnchanged(buf: Uint8Array, patch: Patch, side: 'before' | 'after'): Patch | null {
+  const want = patch[side];
+  const expect = side === 'before' ? patch.after : patch.before;
+  const starts: number[] = [];
+  const lengths: number[] = [];
+  const before: number[] = [];
+  const after: number[] = [];
+  let o = 0;
+  for (let r = 0; r < patch.starts.length; r++) {
+    const start = patch.starts[r];
+    const len = patch.lengths[r];
+    if (start + len > buf.length || o + len > want.length || o + len > expect.length) {
+      throw new Error('Patch does not fit this mask');
+    }
+    let runStart = -1;
+    for (let i = 0; i < len; i++) {
+      const at = start + i;
+      if (buf[at] === expect[o + i] && want[o + i] !== buf[at]) {
+        if (runStart < 0) {
+          runStart = at;
+          starts.push(at);
+          lengths.push(0);
+        }
+        lengths[lengths.length - 1]++;
+        before.push(buf[at]);
+        after.push(want[o + i]);
+        buf[at] = want[o + i];
+      } else {
+        runStart = -1;
+      }
+    }
+    o += len;
+  }
+  if (starts.length === 0) return null;
+  return {
+    starts: Uint32Array.from(starts),
+    lengths: Uint32Array.from(lengths),
+    before: Uint8Array.from(before),
+    after: Uint8Array.from(after),
+  };
+}

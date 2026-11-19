@@ -105,7 +105,7 @@ function useHotkeys() {
           if (s.activeView === 'volume3d') return;
           e.preventDefault();
           const step = e.key.startsWith('Page') || e.shiftKey ? 5 : 1;
-          return scrollSlices(s.activeView, e.key === 'ArrowUp' || e.key === 'PageUp' ? step : -step);
+          return scrollSlices(s.activeView, e.key === 'ArrowUp' || e.key === 'PageUp' ? -step : step);
         }
       }
     };

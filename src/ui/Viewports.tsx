@@ -76,6 +76,7 @@ export function Viewports() {
   // Painting on a locked or hidden segment is refused rather than done silently.
   const blocked = EDIT_TOOLS.includes(tool) && !!activeSeg && (activeSeg.locked || !activeSeg.visible);
   const lastRefusal = useRef(0);
+  const pressed = useRef<[number, number]>([0, 0]);
   const refuse = (id: ViewId, e: React.MouseEvent) => {
     if (!blocked || id === 'volume3d' || e.button !== 0 || !activeSeg) return;
     if ((e.target as HTMLElement).closest('button')) return;
@@ -184,6 +185,17 @@ export function Viewports() {
           onMouseLeave={() => {
             set({ hover: null });
             shareCursor(null);
+          }}
+          onMouseDown={(e) => {
+            pressed.current = [e.clientX, e.clientY];
+          }}
+          onClick={(e) => {
+            // A plain click with the crosshair brings the other two views to that point.
+            if (tool !== 'crosshair' || v.id === 'volume3d' || (e.target as HTMLElement).closest('button')) return;
+            if (Math.hypot(e.clientX - pressed.current[0], e.clientY - pressed.current[1]) > 3) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const w = engine.canvasToWorld(v.id, e.clientX - rect.left, e.clientY - rect.top);
+            if (w) engine.jumpTo(w, v.id);
           }}
           onDoubleClick={() => set({ maximized: maximized === v.id ? null : v.id })}
           onContextMenu={(e) => e.preventDefault()}

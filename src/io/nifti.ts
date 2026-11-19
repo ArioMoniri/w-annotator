@@ -1,3 +1,4 @@
+import { labelsDocument, parseLabels } from './labels';
 import { baseName, leafName } from './names';
 import type { InputFile, ScalarArray, VolumeData } from './types';
 import {
@@ -65,6 +66,8 @@ interface Header {
   srow: number[];
   /** True when the voxels are in the same file as the header. */
   single: boolean;
+  /** Size of the header itself: 348 (NIfTI-1) or 540 (NIfTI-2). */
+  size: number;
 }
 
 function parseHeader(b: Uint8Array): Header {
@@ -94,6 +97,7 @@ function parseHeader(b: Uint8Array): Header {
       srow: f32(280, 12),
       // "n+1" means one file; "ni1" or no magic (Analyze 7.5) means a separate .img.
       single: b[344] === 0x6e && b[345] === 0x2b,
+      size,
     };
   }
   return {
@@ -109,6 +113,7 @@ function parseHeader(b: Uint8Array): Header {
     quatern: f64(352, 6),
     srow: f64(400, 12),
     single: b[5] === 0x2b,
+    size,
   };
 }
 
@@ -161,6 +166,37 @@ function findImg(header: InputFile, files: InputFile[]): Uint8Array {
   return isGzip(img.bytes) ? gunzip(img.bytes) : img.bytes;
 }
 
+const ECODE_COMMENT = 6;
+
+/**
+ * Looks for our segment names among the header extensions, which sit between
+ * the 4-byte extender after the header and `end`. Extensions written by other
+ * software are skipped, and a damaged extension list just ends the search.
+ */
+function extensionLabels(b: Uint8Array, h: Header, end: number): Record<number, string> | undefined {
+  try {
+    const stop = Math.min(end, b.length);
+    let pos = h.size + 4;
+    if (!(pos <= stop) || b[h.size] === 0) return undefined;
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    let found: Record<number, string> | undefined;
+    while (pos + 8 <= stop) {
+      const esize = dv.getInt32(pos, h.le);
+      if (esize < 8 || esize > stop - pos) break;
+      if (dv.getInt32(pos + 4, h.le) === ECODE_COMMENT) {
+        let last = pos + esize;
+        while (last > pos + 8 && b[last - 1] === 0) last--;
+        const text = new TextDecoder().decode(b.subarray(pos + 8, last));
+        found = parseLabels(text, true) ?? found;
+      }
+      pos += esize;
+    }
+    return found;
+  } catch {
+    return undefined;
+  }
+}
+
 export function readNifti(file: InputFile, files: InputFile[]): VolumeData {
   const bytes = isGzip(file.bytes) ? gunzip(file.bytes) : file.bytes;
   const h = parseHeader(bytes);
@@ -192,16 +228,43 @@ export function readNifti(file: InputFile, files: InputFile[]): VolumeData {
     steps[a] = -steps[a];
     steps[a + 1] = -steps[a + 1];
   }
-  return { name: baseName(file.name), dims, ...geometryFromSteps(steps, [-origin[0], -origin[1], origin[2]]), data };
+  const vol: VolumeData = {
+    name: baseName(file.name),
+    dims,
+    ...geometryFromSteps(steps, [-origin[0], -origin[1], origin[2]]),
+    data,
+  };
+  // With a separate .img the extensions run to the end of the header file.
+  const labels = extensionLabels(bytes, h, h.single ? offset : bytes.length);
+  if (labels) vol.labels = labels;
+  return vol;
 }
 
-/** An uncompressed single-file NIfTI-1 image with both sform and qform set. */
+/** One comment extension (esize, ecode, body) holding the segment names; empty when there are none. */
+function labelExtension(labels: Record<number, string> | undefined): Uint8Array {
+  const doc = labelsDocument(labels);
+  if (doc === undefined) return new Uint8Array(0);
+  const body = new TextEncoder().encode(doc);
+  const out = new Uint8Array(Math.ceil((8 + body.length) / 16) * 16);
+  const dv = new DataView(out.buffer);
+  dv.setInt32(0, out.length, true);
+  dv.setInt32(4, ECODE_COMMENT, true);
+  out.set(body, 8);
+  return out;
+}
+
+/**
+ * An uncompressed single-file NIfTI-1 image with both sform and qform set.
+ * Segment names, when there are any, go in a comment header extension.
+ */
 export function writeNifti(vol: VolumeData): Uint8Array {
   const [nx, ny, nz] = vol.dims;
   if (nx > 32767 || ny > 32767 || nz > 32767) throw new IoError('This image is too large to save as NIfTI-1.');
   const type = typeOf(vol.data);
   const voxels = littleEndianBytes(vol.data);
-  const out = new Uint8Array(352 + voxels.length);
+  const extension = labelExtension(vol.labels);
+  const voxOffset = 352 + extension.length;
+  const out = new Uint8Array(voxOffset + voxels.length);
   const dv = new DataView(out.buffer);
   const d = vol.direction;
   const sp = vol.spacing;
@@ -217,7 +280,7 @@ export function writeNifti(vol: VolumeData): Uint8Array {
   [3, nx, ny, nz, 1, 1, 1, 1].forEach((v, i) => dv.setInt16(40 + i * 2, v, true));
   dv.setInt16(70, DATATYPE_CODES[type], true);
   dv.setInt16(72, BYTES[type] * 8, true);
-  dv.setFloat32(108, 352, true);
+  dv.setFloat32(108, voxOffset, true);
   dv.setFloat32(112, 1, true); // scl_slope
   out[123] = 2; // xyzt_units: millimetres
   dv.setInt16(252, 1, true); // qform_code: scanner
@@ -277,6 +340,10 @@ export function writeNifti(vol: VolumeData): Uint8Array {
   dv.setFloat32(260, c, true);
   dv.setFloat32(264, q, true);
   out.set([0x6e, 0x2b, 0x31, 0], 344); // "n+1\0"
-  out.set(voxels, 352);
+  if (extension.length > 0) {
+    out[348] = 1; // extender: extensions follow
+    out.set(extension, 352);
+  }
+  out.set(voxels, voxOffset);
   return out;
 }

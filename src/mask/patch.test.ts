@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatch, decodePatch, diffMask, encodePatch, patchSlices, patchVoxelCount } from './patch';
+import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, patchVoxelCount } from './patch';
 
 const SLICE = 16; // 4 x 4
 
@@ -98,5 +98,44 @@ describe('encodePatch / decodePatch', () => {
     big[99] = 1;
     const p = diffMask(new Uint8Array(100), big, 10)!;
     expect(() => applyPatch(new Uint8Array(50), p, 'after')).toThrow();
+  });
+});
+
+describe('applyPatchWhereUnchanged', () => {
+  it('undoes my stroke but keeps voxels someone else changed since', () => {
+    const start = mask();
+    const mine = start.slice();
+    mine.set([1, 1, 1, 1], 4);
+    const p = diffMask(start, mine, SLICE)!;
+    const shared = mine.slice();
+    shared[5] = 2; // a collaborator painted over one of my voxels
+    shared[6] = 0; // and erased another
+    const written = applyPatchWhereUnchanged(shared, p, 'before')!;
+    expect(Array.from(shared.subarray(4, 8))).toEqual([0, 2, 0, 0]);
+    expect(Array.from(written.starts)).toEqual([4, 7]);
+    expect(Array.from(written.after)).toEqual([0, 0]);
+    expect(Array.from(written.before)).toEqual([1, 1]);
+  });
+
+  it('redo only fills voxels that are still as undo left them', () => {
+    const start = mask();
+    const mine = start.slice();
+    mine.set([1, 1], 0);
+    const p = diffMask(start, mine, SLICE)!;
+    const shared = start.slice();
+    shared[1] = 3;
+    applyPatchWhereUnchanged(shared, p, 'after');
+    expect(Array.from(shared.subarray(0, 2))).toEqual([1, 3]);
+  });
+
+  it('returns null when everything was changed by others', () => {
+    const start = mask();
+    const mine = start.slice();
+    mine[3] = 1;
+    const p = diffMask(start, mine, SLICE)!;
+    const shared = start.slice();
+    shared[3] = 2;
+    expect(applyPatchWhereUnchanged(shared, p, 'before')).toBeNull();
+    expect(shared[3]).toBe(2);
   });
 });

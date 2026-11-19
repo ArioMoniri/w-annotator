@@ -305,6 +305,12 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
     }
     group.setToolActive(name, { bindings: [primary] });
   }
+  // Holding Shift turns the brush into an eraser of the same size and shape.
+  if (tool === 'brush' || tool === 'threshold') {
+    group.setToolActive(o.brushShape === 'sphere' ? BRUSH.eraseSphere : BRUSH.eraseCircle, {
+      bindings: [{ mouseButton: MouseBindings.Primary, modifierKey: KeyboardBindings.Shift }],
+    });
+  }
   eng().render();
 }
 
@@ -455,7 +461,7 @@ export function applySegments(list: SegmentInfo[], active: number): void {
     segmentation.segmentLocking.setSegmentIndexLocked(SEGMENTATION_ID, seg.index, seg.locked);
   }
   if (active > 0) segmentation.segmentIndex.setActiveSegmentIndex(SEGMENTATION_ID, active);
-  engine?.render();
+  repaintMask();
 }
 
 export function setMaskStyle(opacity: number, outlineOnly: boolean): void {
@@ -472,7 +478,21 @@ export function setMaskStyle(opacity: number, outlineOnly: boolean): void {
     outlineOpacityInactive: 1,
   };
   segmentation.segmentationStyle.setStyle({ type: LABELMAP }, style);
-  engine?.render();
+  repaintMask();
+}
+
+/** Style and visibility changes only show once the segmentation itself is re-rendered. */
+function repaintMask(): void {
+  if (!maskLoaded || !engine) return;
+  try {
+    for (const id of ALL_IDS) {
+      segmentation.triggerSegmentationEvents.triggerSegmentationRepresentationModified(id, SEGMENTATION_ID, LABELMAP);
+    }
+    csTools.utilities.segmentation.triggerSegmentationRenderBySegmentationId(SEGMENTATION_ID);
+  } catch {
+    /* nothing to repaint yet */
+  }
+  engine.render();
 }
 
 /** Tell the renderer that mask voxels were changed from outside the tools. */
@@ -545,9 +565,10 @@ export function distanceToSlice(id: string, w: [number, number, number]): number
   return (w[0] - f[0]) * n[0] + (w[1] - f[1]) * n[1] + (w[2] - f[2]) * n[2];
 }
 
-export function jumpTo(w: [number, number, number]): void {
+export function jumpTo(w: [number, number, number], except?: string): void {
   if (!engine || !imageLoaded) return;
   for (const id of ORTHO_IDS) {
+    if (id === except) continue;
     const vp = orthoViewport(id);
     const cam = vp.getCamera();
     const n = cam.viewPlaneNormal!;

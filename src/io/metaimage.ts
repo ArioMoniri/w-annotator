@@ -1,4 +1,5 @@
 import { zlibSync } from 'fflate';
+import { labelsLine, parseLabels } from './labels';
 import { baseName } from './names';
 import type { InputFile, VolumeData } from './types';
 import {
@@ -73,6 +74,9 @@ function parseHeader(bytes: Uint8Array): { fields: Map<string, string>; dataStar
   throw new IoError(NOT_META);
 }
 
+/** Our own header key for segment names; MetaImage readers skip keys they do not know. */
+const LABELS_KEY = 'WAnnotatorLabels';
+
 const isTrue = (v: string | undefined) => v !== undefined && /^true$/i.test(v);
 
 export function readMetaImage(file: InputFile, files: InputFile[]): VolumeData {
@@ -132,12 +136,23 @@ export function readMetaImage(file: InputFile, files: InputFile[]): VolumeData {
     raw = raw.subarray(raw.length - need);
   }
   const msb = isTrue(get('binarydatabyteordermsb', 'elementbyteordermsb'));
-  return { name: baseName(file.name), dims, spacing, origin, direction, data: decodeScalars(raw, type, count, !msb) };
+  const vol: VolumeData = {
+    name: baseName(file.name),
+    dims,
+    spacing,
+    origin,
+    direction,
+    data: decodeScalars(raw, type, count, !msb),
+  };
+  const labels = parseLabels(get(LABELS_KEY.toLowerCase()) ?? '');
+  if (labels) vol.labels = labels;
+  return vol;
 }
 
-/** A single-file .mha with zlib-compressed little-endian data. */
+/** A single-file .mha with zlib-compressed little-endian data. Segment names go in a WAnnotatorLabels line. */
 export function writeMetaImage(vol: VolumeData): Uint8Array {
   const data = zlibSync(littleEndianBytes(vol.data), { level: 4 });
+  const labels = labelsLine(vol.labels);
   const header =
     [
       'ObjectType = Image',
@@ -152,6 +167,7 @@ export function writeMetaImage(vol: VolumeData): Uint8Array {
       `ElementSpacing = ${vol.spacing.join(' ')}`,
       `DimSize = ${vol.dims.join(' ')}`,
       `ElementType = ${MET_NAMES[typeOf(vol.data)]}`,
+      ...(labels === undefined ? [] : [`${LABELS_KEY} = ${labels}`]),
       'ElementDataFile = LOCAL',
     ].join('\n') + '\n';
   return concatBytes([asciiBytes(header), data]);

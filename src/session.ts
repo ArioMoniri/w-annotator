@@ -15,7 +15,7 @@ import {
 import type { ScalarArray, VolumeData } from './io/types';
 import { History } from './mask/history';
 import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
-import { applyPatch, decodePatch, diffMask, encodePatch, patchSlices, type Patch } from './mask/patch';
+import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, type Patch } from './mask/patch';
 import { RoomClient } from './collab/client';
 import {
   Assembler,
@@ -192,15 +192,17 @@ async function loadImage(vol: VolumeData): Promise<void> {
   set({ busy: `Opening ${vol.name}…` });
   await nextFrame();
   const renderable = toRenderable(vol);
-  const voi = autoWindow(renderable);
   const range = dataRange(renderable.data);
+  // CT-like data opens on a soft-tissue window; everything else on a percentile window.
+  const looksLikeCt = range[0] <= -500 && range[1] > 300;
+  const auto = autoWindow(renderable);
+  const voi = looksLikeCt ? { lower: -160, upper: 240 } : auto;
   image = renderable;
   set({ image: { name: vol.name, dims: vol.dims, range }, voi, hover: null, maximized: null });
   // The viewport elements mount when `image` is set; wait for them.
   await nextFrame();
   await engine.showImage(renderable, voi);
-  const span = range[1] - range[0];
-  set({ threshold: [Math.round(range[0] + span * 0.5), Math.round(range[1])] });
+  set({ threshold: looksLikeCt ? [100, Math.round(range[1])] : [Math.round((auto.lower + auto.upper) / 2), Math.round(range[1])] });
   installMask({
     name: '',
     dims: vol.dims,
@@ -219,13 +221,21 @@ async function loadMask(vol: VolumeData): Promise<void> {
   await nextFrame();
   let fitted = vol;
   const sameDims = vol.dims.every((n, i) => n === image!.dims[i]);
-  if (!sameGrid(vol, image)) {
-    if (sameDims) {
-      toast('warning', "This mask's position data differs from the image. It was placed on the image grid.");
-    } else {
-      fitted = resampleNearest(vol, image);
-      toast('warning', `The mask is ${vol.dims.join(' × ')} but the image is ${image.dims.join(' × ')}. It was resampled to fit.`);
+  // Within a tenth of a voxel the grids are the same. Anything else goes through
+  // world coordinates, so a mask stored in another axis order is never mirrored.
+  if (!sameGrid(vol, image, Math.min(...image.spacing) * 0.1)) {
+    fitted = resampleNearest(vol, image);
+    const kept = labelValues(toLabelmap(fitted)).length;
+    if (kept === 0 && labelValues(toLabelmap(vol)).length > 0) {
+      toast('error', "This mask doesn't overlap the image. Check that it belongs to this scan.");
+      return;
     }
+    toast(
+      'warning',
+      sameDims
+        ? 'The mask is stored on a different grid from the image (orientation or position). It was resampled onto the image.'
+        : `The mask is ${vol.dims.join(' × ')} but the image is ${image.dims.join(' × ')}. It was resampled to fit.`,
+    );
   }
   const label = toLabelmap(fitted);
   const data = label.data === vol.data ? (label.data as Uint8Array).slice() : (label.data as Uint8Array);
@@ -298,7 +308,7 @@ export function setTool(tool: ToolId): void {
 
 function applyTool(): void {
   const s = get();
-  engine.setBrushSize(s.brushSize);
+  engine.setBrushSize(s.brushSize / 2);
   engine.setThreshold(s.threshold);
   engine.setTool(s.tool, { brushShape: s.brushShape, scissorsShape: s.scissorsShape, scissorsAction: s.scissorsAction });
 }
@@ -306,7 +316,8 @@ function applyTool(): void {
 export function setBrushSize(mm: number): void {
   const size = Math.min(100, Math.max(1, Math.round(mm)));
   set({ brushSize: size });
-  engine.setBrushSize(size);
+  // The number on screen is the brush diameter; the tools want a radius.
+  engine.setBrushSize(size / 2);
 }
 
 export function setToolOption(
@@ -404,6 +415,17 @@ function writePatch(patch: Patch, side: 'before' | 'after'): void {
   engine.refreshMask(patchSlices(patch, sliceSize()));
 }
 
+/** Undo or redo one of my patches without touching voxels others changed since. */
+function writeOwn(patch: Patch, side: 'before' | 'after'): void {
+  if (!mask || !shadow) return;
+  const written = applyPatchWhereUnchanged(mask.data as Uint8Array, patch, side);
+  if (!written) return;
+  applyPatch(shadow, written, 'after');
+  ensureSegments(written.after);
+  engine.refreshMask(patchSlices(written, sliceSize()));
+  room?.sendFrame(FrameKind.Patch, encodePatch(written));
+}
+
 function ensureSegments(values: Uint8Array): void {
   const s = get();
   const known = new Set(s.segments.map((x) => x.index));
@@ -428,10 +450,7 @@ export function undo(): void {
   flushEdits();
   const patches = history.undo();
   if (!patches) return;
-  for (const p of patches) {
-    writePatch(p, 'before');
-    room?.sendFrame(FrameKind.Patch, encodePatch({ ...p, after: p.before }));
-  }
+  for (const p of patches) writeOwn(p, 'before');
   set({ dirty: true });
   syncHistoryFlags();
 }
@@ -439,10 +458,7 @@ export function undo(): void {
 export function redo(): void {
   const patches = history.redo();
   if (!patches) return;
-  for (const p of patches) {
-    writePatch(p, 'after');
-    room?.sendFrame(FrameKind.Patch, encodePatch(p));
-  }
+  for (const p of patches) writeOwn(p, 'after');
   set({ dirty: true });
   syncHistoryFlags();
 }
@@ -632,8 +648,9 @@ const gz = (data: Uint8Array) =>
 const gunz = (data: Uint8Array) =>
   new Promise<Uint8Array>((resolve, reject) => gunzip(data, (err, out) => (err ? reject(err) : resolve(out))));
 
-function metaOf(vol: VolumeData, bytes: number): VolumeMeta {
-  return { name: vol.name, dims: vol.dims, spacing: vol.spacing, origin: vol.origin, direction: vol.direction, dtype: vol.data.constructor.name, bytes };
+// File names can carry patient identifiers, so the room only ever sees neutral ones.
+function metaOf(vol: VolumeData, bytes: number, name: string): VolumeMeta {
+  return { name, dims: vol.dims, spacing: vol.spacing, origin: vol.origin, direction: vol.direction, dtype: vol.data.constructor.name, bytes };
 }
 
 function bytesOf(d: ScalarArray): Uint8Array {
@@ -799,9 +816,9 @@ async function sendSnapshot(client: RoomClient, to: number, imageToo: boolean): 
   client.send({
     t: 'snapshot',
     to,
-    image: imageZ ? metaOf(image, imageZ.length) : null,
-    mask: metaOf(mask, maskZ.length),
-    maskName,
+    image: imageZ ? metaOf(image, imageZ.length, 'Room image') : null,
+    mask: metaOf(mask, maskZ.length, 'Room mask'),
+    maskName: maskName ? 'Room mask' : null,
     segments,
     total,
   });
@@ -894,7 +911,7 @@ export function shareCursor(vp: ViewId | null, w?: [number, number, number]): vo
   lastCursor = now;
   const s = get();
   const painting = s.tool === 'brush' || s.tool === 'eraser' || s.tool === 'threshold';
-  room.send({ t: 'cursor', vp, w, r: painting ? s.brushSize : undefined });
+  room.send({ t: 'cursor', vp, w, r: painting ? s.brushSize / 2 : undefined });
 }
 
 export function roomCodeLabel(): string {

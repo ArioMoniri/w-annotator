@@ -129,6 +129,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Scissors', 'S'],
       ['Fill', 'F'],
       ['Brush size', '[  ]'],
+      ['Erase with the brush', 'Shift-drag'],
       ['Fill between slices', 'I'],
       ['Last tool', 'Space'],
     ],
