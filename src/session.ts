@@ -17,7 +17,28 @@ import type { ScalarArray, VolumeData } from './io/types';
 import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
 import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
-import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, type Patch } from './mask/patch';
+import {
+  combine,
+  fillHoles,
+  grow,
+  keepLargestIsland,
+  removeSmallIslands,
+  segmentStats,
+  shrink,
+  smooth,
+  statsCsv,
+  type SegmentStats,
+} from './mask/ops';
+import {
+  applyPatch,
+  applyPatchWhereUnchanged,
+  decodePatch,
+  diffMask,
+  encodePatch,
+  patchSlices,
+  restoreOverwritten,
+  type Patch,
+} from './mask/patch';
 import { RoomClient } from './collab/client';
 import {
   Assembler,
@@ -34,6 +55,7 @@ import {
   type VolumeMeta,
 } from './collab/protocol';
 import * as engine from './viewer/engine';
+import { indexToWorld } from './viewer/geometry';
 import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
@@ -293,6 +315,8 @@ function installMask(vol: VolumeData): void {
   set({ segments: [], activeSegment: 0 });
   engine.setMaskStyle(get().opacity, get().outlineOnly);
   engine.set3dImageVisible(get().show3dImage);
+  set({ stats: {} });
+  scheduleStats();
 }
 
 export function closeImage(): void {
@@ -303,7 +327,7 @@ export function closeImage(): void {
     shadow = null;
     history.clear();
     engine.unmountViewports();
-    set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {} });
+    set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false });
   };
   if (get().dirty) {
     set({
@@ -422,12 +446,21 @@ function flushEdits(): void {
   if (!mask || !shadow || !dirtySlices) return;
   const which = dirtySlices === 'all' ? undefined : [...dirtySlices];
   dirtySlices = null;
-  const patch = diffMask(shadow, mask.data as Uint8Array, sliceSize(), which);
+  const data = mask.data as Uint8Array;
+  let patch = diffMask(shadow, data, sliceSize(), which);
   if (!patch) return;
+  if (get().paintOver === 'empty' && restoreOverwritten(data, patch) > 0) {
+    // The stroke ran over a neighbour: those voxels are back, so diff again and repaint.
+    const touched = patchSlices(patch, sliceSize());
+    patch = diffMask(shadow, data, sliceSize(), touched);
+    engine.refreshMask(touched);
+    if (!patch) return;
+  }
   applyPatch(shadow, patch, 'after');
   history.add(patch);
   room?.sendFrame(FrameKind.Patch, encodePatch(patch));
   scheduleDigest();
+  scheduleStats();
   if (!get().dirty) set({ dirty: true });
   syncHistoryFlags();
 }
@@ -439,6 +472,7 @@ function writePatch(patch: Patch, side: 'before' | 'after'): void {
   applyPatch(shadow, patch, side);
   ensureSegments(patch[side]);
   engine.refreshMask(patchSlices(patch, sliceSize()));
+  scheduleStats();
 }
 
 /** Undo or redo one of my patches without touching voxels others changed since. */
@@ -450,6 +484,7 @@ function writeOwn(patch: Patch, side: 'before' | 'after'): void {
   ensureSegments(written.after);
   engine.refreshMask(patchSlices(written, sliceSize()));
   room?.sendFrame(FrameKind.Patch, encodePatch(written));
+  scheduleStats();
 }
 
 /** What deleted segments looked like, so undo brings back the name, colour and lock too. */
@@ -511,6 +546,8 @@ function editMask(fn: (data: Uint8Array) => void): number {
   engine.refreshMask(patchSlices(patch, sliceSize()));
   set({ dirty: true });
   syncHistoryFlags();
+  scheduleDigest();
+  scheduleStats();
   return patch.after.length;
 }
 
@@ -611,6 +648,164 @@ export function fillBetweenSlices(): void {
   });
   if (n > 0) toast('info', `Filled ${n.toLocaleString('en-US')} voxels between ${view} slices`, { label: 'Undo', run: undo });
   else toast('info', `Paint ${seg.name} on two ${view} slices with a gap between them, then fill.`);
+}
+
+/* ───────────────────────── whole-segment operations ───────────────────────── */
+
+export type RefineOp = 'grow' | 'shrink' | 'smooth' | 'fillHoles' | 'keepLargest' | 'removeSmall';
+
+/** The segment if it can be edited now; otherwise says why not and returns null. */
+function editableSegment(index: number): SegmentInfo | null {
+  const seg = get().segments.find((x) => x.index === index);
+  if (!mask || !seg) return null;
+  if (seg.locked || !seg.visible) {
+    toast('info', seg.locked ? `${seg.name} is locked. Unlock it to edit.` : `${seg.name} is hidden. Show it to edit.`);
+    return null;
+  }
+  return seg;
+}
+
+/** One undo step. Large masks show what is happening, since the work can take a moment. */
+async function runOperation(label: string, fn: (data: Uint8Array) => void): Promise<number> {
+  const large = (mask?.data.length ?? 0) > 4_000_000;
+  if (large) {
+    set({ busy: label });
+    await nextFrame();
+  }
+  try {
+    return editMask(fn);
+  } catch {
+    toast('error', 'Not enough memory for this. Close other apps or try a smaller distance.');
+    return -1;
+  } finally {
+    if (large) set({ busy: null });
+  }
+}
+
+const voxels = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'voxel' : 'voxels'}`;
+
+/** Grow, shrink, smooth (mm), fill holes, keep the largest island or remove small islands (mm³) on one segment. */
+export async function refineSegment(index: number, op: RefineOp, amount = 0): Promise<void> {
+  const seg = editableSegment(index);
+  if (!seg || !mask) return;
+  const { dims, spacing } = mask;
+  const name = seg.name;
+  const steps: Record<RefineOp, { busy: string; run: (d: Uint8Array) => number; done: (n: number) => string; none: string }> = {
+    grow: {
+      busy: `Growing ${name}…`,
+      run: (d) => grow(d, dims, spacing, index, amount),
+      done: () => `Grew ${name} by ${amount} mm`,
+      none: `${name} did not change.`,
+    },
+    shrink: {
+      busy: `Shrinking ${name}…`,
+      run: (d) => shrink(d, dims, spacing, index, amount),
+      done: () => `Shrank ${name} by ${amount} mm`,
+      none: `${name} did not change.`,
+    },
+    smooth: {
+      busy: `Smoothing ${name}…`,
+      run: (d) => smooth(d, dims, spacing, index, amount),
+      done: () => `Smoothed ${name} by ${amount} mm`,
+      none: `${name} did not change.`,
+    },
+    fillHoles: {
+      busy: `Filling holes in ${name}…`,
+      run: (d) => fillHoles(d, dims, index),
+      done: (n) => `Filled ${voxels(n)} in ${name}`,
+      none: `No holes in ${name}.`,
+    },
+    keepLargest: {
+      busy: `Looking for islands in ${name}…`,
+      run: (d) => keepLargestIsland(d, dims, index),
+      done: (n) => `Removed ${voxels(n)} outside the largest island of ${name}`,
+      none: `${name} is already one island.`,
+    },
+    removeSmall: {
+      busy: `Looking for islands in ${name}…`,
+      run: (d) => removeSmallIslands(d, dims, spacing, index, amount),
+      done: (n) => `Removed ${voxels(n)} in small islands of ${name}`,
+      none: `No islands under ${amount} mm³ in ${name}.`,
+    },
+  };
+  const step = steps[op];
+  const n = await runOperation(step.busy, (d) => {
+    step.run(d);
+  });
+  if (n > 0) toast('info', step.done(n), { label: 'Undo', run: undo });
+  else if (n === 0) toast('info', step.none);
+}
+
+/** Moves every voxel of `other` into `target`. Segments cannot overlap, so this is the one way to combine two. */
+export async function addSegmentInto(target: number, other: number): Promise<void> {
+  const seg = editableSegment(target);
+  const from = seg && editableSegment(other);
+  if (!seg || !from || target === other) return;
+  const n = await runOperation(`Adding ${from.name} to ${seg.name}…`, (d) => {
+    combine(d, target, other, 'union');
+  });
+  if (n > 0) toast('info', `Added ${from.name} to ${seg.name}, ${voxels(n)}`, { label: 'Undo', run: undo });
+  else if (n === 0) toast('info', `${from.name} is empty.`);
+}
+
+/* ───────────────────────── measurements ───────────────────────── */
+
+let statsTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Measure again once edits have stopped; never in the middle of a stroke. */
+function scheduleStats(delay = 250): void {
+  if (statsTimer) clearTimeout(statsTimer);
+  statsTimer = setTimeout(() => {
+    statsTimer = null;
+    if (pointerDown || dirtySlices) return scheduleStats();
+    refreshStats();
+  }, delay);
+}
+
+export function refreshStats(): SegmentStats[] {
+  if (statsTimer) clearTimeout(statsTimer);
+  statsTimer = null;
+  if (!mask) {
+    set({ stats: {} });
+    return [];
+  }
+  const sameGridImage = image && image.data.length === mask.data.length ? image.data : null;
+  const list = segmentStats(mask.data as Uint8Array, sameGridImage, mask.dims, mask.spacing);
+  const stats: Record<number, SegmentStats> = {};
+  for (const s of list) stats[s.label] = s;
+  set({ stats });
+  return list;
+}
+
+/** Brings all three views to the middle of a segment. */
+export function goToSegment(index: number): void {
+  const seg = get().segments.find((x) => x.index === index);
+  if (!mask || !seg) return;
+  flushEdits();
+  const found = refreshStats().find((s) => s.label === index);
+  if (!found) {
+    toast('info', `${seg.name} is empty.`);
+    return;
+  }
+  engine.jumpTo(indexToWorld(mask, found.centre));
+}
+
+export function openMeasurements(): void {
+  flushEdits();
+  refreshStats();
+  set({ measurementsOpen: true });
+}
+
+export async function copyMeasurements(): Promise<void> {
+  const s = get();
+  const names = new Map(s.segments.map((x) => [x.index, x.name]));
+  const rows = s.segments.map((x) => s.stats[x.index]).filter((x): x is SegmentStats => !!x);
+  const ok = await platform.copyText(statsCsv(rows, (label) => names.get(label) ?? `Segment ${label}`));
+  toast(ok ? 'success' : 'error', ok ? 'Measurements copied' : "Couldn't copy. Allow clipboard access and try again.");
+}
+
+export function setPaintOver(paintOver: 'all' | 'empty'): void {
+  set({ paintOver });
 }
 
 export function setOpacity(opacity: number): void {
@@ -949,6 +1144,7 @@ async function finishSnapshot(all: Uint8Array): Promise<void> {
     data.set(maskRaw);
     shadow = data.slice();
     engine.refreshMask();
+    scheduleStats();
     if (meta.resync) {
       // A quiet correction: keep my undo history, view settings and file name.
       ensureSegments(data);

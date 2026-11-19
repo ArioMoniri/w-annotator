@@ -1877,3 +1877,171 @@ button.avatar {
   color: var(--text-3);
   font-size: 12px;
 }
+/* ── Segment operations and measurements (issue #3) ─────────────── */
+
+.segrow .vol {
+  flex: none;
+  color: var(--text-2);
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+
+/* The row actions take the volume's place while the pointer or focus is on the row. */
+.segrow:hover .vol,
+.segrow:focus-within .vol {
+  display: none;
+}
+
+.menu {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.menu.ask {
+  width: max-content;
+  min-width: 232px;
+  max-width: 320px;
+  padding: 8px;
+  overflow: visible;
+}
+
+.menu.ask form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu.ask .title {
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu.ask .field .numfield {
+  margin-left: auto;
+  width: 64px;
+}
+
+.menu.ask .field .unit {
+  margin-left: 0;
+  min-width: 24px;
+}
+
+.menu.ask .field .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.menu.ask .numfield[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.menu.ask .note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.menu.ask .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.measures {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.measures th,
+.measures td {
+  height: 28px;
+  padding: 0 0 0 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.measures thead th {
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.measures td {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.measures th:first-child {
+  text-align: left;
+  padding-left: 0;
+  font-weight: 400;
+}
+
+.measures tbody th .swatch {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.measures tbody th .name {
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal p.measures-note {
+  margin: 12px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* The brush strip gives up its extras step by step so every control stays in view. */
+@media (max-width: 1439px) {
+  .strip[data-strip='brush'] input[aria-label='Brush size'],
+  .strip[data-strip='brush'] .hint {
+    display: none;
+  }
+  .strip[data-strip='brush'] .chip {
+    max-width: 140px;
+  }
+}
+
+@media (max-width: 1279px) {
+  .strip[data-strip='brush'] .field:has(.seg-control) > .label {
+    display: none;
+  }
+}
+
+@media (max-width: 1120px) {
+  .strip[data-strip='brush'] .field > .label,
+  .strip[data-strip='brush'] .unit {
+    display: none;
+  }
+  .strip[data-strip='brush'],
+  .strip[data-strip='brush'] .options {
+    gap: 10px;
+  }
+  .strip[data-strip='brush'] .toolname {
+    padding-right: 10px;
+  }
+  .strip[data-strip='brush'] .numfield {
+    width: 44px;
+  }
+  .strip[data-strip='brush'] .seg-control button {
+    padding: 0 5px;
+  }
+  .strip[data-strip='brush'] .chip {
+    max-width: 96px;
+  }
+}
+
+/* ── End of segment operations and measurements ─────────────────── */
