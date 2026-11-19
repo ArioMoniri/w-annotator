@@ -80,6 +80,8 @@ export async function copiedText(page: Page): Promise<() => Promise<string>> {
     return () => page.evaluate(() => navigator.clipboard.readText());
   }
   const record = () => {
+    // A blank page, before the app is loaded, has no clipboard.
+    if (typeof Clipboard === 'undefined') return;
     Object.defineProperty(Clipboard.prototype, 'writeText', {
       configurable: true,
       value: async (text: string) => {

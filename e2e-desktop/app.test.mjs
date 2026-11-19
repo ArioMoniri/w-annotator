@@ -189,7 +189,10 @@ describe('with an image and a mask from the command line', () => {
     await drag(browser, 'axial', [-20, 0], [20, 0]);
     const two = await maskVoxels(browser, 1);
     assert.ok(one > start && two > one);
-    await (await browser.$('button=Fill between slices')).click();
+    // Wait for the brush options, and say what the strip held if they never show.
+    const strip = () => browser.execute(() => `${document.querySelector('.strip')?.getAttribute('data-strip')}: ${document.querySelector('.strip')?.textContent}`);
+    await until(strip, (text) => text.includes('Fill between slices'), { what: 'the brush options' });
+    await (await browser.$('.strip').$('button*=Fill between slices')).click();
     await sleep(500);
     const joined = await maskVoxels(browser, 1);
     assert.ok(joined - start > (two - start) * 1.5, `only ${joined - two} voxels were added between the slices`);
