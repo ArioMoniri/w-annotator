@@ -8,7 +8,10 @@ export interface WasmDecoder {
   delete(): void;
 }
 export type WasmCodec<Name extends string> = Record<Name, new () => WasmDecoder>;
-export type WasmFactory<Name extends string> = (options?: { locateFile?: (file: string) => string }) => Promise<WasmCodec<Name>>;
+export type WasmFactory<Name extends string> = (options?: {
+  locateFile?: (file: string) => string;
+  print?: (text: string) => void;
+}) => Promise<WasmCodec<Name>>;
 
 interface NodeLike {
   versions?: { node?: string };
@@ -23,7 +26,9 @@ interface NodeLike {
 export function instantiate<Name extends string>(factory: WasmFactory<Name>, wasmUrl: string): Promise<WasmCodec<Name>> {
   const proc = (globalThis as { process?: NodeLike }).process;
   const node = typeof proc?.versions?.node === 'string' && proc.type !== 'renderer';
-  return factory(node ? {} : { locateFile: (file) => (file.endsWith('.wasm') ? wasmUrl : file) });
+  // The codecs log their progress for every frame: keep that out of the console. Errors still show.
+  const print = () => {};
+  return factory(node ? { print } : { print, locateFile: (file) => (file.endsWith('.wasm') ? wasmUrl : file) });
 }
 
 /** Wraps a codec's decoder class: copy the frame in, decode, copy the pixels out, free the instance. */
