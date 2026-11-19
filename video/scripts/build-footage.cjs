@@ -11,7 +11,7 @@ const seq = (key, frames, out) => {
   const dir = path.join(rec, 'seq-' + key); fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir);
   frames.forEach((id, i) => fs.symlinkSync(path.join(rec, `${key.toUpperCase()}${String(Math.max(id, 0)).padStart(4, '0')}.jpg`), path.join(dir, String(i).padStart(5, '0') + '.jpg')));
   execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '30', '-i', dir + '/%05d.jpg', '-vf', 'scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p',
-    '-c:v', 'libx264', '-preset', 'slow', '-crf', '20', '-g', '30', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-movflags', '+faststart', '-an', out], { stdio: 'inherit' });
+    '-c:v', 'libx264', '-preset', 'slow', '-crf', process.env.CRF || '25', '-g', '30', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-movflags', '+faststart', '-an', out], { stdio: 'inherit' });
   fs.rmSync(dir, { recursive: true, force: true });
 };
 fs.mkdirSync(root + '/public', { recursive: true });

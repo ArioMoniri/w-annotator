@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { activeSegmentInfo, useStore } from '../state/store';
 import { fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } from '../session';
 import { clearMeasurements, fitAll } from '../viewer/engine';
@@ -130,6 +131,28 @@ export function OptionsStrip() {
   const active = useStore(activeSegmentInfo);
   const name = TOOLS.find((t) => t.id === tool)?.name ?? '';
 
+  // The strip tightens itself step by step until its controls fit, so it holds
+  // up with any window width, system font or segment name.
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(0);
+  useLayoutEffect(() => {
+    const el = optionsRef.current;
+    if (!el) return;
+    const fit = () => {
+      let level = 0;
+      el.parentElement!.dataset.compact = '0';
+      while (level < 3 && el.scrollWidth > el.clientWidth) {
+        level++;
+        el.parentElement!.dataset.compact = String(level);
+      }
+      setCompact(level);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el.parentElement!);
+    return () => observer.disconnect();
+  }, [tool, scissorsShape, active?.name]);
+
   let body;
   switch (tool) {
     case 'crosshair':
@@ -185,7 +208,8 @@ export function OptionsStrip() {
             data-tip-side="bottom"
             onClick={fillBetweenSlices}
           >
-            Fill between slices
+            <span className="long">Fill between slices</span>
+            <span className="short">Fill gaps</span>
           </button>
         </>
       );
@@ -243,9 +267,9 @@ export function OptionsStrip() {
   }
 
   return (
-    <div className="strip" data-strip={tool}>
+    <div className="strip" data-strip={tool} data-compact={compact}>
       <span className="toolname">{name}</span>
-      <div className="options" key={tool}>
+      <div className="options" key={tool} ref={optionsRef}>
         {body}
       </div>
       <span className="chip" data-tip={active ? `Painting on ${active.name}` : 'No segment'} data-tip-align="end">

@@ -26,32 +26,11 @@ A desktop app for macOS, Windows and Linux that opens 3D medical images and lets
 
 W Annotator shows a volume in axial, sagittal and coronal views with a 3D view of the mask, and lets you fix the mask by hand. The image and the mask can be in different formats; a mask on another grid is resampled to the image.
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/shot-overlay.jpg" alt="A chest CT with a lung mask in axial, sagittal, coronal and 3D views"></td>
-    <td width="50%"><img src="docs/assets/shot-brush.jpg" alt="A brush stroke on the edge of the left lung, with the brush size and shape in the bar above"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Opening an MHA image with a <code>.nii.gz</code> mask over it.</sub></td>
-    <td align="center"><sub>Correcting a lung edge with the brush. Shift-drag erases.</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/shot-threshold.jpg" alt="The threshold brush marking only bone inside the brush circle"></td>
-    <td><img src="docs/assets/shot-segments.jpg" alt="The segment list with the menu of one segment open"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Painting bone only, with the threshold brush set to a value range.</sub></td>
-    <td align="center"><sub>Renaming, combining or refining a segment from its menu.</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/shot-room.jpg" alt="A room with two people: the other person's cursor and name are on the slice and the status bar says Synced"></td>
-    <td><img src="docs/assets/shot-shortcuts.jpg" alt="The keyboard shortcuts sheet"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Editing with a second person, whose cursor shows on the slice.</sub></td>
-    <td align="center"><sub>Changing a keyboard shortcut in the shortcuts sheet.</sub></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/assets/features.webp" width="720" alt="Four screenshots in turn: an image and its mask in four views, a brush correction on a lung edge, the menu of a segment, and two people editing in a room">
+</p>
+
+<p align="center"><sub>A chest CT with a lung mask: the four views, a brush correction, the segment menu, and a room with two people.</sub></p>
 
 - Editing tools: brush and eraser (circle or sphere, size in mm), threshold brush, scissors and fill. The brush can paint over everything or only empty voxels.
 - Fill between slices: paint every few slices and the app fills the gaps.
