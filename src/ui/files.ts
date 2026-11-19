@@ -14,6 +14,11 @@ function pick(role: 'image' | 'mask' | undefined, folder = false): void {
     const files = Array.from(input.files ?? []);
     if (files.length) await openFiles(await toInputFiles(files), role);
   };
+  // Some webviews ignore a click on an input that is not in the document.
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('cancel', () => input.remove());
+  input.addEventListener('change', () => setTimeout(() => input.remove(), 0));
   input.click();
 }
 
