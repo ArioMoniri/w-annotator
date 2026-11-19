@@ -1,4 +1,14 @@
-:root {
+/*
+ * Colour tokens. Dark is the default. The light theme below overrides them on
+ * <html data-theme='light'> (set by src/state/theme.ts and, before first paint,
+ * by the script in index.html).
+ *
+ * The image is always shown on black, so each viewport cell takes the dark
+ * tokens back: everything drawn over the image keeps its dark-image styling in
+ * both themes.
+ */
+:root,
+:root[data-theme='light'] .cell {
   color-scheme: dark;
   --bg-viewport: #000000;
   --bg-app: #0a0b0d;
@@ -10,7 +20,9 @@
   --border: #24282e;
   --border-strong: #363c45;
   --border-control: #6b7480;
-  --tip-delay: 400ms;
+  --border-button: var(--border-strong);
+  --track: var(--border-strong);
+  --swatch-ring: transparent;
   --text-1: #e7e9ec;
   --text-2: #a6adb7;
   --text-3: #808894;
@@ -24,6 +36,55 @@
   --warn: #e5b454;
   --danger: #f2716b;
   --danger-soft: rgba(242, 113, 107, 0.14);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 0 0 1px var(--border-strong), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 0 0 1px var(--border-strong), 0 24px 64px rgba(0, 0, 0, 0.6);
+  --focus-ring: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+/*
+ * Light theme. Text is at least 4.5:1 on every background it sits on, and
+ * control borders and the focus ring at least 3:1 (--text-disabled is exempt).
+ * Re-measure if a value changes.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-app: #e9ebee;
+  --bg-surface: #f7f8f9;
+  --bg-raised: #ffffff;
+  --bg-hover: #eceef1;
+  --bg-active: #e1e4e8;
+  --bg-scrim: rgba(15, 17, 20, 0.32);
+  --border: #dde0e5;
+  --border-strong: #c4c9d1;
+  --border-control: #7a828e;
+  --border-button: var(--border-control);
+  --track: var(--border-control);
+  --swatch-ring: rgba(16, 18, 22, 0.28);
+  --text-1: #16181c;
+  --text-2: #4d545e;
+  --text-3: #5e6570;
+  --text-disabled: #a9afb8;
+  --text-on-accent: #ffffff;
+  --accent: #1d58d8;
+  --accent-hover: #194bba;
+  --accent-press: #153f9c;
+  --accent-soft: rgba(29, 88, 216, 0.1);
+  --ok: #157a4c;
+  --warn: #8f5b00;
+  --danger: #c2332d;
+  --danger-soft: rgba(194, 51, 45, 0.1);
+  --shadow-1: 0 1px 2px rgba(16, 18, 22, 0.24);
+  --shadow-2: 0 0 0 1px var(--border-strong), 0 8px 24px rgba(16, 18, 22, 0.14);
+  --shadow-3: 0 0 0 1px var(--border-strong), 0 24px 64px rgba(16, 18, 22, 0.22);
+}
+
+:root {
+  /* Text on a collaborator's colour. Those colours are light in both themes. */
+  --text-on-user: #0a0b0d;
+  /* Between viewports. Dark in both themes so no bright line sits against the image. */
+  --bg-view-gap: #0a0b0d;
+  --tip-delay: 400ms;
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
   --topbar-h: 44px;
@@ -35,10 +96,6 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 0 0 1px var(--border-strong), 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-3: 0 0 0 1px var(--border-strong), 0 24px 64px rgba(0, 0, 0, 0.6);
-  --focus-ring: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
   --dur-instant: 80ms;
   --dur-fast: 120ms;
   --dur-base: 160ms;
@@ -260,7 +317,7 @@ kbd {
 
 .btn.secondary {
   background: var(--bg-raised);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  box-shadow: inset 0 0 0 1px var(--border-button);
 }
 
 .btn.secondary:hover {
@@ -612,6 +669,7 @@ kbd {
   width: 12px;
   height: 12px;
   border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--swatch-ring);
   flex: none;
 }
 
@@ -639,13 +697,13 @@ input[type='range'] {
 input[type='range']::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
-  background: linear-gradient(to right, var(--accent) var(--fill, 50%), var(--border-strong) var(--fill, 50%));
+  background: linear-gradient(to right, var(--accent) var(--fill, 50%), var(--track) var(--fill, 50%));
 }
 
 input[type='range']::-moz-range-track {
   height: 4px;
   border-radius: 999px;
-  background: linear-gradient(to right, var(--accent) var(--fill, 50%), var(--border-strong) var(--fill, 50%));
+  background: linear-gradient(to right, var(--accent) var(--fill, 50%), var(--track) var(--fill, 50%));
 }
 
 input[type='range']::-webkit-slider-thumb {
@@ -695,10 +753,10 @@ input[type='range']:focus-visible {
   border-radius: 999px;
   background: linear-gradient(
     to right,
-    var(--border-strong) var(--lo),
+    var(--track) var(--lo),
     var(--accent) var(--lo),
     var(--accent) var(--hi),
-    var(--border-strong) var(--hi)
+    var(--track) var(--hi)
   );
 }
 
@@ -734,14 +792,15 @@ input[type='range']:focus-visible {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   gap: 2px;
-  background: var(--bg-app);
+  background: var(--bg-view-gap);
   min-width: 0;
   min-height: 0;
 }
 
 .cell {
   position: relative;
-  background: #000;
+  background: var(--bg-viewport);
+  color: var(--text-1);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -894,7 +953,7 @@ input[type='range']:focus-visible {
   left: 12px;
   top: 12px;
   font: 500 11px/16px var(--font-ui);
-  color: var(--text-on-accent);
+  color: var(--text-on-user);
   padding: 0 6px;
   border-radius: var(--radius-xs);
   white-space: nowrap;
@@ -1156,6 +1215,20 @@ input[type='range']:focus-visible {
   font-size: 12px;
 }
 
+.menu .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+  padding: 0 2px 0 8px;
+  white-space: nowrap;
+}
+
+.menu .row .seg-control {
+  background: var(--bg-surface);
+}
+
 .palette {
   display: grid;
   grid-template-columns: repeat(4, 24px);
@@ -1205,6 +1278,7 @@ input[type='range']:focus-visible {
 
 .empty {
   grid-area: view;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1216,7 +1290,7 @@ input[type='range']:focus-visible {
 .dropzone {
   width: min(560px, 80%);
   min-height: 300px;
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--border-button);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -1226,6 +1300,18 @@ input[type='range']:focus-visible {
   padding: 32px;
   text-align: center;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+
+.empty .corner {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+}
+
+.seg-control[data-compact] button {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
 }
 
 .dropzone .icon {
@@ -1462,7 +1548,7 @@ input[type='range']:focus-visible {
   align-items: center;
   justify-content: center;
   font: 600 11px/1 var(--font-ui);
-  color: var(--text-on-accent);
+  color: var(--text-on-user);
   box-shadow: 0 0 0 2px var(--bg-surface);
   margin-left: -6px;
   flex: none;

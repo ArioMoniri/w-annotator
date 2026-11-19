@@ -1,3 +1,5 @@
+// First, so the saved appearance is applied before anything renders.
+import './state/theme';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import * as session from './session';
