@@ -3,10 +3,13 @@ import react from '@vitejs/plugin-react';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
+const { version } = require('./package.json') as { version: string };
 
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  // Shown in problem reports; the desktop app asks Tauri instead.
+  define: { __APP_VERSION__: JSON.stringify(version) },
   // xmlbuilder2 (pulled in by Cornerstone) expects Node's EventEmitter.
   resolve: { alias: { events: require.resolve('events/') } },
   server: { port: Number(process.env.W_PORT ?? 1420), strictPort: true },

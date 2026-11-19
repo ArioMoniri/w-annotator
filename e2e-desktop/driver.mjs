@@ -4,7 +4,7 @@
  * no driver for WKWebView, so this suite does not run there (see README.md).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -100,7 +100,10 @@ export async function launch({ args = [], env = {} } = {}) {
     if (process.platform === 'win32') {
       // Shows whether the app and its WebView2 processes came up at all.
       const list = spawnSync('tasklist', [], { encoding: 'utf8' }).stdout ?? '';
-      console.error(`Processes when the session failed:\n${list.split('\n').filter((l) => /w-annotator|msedge|webview/i.test(l)).join('\n')}`);
+      const found = list.split('\n').filter((l) => /w-annotator|msedge|webview/i.test(l)).join('\n');
+      const note = `Session failed: ${String(err.message).slice(0, 200)}\nProcesses at that moment:\n${found || '(none of the app, Edge or WebView2)'}\n`;
+      console.error(note);
+      if (process.env.W_DIAG_FILE) appendFileSync(process.env.W_DIAG_FILE, note);
     }
     await stop();
     throw err;

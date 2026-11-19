@@ -1,9 +1,10 @@
 [package]
 name = "w-relay"
+authors = ["Ariorad Moniri"]
+license = "PolyForm-Noncommercial-1.0.0"
 version = "0.1.0"
 edition = "2021"
 description = "Room relay for W Annotator: forwards messages between the peers of a room."
-license = "MIT"
 publish = false
 
 [lib]

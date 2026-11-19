@@ -147,13 +147,18 @@ jobs:
         run: xvfb-run -a pnpm selftest:desktop
       - name: Self-test (Windows)
         if: runner.os == 'Windows'
-        run: pnpm selftest:desktop
+        run: pnpm selftest:desktop 2>&1 | tee "$RUNNER_TEMP/selftest.log"
       - name: Desktop e2e (Linux)
         if: runner.os == 'Linux' && !cancelled()
         run: xvfb-run -a pnpm e2e:desktop
       - name: Desktop e2e (Windows)
         if: runner.os == 'Windows' && !cancelled()
         run: pnpm e2e:desktop
+        env:
+          W_DIAG_FILE: ${{ runner.temp }}\driver-diag.log
+      - name: What happened (Windows)
+        if: runner.os == 'Windows' && failure()
+        run: cat "$RUNNER_TEMP/selftest.log" "$RUNNER_TEMP/driver-diag.log" || true
 
   # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
   # WebKit, and the built app testing itself (W_SELFTEST).

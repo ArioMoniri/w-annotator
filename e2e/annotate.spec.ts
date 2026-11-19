@@ -328,3 +328,35 @@ test('a shortcut can be changed from the sheet and is remembered', async ({ page
   await page.getByRole('button', { name: 'Reset to defaults' }).click();
   await expect(page.locator('[data-action="tool.brush"]')).toHaveText('B');
 });
+
+test('a mask saved as DICOM SEG reopens with the same voxels and names', async ({ page }) => {
+  await openPhantom(page);
+  await page.locator('.segrow .name').first().dblclick();
+  await page.getByLabel('Segment name').fill('Liver');
+  await page.keyboard.press('Enter');
+  const before = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = (window as any).__w;
+    w.store.setState({ maskName: 'phantom_seg.dcm' });
+    return Array.from(w.session.getMask().data as Uint8Array).join('');
+  });
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('phantom_seg.dcm');
+  const bytes = Array.from(await (await import('node:fs/promises')).readFile((await file.path())!));
+  // Clear the mask, then open the saved SEG as the mask again.
+  await page.evaluate(async (bytes) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = (window as any).__w;
+    w.session.deleteSegment(1);
+    w.session.deleteSegment(2);
+    await w.session.openFiles([{ name: 'reopened.dcm', bytes: new Uint8Array(bytes) }], 'mask');
+  }, bytes);
+  await expect(page.locator('.segrow').first()).toContainText('Liver');
+  const after = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return Array.from((window as any).__w.session.getMask().data as Uint8Array).join('');
+  });
+  expect(after).toBe(before);
+});

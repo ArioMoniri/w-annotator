@@ -6,15 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Report a problem or suggest an idea from the file menu or the start screen. The app fills in GitHub's new-issue form in your browser; you review and submit it there. Technical details are optional, shown before sending, and never hold file names or paths.
+- Refine a segment from its menu: grow, shrink and smooth by a distance in millimetres, fill holes, keep the largest island, remove small islands. Each is one undo step and is shared with the room.
+- Combine: add one segment into another.
+- Go to segment: move all views to the middle of a segment.
+- The volume of each segment next to its name, and a measurements sheet (volume, voxels, mean ± SD, min, max) that can be copied as CSV.
+- Brush option "Paint over: Everything / Empty only". With "Empty only", painting never takes voxels from another segment.
+- End-to-end tests of the built desktop app on Linux and Windows (WebDriver), a self-test of the built app on all three systems, the web tests in WebKit on macOS, and a check against one openly licensed chest CT.
+
 ### Changed
 
 - When the app hosts a room, the host now connects to it over this computer's own address, so a firewall cannot keep the host out of its own room. The invite link still carries the network address.
 - If the computer has no network address, the invite link uses `127.0.0.1` and the dialog says it only works on this computer.
 - Joining with a bare code when no room server is set now asks for the invite link.
-
-### Added
-
-- End-to-end tests of the built desktop app on Linux and Windows (WebDriver), a self-test of the built app on all three systems, the web tests in WebKit on macOS, and a check against one openly licensed chest CT.
 
 ## [0.1.0] - 2026-11-19
 

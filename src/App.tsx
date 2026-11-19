@@ -5,8 +5,10 @@ import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/
 import { EDIT_TOOLS, get, set, useStore, type ToolId } from './state/store';
 import { initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
+import { ReportDialog } from './ui/ReportDialog';
 import { OptionsStrip } from './ui/OptionsStrip';
 import { Busy, ConfirmDialog, ShortcutsSheet, Toasts, UpdateBanner } from './ui/Overlays';
+import { MeasurementsSheet } from './ui/Measurements';
 import { RoomModal } from './ui/RoomModal';
 import { SegmentsPanel } from './ui/SegmentsPanel';
 import { StatusBar } from './ui/StatusBar';
@@ -79,11 +81,11 @@ function useHotkeys() {
 
     const onKey = (e: KeyboardEvent) => {
       const s = get();
-      if (s.capturingShortcut) return;
+      if (s.capturingShortcut || s.report) return;
       const combo = comboFromEvent(e);
       if (!combo) return;
       const withModifier = combo.startsWith('mod+');
-      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm)) return;
+      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm || s.measurementsOpen)) return;
       if (combo === 'mod+y') {
         e.preventDefault();
         return session.redo();
@@ -191,8 +193,10 @@ export function App() {
       <Toasts />
       <UpdateBanner />
       <RoomModal />
+      <ReportDialog />
       <ConfirmDialog />
       <ShortcutsSheet />
+      <MeasurementsSheet />
     </div>
   );
 }

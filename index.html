@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>W Annotator</title>
+    <!-- Sets the theme before the first paint so the wrong one never flashes. Keep in step with src/state/theme.ts. -->
+    <script>
+      (function () {
+        var mode = null;
+        try {
+          mode = localStorage.getItem('w-annotator:theme');
+        } catch (e) {}
+        var dark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true;
+        var theme = mode === 'light' || mode === 'dark' ? mode : dark ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+    <style>
+      /* Window colour until the stylesheet arrives: --bg-app in each theme. */
+      html {
+        background: #0a0b0d;
+      }
+      html[data-theme='light'] {
+        background: #e9ebee;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

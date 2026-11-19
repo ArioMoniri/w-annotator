@@ -51,6 +51,7 @@ export function resampleNearest(source: VolumeData, target: VolumeData): VolumeD
     data: out,
   };
   if (source.labels) result.labels = { ...source.labels };
+  if (source.colors) result.colors = { ...source.colors };
 
   // Source index -> world matrix S (columns are the voxel steps), inverted.
   const sd = source.direction;

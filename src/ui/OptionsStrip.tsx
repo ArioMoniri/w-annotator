@@ -1,5 +1,5 @@
 import { activeSegmentInfo, useStore } from '../state/store';
-import { fillBetweenSlices, setBrushSize, setToolOption, setVoi } from '../session';
+import { fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } from '../session';
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { getImage } from '../session';
 import { autoWindow } from '../io';
@@ -126,6 +126,7 @@ export function OptionsStrip() {
   const tool = useStore((s) => s.tool);
   const scissorsShape = useStore((s) => s.scissorsShape);
   const scissorsAction = useStore((s) => s.scissorsAction);
+  const paintOver = useStore((s) => s.paintOver);
   const active = useStore(activeSegmentInfo);
   const name = TOOLS.find((t) => t.id === tool)?.name ?? '';
 
@@ -165,6 +166,18 @@ export function OptionsStrip() {
         <>
           <SizeField />
           <ShapeField />
+          <div className="field" data-tip="Empty only keeps other segments as they are." data-tip-side="bottom">
+            <span className="label">Paint over</span>
+            <Choice
+              label="Paint over"
+              value={paintOver}
+              options={[
+                { value: 'all', label: 'Everything' },
+                { value: 'empty', label: 'Empty only' },
+              ]}
+              onChange={setPaintOver}
+            />
+          </div>
           <span className="hint">Shift-drag erases.</span>
           <button
             className="btn secondary"

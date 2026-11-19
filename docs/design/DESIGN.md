@@ -65,7 +65,9 @@ Left to right. The bar is the window drag region (`data-tauri-drag-region`); eve
 
 Room button: outside a room it is a secondary button labelled `Share`. In a room it becomes a tinted pill `● KDR-482` (green 6px dot = connected, amber = reconnecting) that opens the room popover.
 
-File menu items: Open image… (Mod+O), Open mask… (Mod+Shift+O), Save mask (Mod+S), Save mask as… (Mod+Shift+S), Close.
+File menu items: Open image… (Mod+O), Open mask… (Mod+Shift+O), Save mask (Mod+S), Save mask as… (Mod+Shift+S), Keyboard shortcuts (?), Appearance, Close.
+
+Appearance is a row in the menu, not an item: the label `Appearance` and a three-way segmented control `Light` / `Dark` / `System`. Choosing one applies at once and leaves the menu open. Default is System, which follows the operating system live. See 3.2.
 
 ### 2.2 Tool rail — 48 wide, `--bg-surface`, right border
 
@@ -97,7 +99,7 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Pan | Hint: `Drag to move the image.` |
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
 | Window / Level | Preset select (Soft tissue, Lung, Bone, Brain, Abdomen — CT only) · `W` number · `L` number · `Reset` |
-| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` |
+| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only` (default Everything; with Empty only a stroke never takes voxels from another segment). Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
 | Threshold brush | Range dual slider + two numbers (image units) · Size slider + number |
 | Scissors | Shape `Freehand / Rectangle / Circle` · Action `Erase inside / Erase outside / Fill inside` |
@@ -137,7 +139,9 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 
 - Header: title `Segments` (13/600) and an `Add segment` icon button.
 - List scrolls; footer is pinned and holds the two mask-wide display settings: Opacity (0–100 %, default 60) and `Outline only`.
-- Row context menu (right-click or `⋯` on hover): Rename, Change colour, Show only this, Clear, Delete.
+- Row context menu (right-click or `⋯` on hover): Rename, Change colour, Show only this, Go to segment · group `Refine`: Grow…, Shrink…, Smooth…, Fill holes, Keep largest island, Remove small islands… · Combine…, Measurements · Clear, Delete. Items ending in `…` swap the menu for a small popover with the segment name, one number field (mm, or mm³ for islands; the last value is remembered), `Cancel` and `Apply`. Combine shows a segment picker and `Add`.
+- Each row shows the segment's volume at the right in 11px mono `--text-2` (`12.4 mL`; `320 mm³` under 0.5 mL; nothing when empty). It updates shortly after edits stop and gives way to the row actions on hover and focus.
+- Measurements sheet (wide modal): table of Segment, Volume, Voxels, Mean ± SD, Min, Max for every segment, a one-line note, `Copy as CSV` and `Done`. Intensities carry no unit.
 - Empty: `No segments yet.` + text button `Add segment`.
 
 ### 2.6 Status bar — 26 high, `--bg-surface`, top border
@@ -169,6 +173,7 @@ Rail, strip, right panel and status bar are hidden; only the top bar (app name, 
 
 - Drop zone: 560 × 320 max (shrinks to 80 % of width), 1px dashed `--border-strong`, radius `--radius-lg`, centred.
 - `Open image` is the primary button, `Open mask` secondary and disabled until an image is loaded.
+- Appearance: the same three-way control, icons only (sun, moon, monitor; 28 × 24 each), in the bottom-right corner, 12 from the edges. Tooltips: `Light appearance`, `Dark appearance`, `Match system appearance`.
 - The whole window is the real drop target; the box is the affordance. Once an image is open, dragging a file over the app shows a full-window overlay: `Drop to add as mask` or `Drop to replace image`, decided by file type and dimensions.
 
 ---
@@ -266,19 +271,20 @@ Rail, strip, right panel and status bar are hidden; only the top bar (app name, 
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);   /* things moving */
 }
 
-/* Optional light theme. Viewports stay black. */
+/* Light theme. Viewports stay black: see 3.2. */
 :root[data-theme="light"] {
   color-scheme: light;
   --bg-app: #E9EBEE;  --bg-surface: #F7F8F9;  --bg-raised: #FFFFFF;
   --bg-hover: #ECEEF1; --bg-active: #E1E4E8;  --bg-scrim: rgba(15,17,20,.32);
-  --border: #DDE0E5;   --border-strong: #C4C9D1;
-  --text-1: #16181C;   --text-2: #4D545E;     --text-3: #6B727D;  --text-disabled: #A9AFB8;
+  --border: #DDE0E5;   --border-strong: #C4C9D1; --border-control: #7A828E;
+  --text-1: #16181C;   --text-2: #4D545E;     --text-3: #5E6570;  --text-disabled: #A9AFB8;
   --text-on-accent: #FFFFFF;
-  --accent: #2463EB;   --accent-hover: #1D54CF; --accent-press: #1846AE;
-  --accent-soft: rgba(36,99,235,.10);          --accent-ring: rgba(36,99,235,.45);
-  --ok: #1E8F5C; --warn: #A66A00; --danger: #C93A34; --danger-soft: rgba(201,58,52,.10);
-  --shadow-2: 0 0 0 1px var(--border), 0 8px 24px rgba(16,18,22,.14);
-  --shadow-3: 0 0 0 1px var(--border), 0 24px 64px rgba(16,18,22,.22);
+  --accent: #1D58D8;   --accent-hover: #194BBA; --accent-press: #153F9C;
+  --accent-soft: rgba(29,88,216,.10);
+  --ok: #157A4C; --warn: #8F5B00; --danger: #C2332D; --danger-soft: rgba(194,51,45,.10);
+  --shadow-1: 0 1px 2px rgba(16,18,22,.24);
+  --shadow-2: 0 0 0 1px var(--border-strong), 0 8px 24px rgba(16,18,22,.14);
+  --shadow-3: 0 0 0 1px var(--border-strong), 0 24px 64px rgba(16,18,22,.22);
 }
 
 body { font: var(--weight-regular) var(--text-md)/var(--lh-md) var(--font-ui); color: var(--text-1); }
@@ -305,6 +311,15 @@ Rules:
 - Render fill at the mask opacity plus a 1px outline at 100 % in the same colour. The outline is what keeps a segment readable on bright bone or dark lung, and it is the cue that does not depend on hue.
 - Colour is never the only identifier: every segment shows its index and name in the list, the strip chip and the status bar.
 - This palette was chosen from published CVD-safe sets, not simulated against real scans. Run it through a deuteranopia/protanopia simulator on CT and MR samples before release; 12 categories is past the point where any palette is perfectly separable, which is why the outline and labels matter.
+
+### 3.2 Appearance: light, dark, system
+
+- Three modes: Light, Dark, System. System is the default and follows `prefers-color-scheme` live. The mode is kept in localStorage under `w-annotator:theme`; the resolved theme is `data-theme="light"` or `"dark"` on `<html>`, set by an inline script before first paint so the wrong theme never flashes. Logic lives in `src/state/theme.ts`.
+- **The image is always on black.** `--bg-viewport` does not change, the 2px gaps between viewports stay dark (`--bg-view-gap`), and each viewport cell takes the dark tokens back, so orientation letters, corner text, the hover buttons and remote cursors keep their dark-image styling in both themes.
+- Collaborator colours are light in both themes, so text on them uses the fixed `--text-on-user` (`#0A0B0D`), not `--text-on-accent`.
+- In light, borders that mark a control (inputs, secondary buttons, slider tracks, the drop zone) use `--border-control` so they reach 3:1; `--border` and `--border-strong` are for dividers and shadows only. Swatches get a faint inner ring so pale segment colours do not vanish on white.
+- Measured contrast in light (WCAG 2.x): `--text-1` 13.9–17.8:1, `--text-2` 6.0–7.7:1 and `--text-3` 4.6–5.9:1 across `--bg-app`, `--bg-surface`, `--bg-raised`, `--bg-hover` and `--bg-active`; `--accent` text 5.0–6.1:1 (including on `--accent-soft`); white on `--accent` 6.1:1; `--ok` 4.6–5.4:1, `--warn` 4.9–5.7:1, `--danger` 4.7–5.5:1; `--border-control` 3.0–3.9:1; focus ring 5.1–6.1:1. Re-measure if any value changes.
+- In the desktop app the native window theme follows the mode (`setTheme`), so the title bar matches.
 
 ---
 
@@ -534,7 +549,8 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Pan | Drag to move the image. |
 | Zoom | Drag up or down to zoom. · Fit |
 | Window / Level | Preset · Soft tissue · Lung · Bone · Brain · Abdomen · Custom · W · L · Reset |
-| Brush | Size · px · Shape · Circle · Sphere |
+| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only |
+| Paint over tooltip | Empty only keeps other segments as they are. |
 | Eraser | Size · px · Shape · Circle · Sphere · Active segment only |
 | Threshold brush | Range · to · Size · px |
 | Threshold brush tooltip | Paints only where the image value is inside the range. |
@@ -569,7 +585,10 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Empty | No segments yet. · Add segment |
 | Eye tooltip | Hide / Show |
 | Lock tooltip | Lock / Unlock |
-| Row menu | Rename · Change colour · Show only this · Clear · Delete |
+| Row menu | Rename · Change colour · Show only this · Go to segment · Refine · Grow… · Shrink… · Smooth… · Fill holes · Keep largest island · Remove small islands… · Combine… · Measurements · Clear · Delete |
+| Refine popovers | Grow by · Shrink by · Smooth by · mm · Remove islands under · mm³ · Cancel · Apply |
+| Combine popover | Add · Its voxels become part of Liver. · Cancel · Add |
+| Measurements | Measurements · Segment · Volume · Voxels · Mean ± SD · Min · Max · Mean, SD, min and max are the image values inside each segment. · Copy as CSV · Done |
 | Footer | Opacity · Outline only |
 | Remote editing tooltip | Mina is editing |
 | Delete confirm (only if segment has voxels) | Delete Liver? · This removes the segment from the mask. · Cancel · Delete |
@@ -624,6 +643,13 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Segment cleared | Liver cleared · Undo |
 | Large operation done (fill, whole volume) | Filled 18,204 voxels · Undo |
 | Nothing to fill | Nothing to fill here. |
+| Grow, shrink, smooth | Grew Liver by 2 mm · Undo / Shrank Liver by 2 mm · Undo / Smoothed Liver by 2 mm · Undo |
+| Fill holes | Filled 1,204 voxels in Liver · Undo / No holes in Liver. |
+| Islands | Removed 310 voxels outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 voxels in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
+| Combine | Added Tumour to Liver, 1,204 voxels · Undo |
+| Operation changed nothing | Liver did not change. |
+| Go to an empty segment | Liver is empty. |
+| Measurements copied | Measurements copied |
 | Threshold matched nothing | No voxels in this range under the brush. |
 
 ### 6.10 Errors
@@ -652,6 +678,23 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 ### 6.11 Update banner
 
 `Version 1.4.0 is ready.` · `Restart to update. Your work is saved first.` · `Restart` · `Later` · File menu item: `Restart to update`
+
+### 6.12 Report a problem
+
+| Element | Copy |
+|---|---|
+| File menu item, empty state link | Report a problem… · Report a problem |
+| Error toast action (unexpected errors only) | Report |
+| Titles and switch | Report a problem · Suggest an idea · Bug · Idea |
+| Bug fields | Title · What happened · What you expected · Steps to reproduce |
+| Idea fields | Title · Problem · Proposal |
+| Checkbox and preview | Include technical details · What will be sent · No file names or paths. Only what is listed here. |
+| Notes | Do not include patient names or screenshots of patient data. · GitHub opens in your browser. You review the report and submit it there with your GitHub account. |
+| Buttons | Cancel · Copy report · Continue on GitHub |
+| Missing text | Add a short title. · Say what happened. · Describe the problem. · Say what you would like the app to do. |
+| Browser did not open | Couldn't open the browser. Use Copy report and paste it into a new issue on GitHub. |
+| Copied (toast) | Report copied |
+| Log shortened (in the report) | Older log lines were left out to keep the report short. |
 
 ---
 

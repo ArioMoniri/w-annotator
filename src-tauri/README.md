@@ -153,6 +153,7 @@ Used from JavaScript through their own packages; the capability file grants only
 | --- | --- | --- |
 | `@tauri-apps/plugin-updater` | `updater:default` | `check()`, `downloadAndInstall()` |
 | `@tauri-apps/plugin-process` | `process:allow-restart` | `relaunch()` after an update |
+| `@tauri-apps/plugin-opener` | `opener:allow-open-url`, scoped to `https://github.com/ArioMoniri/w-annotator/*` | `openUrl()` for the pre-filled issue form of "Report a problem"; no other URL and no file can be opened |
 | `@tauri-apps/plugin-dialog` | `dialog:allow-open`, `dialog:allow-save` | dialogs for paths that do not go through `read_file` / `write_file` |
 
 ## Notes

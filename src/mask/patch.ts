@@ -167,3 +167,25 @@ export function applyPatchWhereUnchanged(buf: Uint8Array, patch: Patch, side: 'b
     after: Uint8Array.from(after),
   };
 }
+
+/**
+ * "Paint over: Empty only". Puts back, in `cur`, every voxel that the patch
+ * changed from one segment to another, so painting never takes voxels from a
+ * neighbour. Erasing is left alone. Returns how many voxels were put back.
+ */
+export function restoreOverwritten(cur: Uint8Array, patch: Patch): number {
+  let restored = 0;
+  let o = 0;
+  for (let r = 0; r < patch.starts.length; r++) {
+    const start = patch.starts[r];
+    const len = patch.lengths[r];
+    for (let i = 0; i < len; i++, o++) {
+      const before = patch.before[o];
+      if (before !== 0 && patch.after[o] !== 0) {
+        cur[start + i] = before;
+        restored++;
+      }
+    }
+  }
+  return restored;
+}
