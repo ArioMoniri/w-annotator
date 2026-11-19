@@ -403,7 +403,12 @@ export function showMask(vol: VolumeData): void {
   segmentation.removeAllSegmentations();
   removeVolume(MASK_VOLUME_ID);
   geometry.set(MASK_VOLUME_ID, vol);
-  volumeLoader.createLocalLabelmapVolume(localVolume(vol), MASK_VOLUME_ID);
+  // Tie the mask to the image so the threshold brush reads image values, not mask values.
+  const imageIds = cache.getVolume(IMAGE_VOLUME_ID)?.imageIds;
+  volumeLoader.createLocalLabelmapVolume(
+    { ...localVolume(vol), referencedVolumeId: IMAGE_VOLUME_ID, referencedImageIds: imageIds },
+    MASK_VOLUME_ID,
+  );
   segmentation.addSegmentations([
     {
       segmentationId: SEGMENTATION_ID,

@@ -121,7 +121,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
     let img: (typeof loaded)[number] | undefined;
     let msk: (typeof loaded)[number] | undefined;
     if (role === 'mask') msk = loaded[0];
-    else if (role === 'image') img = loaded[0];
+    else if (role === 'image' && loaded.length === 1) img = loaded[0];
     else if (loaded.length >= 2) {
       msk = loaded.find((l) => /seg|mask|label/i.test(l.name)) ?? loaded.find((l) => looksLikeMask(l.vol, l.name));
       img = loaded.find((l) => l !== msk);

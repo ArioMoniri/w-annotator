@@ -243,3 +243,31 @@ test('a mask stored in another axis order lands on the same anatomy', async ({ p
   });
   expect(loaded).toEqual(reference);
 });
+
+test('threshold brush paints only where the image is inside the range', async ({ page }) => {
+  await openPhantom(page, false);
+  await page.getByRole('button', { name: 'Add segment' }).first().click();
+  await page.keyboard.press('t');
+  // The phantom is 300 at the centre, falls off with radius, and is -1000 outside.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await page.evaluate(() => (window as any).__w.session.setToolOption({ threshold: [200, 400] }));
+  await page.keyboard.press(']');
+  await page.keyboard.press(']');
+  await drag(page, 'axial', [-150, 0], [150, 0]);
+  const result = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = (window as any).__w;
+    const img = w.session.getImage().data as Int16Array;
+    const msk = w.session.getMask().data as Uint8Array;
+    let painted = 0;
+    let outside = 0;
+    for (let i = 0; i < msk.length; i++) {
+      if (!msk[i]) continue;
+      painted++;
+      if (img[i] < 200 || img[i] > 400) outside++;
+    }
+    return { painted, outside };
+  });
+  expect(result.painted).toBeGreaterThan(0);
+  expect(result.outside).toBe(0);
+});
