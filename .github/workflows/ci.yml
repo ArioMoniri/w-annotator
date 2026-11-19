@@ -109,6 +109,7 @@ jobs:
     env:
       # Software rendering on the runners; without this WebKitGTK can come up blank.
       WEBKIT_DISABLE_DMABUF_RENDERER: 1
+      W_WEBVIEW2_DEBUG_PORT: 9222
     steps:
       - uses: actions/checkout@v6
       - name: Install Linux dependencies, the WebKit driver and a virtual display
@@ -130,7 +131,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The web job owns lint and types; here only the bundle is needed.
       - run: pnpm exec vite build
-      - run: pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json
+      # On Windows the test build opens WebView2's debugging port; e2e-desktop/ci-config.mjs says why.
+      - name: Build the app
+        run: |
+          node e2e-desktop/ci-config.mjs ${{ runner.os == 'Windows' && env.W_WEBVIEW2_DEBUG_PORT || '' }} > tauri.test.json
+          pnpm tauri build --debug --no-bundle --config tauri.test.json
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
       # The self-test needs no driver, so it also tells an app problem from a driver problem.
@@ -139,7 +144,7 @@ jobs:
         run: xvfb-run -a pnpm selftest:desktop
       - name: Self-test (Windows)
         if: runner.os == 'Windows'
-        run: pnpm selftest:desktop 2>&1 | tee "$RUNNER_TEMP/selftest.log"
+        run: pnpm selftest:desktop
         env:
           W_WEBVIEW_VERSION_FILE: ${{ runner.temp }}\webview-version.txt
       # The runner can hold a newer WebView2 than the one apps load, and the driver must match
@@ -154,21 +159,12 @@ jobs:
           curl -fsSL --retry 3 -o driver.zip "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip"
           unzip -o -q driver.zip msedgedriver.exe
           echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
-      - name: Probe the Edge driver (temporary)
-        if: runner.os == 'Windows'
-        run: bash e2e-desktop/win-probe.sh 2>&1 | tee "$RUNNER_TEMP/probe2.log"
       - name: Desktop e2e (Linux)
         if: runner.os == 'Linux' && !cancelled()
         run: xvfb-run -a pnpm e2e:desktop
       - name: Desktop e2e (Windows)
         if: runner.os == 'Windows' && !cancelled()
         run: pnpm e2e:desktop
-        env:
-          W_DIAG_FILE: ${{ runner.temp }}\driver-diag.log
-          W_ATTACH: 1
-      - name: What happened (Windows)
-        if: runner.os == 'Windows' && failure()
-        run: cat "$RUNNER_TEMP/driver-diag.log" "$RUNNER_TEMP/probe2.log" || true
 
   # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
   # WebKit, and the built app testing itself (W_SELFTEST).
@@ -207,7 +203,9 @@ jobs:
           retention-days: 7
       - run: pnpm exec vite build
       # Unsigned .app, no installer and no updater archive.
-      - run: pnpm tauri build --debug --bundles app --config src-tauri/tauri.ci.conf.json
+      - run: |
+          node e2e-desktop/ci-config.mjs > tauri.test.json
+          pnpm tauri build --debug --bundles app --config tauri.test.json
       - name: Self-test of the built app
         run: |
           binary=$(find target/debug/bundle/macos -path '*.app/Contents/MacOS/*' -type f | head -n 1)

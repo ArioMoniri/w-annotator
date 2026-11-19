@@ -4,7 +4,7 @@
  * no driver for WKWebView, so this suite does not run there (see README.md).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { connect } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,30 +69,30 @@ export async function launch({ args = [], env = {} } = {}) {
     console.error(`Could not start ${DRIVER}: ${err.message}`);
   });
 
-  // Attach mode (W_ATTACH=1): start the app here with WebView2's debugging port open and let
-  // the Edge driver connect to it, instead of having the driver start the app.
-  const attach = process.env.W_ATTACH === '1' && process.platform === 'win32';
+  // Windows: the Edge driver cannot start the app itself (see ci-config.mjs), so the app is
+  // started here, with its WebView2 debugging port open, and the driver attaches to it.
+  const debugPort = process.platform === 'win32' ? process.env.W_WEBVIEW2_DEBUG_PORT : undefined;
   let app = null;
   let capabilities = { 'tauri:options': { application: APP, args } };
-  if (attach) {
-    const debugPort = PORT + 1000;
+  const killApp = () => app && spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+  if (debugPort) {
+    // A data folder of its own, so nothing is shared with an earlier launch.
     const dataDir = mkdtempSync(join(tmpdir(), 'w-webview2-'));
-    app = spawn(APP, args, {
-      env: { ...process.env, ...env, WEBVIEW2_USER_DATA_FOLDER: dataDir, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` },
-      stdio: 'inherit',
-    });
+    app = spawn(APP, args, { env: { ...process.env, ...env, WEBVIEW2_USER_DATA_FOLDER: dataDir }, stdio: 'inherit' });
     capabilities = { browserName: 'webview2', 'ms:edgeOptions': { debuggerAddress: `127.0.0.1:${debugPort}` } };
-    await until(() => fetch(`http://127.0.0.1:${debugPort}/json/version`).then((r) => r.ok), Boolean, { timeout: 60_000, what: 'WebView2 to open its debugging port' }).catch(
-      (err) => {
-        spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
-        driver.kill();
-        throw err;
-      },
-    );
+    const ready = () => fetch(`http://127.0.0.1:${debugPort}/json/version`).then((r) => r.ok);
+    await until(ready, Boolean, { timeout: 60_000, what: `WebView2 to open its debugging port ${debugPort}` }).catch((err) => {
+      killApp();
+      driver.kill();
+      throw err;
+    });
   }
 
   const stop = async () => {
-    if (app) spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+    if (app) {
+      killApp();
+      await until(async () => !(await portOpen(Number(debugPort))), Boolean, { timeout: 15_000, what: 'the app to close' }).catch(() => {});
+    }
     if (!exited) {
       // On Windows a plain kill would leave msedgedriver and the app behind.
       if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(driver.pid), '/T', '/F'], { stdio: 'ignore' });
@@ -103,6 +103,8 @@ export async function launch({ args = [], env = {} } = {}) {
 
   try {
     await until(() => portOpen(PORT), Boolean, { timeout: 15_000, what: 'tauri-driver to listen' });
+    // tauri-driver answers before the system's driver behind it does; a session asked for too early is dropped.
+    await until(() => portOpen(NATIVE_PORT), Boolean, { timeout: 15_000, what: 'the system WebDriver to listen' });
     const browser = await remote({
       hostname: '127.0.0.1',
       port: PORT,
@@ -120,14 +122,6 @@ export async function launch({ args = [], env = {} } = {}) {
       },
     };
   } catch (err) {
-    if (process.platform === 'win32') {
-      // Shows whether the app and its WebView2 processes came up at all.
-      const list = spawnSync('tasklist', [], { encoding: 'utf8' }).stdout ?? '';
-      const found = list.split('\n').filter((l) => /w-annotator|msedge|webview/i.test(l)).join('\n');
-      const note = `Session failed: ${String(err.message).slice(0, 200)}\nProcesses at that moment:\n${found || '(none of the app, Edge or WebView2)'}\n`;
-      console.error(note);
-      if (process.env.W_DIAG_FILE) appendFileSync(process.env.W_DIAG_FILE, note);
-    }
     await stop();
     throw err;
   }

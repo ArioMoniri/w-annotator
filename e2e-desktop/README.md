@@ -7,6 +7,7 @@ Tests of the built desktop app, as opposed to `e2e/`, which tests the web build 
 | `app.test.mjs` | Drives the app window through WebDriver: start, files from the command line, every tool, segments, save, and a room hosted by the app that a second client joins. | Linux, Windows |
 | `selftest.mjs` | Launches the app with `W_SELFTEST` set, so the app checks itself and writes a JSON result, then checks the result and the saved file. | Linux, Windows, macOS |
 | `driver.mjs` | Starts `tauri-driver` and the app; small helpers for the tests. | |
+| `ci-config.mjs` | Prints the Tauri config overrides for a test build. | |
 | `fixtures.mjs` | Writes a synthetic `.mha` image and `.nii.gz` mask by hand, and reads a saved NIfTI back. | |
 
 macOS has no WebDriver for WKWebView, so `app.test.mjs` cannot run there. CI covers macOS with the Playwright suite in WebKit (`W_E2E_BROWSER=webkit pnpm e2e`) and with the self-test of the built `.app`.
@@ -30,11 +31,18 @@ xvfb-run -a pnpm selftest:desktop
 
 If the window stays blank under a virtual display, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
-Windows needs the Edge driver with exactly the version of the WebView2 the app loads (see the [Tauri WebDriver guide](https://v2.tauri.app/develop/tests/webdriver/)); with another version the session fails with "DevToolsActivePort file doesn't exist". The self-test prints that version, and writes it to `W_WEBVIEW_VERSION_FILE` if set. Put `msedgedriver.exe` on the `PATH` or name it in `W_NATIVE_DRIVER`:
+Windows needs two things, both found out on the CI runners:
+
+- A test build that opens WebView2's debugging port. The Edge driver normally asks WebView2 for that port through the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable, but the app's WebView2 (156 and 157 on the runners) did not apply it, and every session ended in "DevToolsActivePort file doesn't exist". So the build asks for the port itself, the tests start the app, and the driver attaches to it. Only this test build has the port; the shipped config is untouched.
+- `msedgedriver.exe` with exactly the version of the WebView2 the app loads, which is not always the newest one installed. The self-test prints that version and writes it to `W_WEBVIEW_VERSION_FILE` if set. Download the driver from `https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip` and name it in `W_NATIVE_DRIVER`, or put it on the `PATH`.
 
 ```
-pnpm e2e:desktop
+node e2e-desktop/ci-config.mjs 9222 > tauri.test.json
+pnpm exec vite build
+pnpm tauri build --debug --no-bundle --config tauri.test.json
 pnpm selftest:desktop
+set W_WEBVIEW2_DEBUG_PORT=9222
+pnpm e2e:desktop
 ```
 
 macOS, with the app bundle built by `pnpm tauri build --debug --bundles app`:
@@ -51,6 +59,7 @@ pnpm selftest:desktop "target/debug/bundle/macos/W Annotator.app/Contents/MacOS/
 | `TAURI_DRIVER` | Path to `tauri-driver` | `~/.cargo/bin/tauri-driver` |
 | `W_NATIVE_DRIVER` | Path to the system driver, passed to `tauri-driver --native-driver` | found on the `PATH` |
 | `W_DRIVER_PORT` | First port used for the drivers | `4444` |
+| `W_WEBVIEW2_DEBUG_PORT` | Windows: the debugging port the test build opens; the driver attaches to it | unset |
 | `W_SELFTEST_TIMEOUT` | How long the self-test may take, in ms | `180000` |
 
 ## Notes
