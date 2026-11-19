@@ -71,7 +71,7 @@ export async function launch({ args = [], env = {} } = {}) {
 
   // Windows: the Edge driver cannot start the app itself (see ci-config.mjs), so the app is
   // started here, with its WebView2 debugging port open, and the driver attaches to it.
-  const debugPort = process.platform === 'win32' ? process.env.W_WEBVIEW2_DEBUG_PORT : undefined;
+  const debugPort = process.platform === 'win32' && Number(process.env.W_WEBVIEW2_DEBUG_PORT) > 0 ? process.env.W_WEBVIEW2_DEBUG_PORT : undefined;
   let app = null;
   let capabilities = { 'tauri:options': { application: APP, args } };
   const killApp = () => app && spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
@@ -143,6 +143,11 @@ export async function launch({ args = [], env = {} } = {}) {
       },
     };
   } catch (err) {
+    if (process.platform === 'win32') {
+      // Where did WebView2 write its debugging port, if anywhere?
+      const found = spawnSync('cmd', ['/c', 'dir', '/s', '/b', `${process.env.LOCALAPPDATA}\\DevToolsActivePort`, `${tmpdir()}\\DevToolsActivePort`], { encoding: 'utf8' }).stdout ?? '';
+      console.error(`DevToolsActivePort files: ${found.trim().split(/\r?\n/).slice(0, 6).join(' ; ') || 'none'}`);
+    }
     await stop();
     throw err;
   }

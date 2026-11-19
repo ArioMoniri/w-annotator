@@ -109,7 +109,8 @@ jobs:
     env:
       # Software rendering on the runners; without this WebKitGTK can come up blank.
       WEBKIT_DISABLE_DMABUF_RENDERER: 1
-      W_WEBVIEW2_DEBUG_PORT: 9222
+      # 0: WebView2 picks the port and writes it where the Edge driver looks for it.
+      W_WEBVIEW2_DEBUG_PORT: 0
     steps:
       - uses: actions/checkout@v6
       - name: Install Linux dependencies, the WebKit driver and a virtual display
@@ -188,9 +189,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install webkit
       - name: Web e2e in WebKit
-        run: pnpm e2e
+        run: pnpm e2e --reporter=list,json
         env:
           W_E2E_BROWSER: webkit
+          PLAYWRIGHT_JSON_OUTPUT_NAME: results.json
       - name: Keep the Playwright report
         if: failure()
         uses: actions/upload-artifact@v6
@@ -214,6 +216,10 @@ jobs:
           binary=$(find target/debug/bundle/macos -path '*.app/Contents/MacOS/*' -type f | head -n 1)
           test -n "$binary"
           pnpm selftest:desktop "$binary"
+
+      - name: Why WebKit tests failed
+        if: failure()
+        run: node e2e/failures.mjs results.json || true
 
   # One real, openly licensed scan (LUNA16, CC BY 4.0), fetched once and cached.
   # The data never enters the repository. See docs/reviews/real-data.md.

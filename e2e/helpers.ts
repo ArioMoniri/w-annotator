@@ -171,3 +171,6 @@ export async function jumpToVoxel(page: Page, ijk: [number, number, number]): Pr
     w.engine.jumpTo([0, 1, 2].map((r) => vol.origin[r] + d[r] * ijk[0] + d[3 + r] * ijk[1] + d[6 + r] * ijk[2]));
   }, ijk);
 }
+
+/** A shortcut with the main modifier as the app shows it on this system: "Ctrl+S", or "⌘ S" on a Mac. */
+export const modLabel = (key: string): string => (process.platform === 'darwin' ? `⌘ ${key}` : `Ctrl+${key}`);

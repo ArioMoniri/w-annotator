@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openPhantom } from './helpers';
+import { modLabel, openPhantom } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Settings' });
 /** Opens the app and waits until it is listening for keys. */
@@ -60,7 +60,7 @@ test('Settings opens from the empty state and from the file menu, and ? goes to 
   await expect(page.locator('[data-action="tool.brush"]')).toBeVisible();
   await page.getByRole('tab', { name: 'Help' }).click();
   await dialog(page).getByRole('button', { name: 'Keyboard shortcuts' }).click();
-  await expect(page.locator('[data-action="app.settings"]')).toHaveText('Ctrl+,');
+  await expect(page.locator('[data-action="app.settings"]')).toHaveText(modLabel(','));
 });
 
 test('the Settings shortcut can be changed', async ({ page }) => {
@@ -68,7 +68,7 @@ test('the Settings shortcut can be changed', async ({ page }) => {
   await page.keyboard.press('?');
   await page.locator('[data-action="app.settings"]').click();
   await page.keyboard.press('Control+j');
-  await expect(page.locator('[data-action="app.settings"]')).toHaveText('Ctrl+J');
+  await expect(page.locator('[data-action="app.settings"]')).toHaveText(modLabel('J'));
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
   await page.keyboard.press('Control+,');
