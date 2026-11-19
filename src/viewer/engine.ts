@@ -136,8 +136,11 @@ function orthoViewport(id: string): Types.IVolumeViewport {
 
 export type ViewportElements = Record<ViewId, HTMLDivElement>;
 
+let mounted: ViewportElements | null = null;
+
 export function mountViewports(els: ViewportElements): void {
   unmountViewports();
+  mounted = els;
   engine = new RenderingEngine(ENGINE_ID);
   const { ViewportType, OrientationAxis } = Enums;
   const background: Types.Point3 = [0, 0, 0];
@@ -285,6 +288,14 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
   if (name === CrosshairsTool.toolName) group.setToolActive(name, { bindings: [primary] });
   else group.setToolDisabled(CrosshairsTool.toolName);
 
+  // Bindings add up across calls, so clear the navigation tools before binding them again.
+  for (const t of [StackScrollTool.toolName, PanTool.toolName, ZoomTool.toolName, WindowLevelTool.toolName]) {
+    group.setToolPassive(t, { removeAllBindings: true });
+  }
+  for (const t of [BRUSH.eraseCircle, BRUSH.eraseSphere]) {
+    if (t !== name) group.setToolPassive(t, { removeAllBindings: true });
+    if (t !== name) group.setToolDisabled(t);
+  }
   group.setToolActive(StackScrollTool.toolName, { bindings: [{ mouseButton: MouseBindings.Wheel }] });
   group.setToolActive(PanTool.toolName, {
     bindings: [{ mouseButton: MouseBindings.Auxiliary }, ...(name === PanTool.toolName ? [primary] : [])],
@@ -380,6 +391,8 @@ function localVolume(vol: VolumeData) {
 }
 
 export async function showImage(vol: VolumeData, voi: { lower: number; upper: number }): Promise<void> {
+  // Replacing an image: start from fresh viewports so nothing points at the old volume.
+  if (imageLoaded && mounted) mountViewports(mounted);
   const e = eng();
   segmentation.removeAllSegmentations();
   removeVolume(MASK_VOLUME_ID);

@@ -271,3 +271,32 @@ test('threshold brush paints only where the image is inside the range', async ({
   expect(result.painted).toBeGreaterThan(0);
   expect(result.outside).toBe(0);
 });
+
+test('zoom and window still work after using pan', async ({ page }) => {
+  await openPhantom(page);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const read = () => page.evaluate(() => { const s = (window as any).__w.store.getState(); return { zoom: s.zoom, w: s.voi.upper - s.voi.lower }; });
+  await page.keyboard.press('h');
+  await drag(page, 'axial', [0, 0], [30, 20]);
+  const start = await read();
+  await page.keyboard.press('z');
+  await drag(page, 'axial', [0, 0], [0, -80]);
+  const zoomed = await read();
+  expect(zoomed.zoom).not.toBeCloseTo(start.zoom, 2);
+  await page.keyboard.press('w');
+  await drag(page, 'axial', [0, 0], [80, 0]);
+  expect((await read()).w).not.toBeCloseTo(zoomed.w, 0);
+});
+
+test('undoing a segment delete brings back its name and colour', async ({ page }) => {
+  await openPhantom(page);
+  await page.locator('.segrow .name').first().dblclick();
+  await page.getByLabel('Segment name').fill('Liver');
+  await page.keyboard.press('Enter');
+  await page.locator('.segrow').first().hover();
+  await page.getByRole('button', { name: 'More for Liver' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(page.locator('.segrow')).toHaveCount(1);
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.segrow').first()).toContainText('Liver');
+});

@@ -197,7 +197,10 @@ export function Viewports() {
             const w = engine.canvasToWorld(v.id, e.clientX - rect.left, e.clientY - rect.top);
             if (w) engine.jumpTo(w, v.id);
           }}
-          onDoubleClick={() => set({ maximized: maximized === v.id ? null : v.id })}
+          onDoubleClick={() => {
+            // With an edit tool a double-click is two dabs of paint, not a layout change.
+            if (!EDIT_TOOLS.includes(tool)) set({ maximized: maximized === v.id ? null : v.id });
+          }}
           onContextMenu={(e) => e.preventDefault()}
         >
           <div

@@ -23,6 +23,7 @@ import {
   chunk,
   formatCode,
   inviteLink,
+  maskDigest,
   makeCode,
   parseInvite,
   userColor,
@@ -402,6 +403,7 @@ function flushEdits(): void {
   applyPatch(shadow, patch, 'after');
   history.add(patch);
   room?.sendFrame(FrameKind.Patch, encodePatch(patch));
+  scheduleDigest();
   if (!get().dirty) set({ dirty: true });
   syncHistoryFlags();
 }
@@ -426,6 +428,9 @@ function writeOwn(patch: Patch, side: 'before' | 'after'): void {
   room?.sendFrame(FrameKind.Patch, encodePatch(written));
 }
 
+/** What deleted segments looked like, so undo brings back the name, colour and lock too. */
+const removedSegments = new Map<number, SegmentInfo>();
+
 function ensureSegments(values: Uint8Array): void {
   const s = get();
   const known = new Set(s.segments.map((x) => x.index));
@@ -435,15 +440,19 @@ function ensureSegments(values: Uint8Array): void {
     if (v !== 0 && !known.has(v)) missing.add(v);
   }
   if (missing.size === 0) return;
-  const added = [...missing].map((index) => ({
-    index,
-    name: `Segment ${index}`,
-    color: SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
-    visible: true,
-    locked: false,
-  }));
+  const added = [...missing].map(
+    (index) =>
+      removedSegments.get(index) ?? {
+        index,
+        name: `Segment ${index}`,
+        color: SEGMENT_COLORS[(index - 1) % SEGMENT_COLORS.length],
+        visible: true,
+        locked: false,
+      },
+  );
   set({ segments: [...s.segments, ...added].sort((a, b) => a.index - b.index) });
   pushSegments();
+  if (added.some((x) => removedSegments.has(x.index))) sendSegments();
 }
 
 export function undo(): void {
@@ -551,6 +560,7 @@ export function deleteSegment(index: number): void {
   const n = editMask((d) => {
     for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
   });
+  removedSegments.set(index, { ...seg, visible: true });
   const rest = s.segments.filter((x) => x.index !== index);
   const active = s.activeSegment === index ? (rest[0]?.index ?? 0) : s.activeSegment;
   updateSegments(rest, active);
@@ -780,6 +790,11 @@ async function onPeerMessage(client: RoomClient, msg: PeerMessage): Promise<void
     case 'segments': {
       const s = get();
       const active = msg.list.some((x) => x.index === s.activeSegment) ? s.activeSegment : (msg.list[0]?.index ?? 0);
+      const gone = s.segments.find((x) => x.index === s.activeSegment && active !== s.activeSegment);
+      if (gone) {
+        const who = s.peers.find((p) => p.id === msg.from)?.name ?? 'Someone';
+        toast('warning', `${who} deleted ${gone.name}. You are now on ${msg.list.find((x) => x.index === active)?.name ?? 'no segment'}.`);
+      }
       // Visibility is a personal view setting; keep ours.
       const mine = new Map(s.segments.map((x) => [x.index, x.visible]));
       set({ segments: msg.list.map((x) => ({ ...x, visible: mine.get(x.index) ?? true })), activeSegment: active });
@@ -787,8 +802,23 @@ async function onPeerMessage(client: RoomClient, msg: PeerMessage): Promise<void
       break;
     }
     case 'need-snapshot':
-      await sendSnapshot(client, msg.from, msg.imageToo);
+      await sendSnapshot(client, msg.from, msg.imageToo, msg.resync);
       break;
+    case 'digest': {
+      // Two people painting over each other at the same instant can end up a few
+      // voxels apart. When that happens the person with the lower id is the reference.
+      if (!mask || awaitingSnapshot || pointerDown || dirtySlices) break;
+      if (maskDigest(mask.data as Uint8Array) === msg.h) break;
+      const self = get().room?.selfId ?? 0;
+      if (msg.from < self) {
+        awaitingSnapshot = true;
+        queuedPatches = [];
+        client.send({ t: 'need-snapshot', to: msg.from, imageToo: false, resync: true });
+      } else {
+        scheduleDigest(200);
+      }
+      break;
+    }
     case 'no-snapshot':
       awaitingSnapshot = false;
       set({ busy: null, progress: null });
@@ -800,7 +830,7 @@ async function onPeerMessage(client: RoomClient, msg: PeerMessage): Promise<void
   }
 }
 
-async function sendSnapshot(client: RoomClient, to: number, imageToo: boolean): Promise<void> {
+async function sendSnapshot(client: RoomClient, to: number, imageToo: boolean, resync = false): Promise<void> {
   if (!image || !mask) {
     client.send({ t: 'no-snapshot', to });
     return;
@@ -819,6 +849,7 @@ async function sendSnapshot(client: RoomClient, to: number, imageToo: boolean): 
     image: imageZ ? metaOf(image, imageZ.length, 'Room image') : null,
     mask: metaOf(mask, maskZ.length, 'Room mask'),
     maskName: maskName ? 'Room mask' : null,
+    resync,
     segments,
     total,
   });
@@ -848,6 +879,7 @@ function applyRemotePatch(payload: Uint8Array): void {
   if (!mask) return;
   try {
     writePatch(decodePatch(payload), 'after');
+    scheduleDigest();
     if (!get().dirty) set({ dirty: true });
   } catch {
     /* a patch for a different mask; ignore it */
@@ -886,12 +918,17 @@ async function finishSnapshot(all: Uint8Array): Promise<void> {
     const data = mask.data as Uint8Array;
     data.set(maskRaw);
     shadow = data.slice();
-    history.clear();
-    syncHistoryFlags();
     engine.refreshMask();
-    const active = meta.segments[0]?.index ?? 0;
-    set({ segments: meta.segments.map((x) => ({ ...x, visible: true })), activeSegment: active, maskName: meta.maskName, dirty: false });
-    pushSegments();
+    if (meta.resync) {
+      // A quiet correction: keep my undo history, view settings and file name.
+      ensureSegments(data);
+    } else {
+      history.clear();
+      syncHistoryFlags();
+      const active = meta.segments[0]?.index ?? 0;
+      set({ segments: meta.segments.map((x) => ({ ...x, visible: true })), activeSegment: active, maskName: meta.maskName, dirty: false });
+      pushSegments();
+    }
     awaitingSnapshot = false;
     for (const p of queuedPatches) applyRemotePatch(p);
     queuedPatches = [];
@@ -901,6 +938,18 @@ async function finishSnapshot(all: Uint8Array): Promise<void> {
     awaitingSnapshot = false;
     set({ busy: null, progress: null });
   }
+}
+
+let digestTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleDigest(delay = 1200): void {
+  if (!room) return;
+  if (digestTimer) clearTimeout(digestTimer);
+  digestTimer = setTimeout(() => {
+    digestTimer = null;
+    if (!room || !mask || get().peers.length === 0) return;
+    if (pointerDown || awaitingSnapshot || dirtySlices) return scheduleDigest();
+    room.send({ t: 'digest', h: maskDigest(mask.data as Uint8Array) });
+  }, delay);
 }
 
 let lastCursor = 0;

@@ -35,7 +35,9 @@ export type ServerMessage =
 export type PeerMessage =
   | { t: 'cursor'; from: number; vp: string | null; w?: [number, number, number]; r?: number }
   | { t: 'segments'; from: number; list: SegmentInfo[] }
-  | { t: 'need-snapshot'; from: number; to: number; imageToo: boolean }
+  | { t: 'need-snapshot'; from: number; to: number; imageToo: boolean; resync?: boolean }
+  /** A fingerprint of the sender's mask, sent when it has been quiet for a moment. */
+  | { t: 'digest'; from: number; h: number }
   | {
       t: 'snapshot';
       from: number;
@@ -43,6 +45,7 @@ export type PeerMessage =
       image: VolumeMeta | null;
       mask: VolumeMeta;
       maskName: string | null;
+      resync?: boolean;
       segments: SegmentInfo[];
       total: number;
     }
@@ -148,4 +151,15 @@ export function initials(name: string): string {
   const first = parts[0][0];
   const second = parts.length > 1 ? parts[parts.length - 1][0] : '';
   return (first + second).toUpperCase();
+}
+
+/** A fast fingerprint of a mask, used to notice when two people have drifted apart. */
+export function maskDigest(data: Uint8Array): number {
+  let h = 0x811c9dc5;
+  // Zero runs dominate a mask; mixing in the position keeps them cheap but still counted.
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i];
+    if (v !== 0) h = Math.imul(h ^ (v + i * 31), 0x01000193);
+  }
+  return h >>> 0;
 }

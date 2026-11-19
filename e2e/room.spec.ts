@@ -57,6 +57,33 @@ test('two people edit the same mask in a room', async ({ browser }) => {
   await guestCtx.close();
 });
 
+test('masks converge after two people paint over each other at once', async ({ browser }) => {
+  const host = await (await browser.newContext()).newPage();
+  const guest = await (await browser.newContext()).newPage();
+  await openPhantom(host);
+  await host.getByRole('button', { name: 'Share' }).click();
+  await host.getByPlaceholder('How others will see you').fill('Mina');
+  await host.getByRole('button', { name: 'Start', exact: true }).click();
+  const link = (await host.getByTestId('room-link').textContent())!.trim();
+  await host.keyboard.press('Escape');
+  await guest.goto('/');
+  await guest.getByRole('button', { name: 'Join a room', exact: true }).click();
+  await guest.getByPlaceholder('How others will see you').fill('Ario');
+  await guest.getByPlaceholder('Paste the invite link').fill(link);
+  await guest.getByRole('button', { name: 'Join', exact: true }).click();
+  await guest.locator('[data-view="axial"] canvas').first().waitFor({ timeout: 30_000 });
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+
+  await host.keyboard.press('b');
+  await guest.keyboard.press('2');
+  await guest.keyboard.press('b');
+  // Both drag along the same row towards each other, at the same time.
+  await Promise.all([drag(host, 'axial', [-90, 0], [90, 0]), drag(guest, 'axial', [90, 0], [-90, 0])]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dump = (p: typeof host) => p.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
+  await expect.poll(async () => (await dump(host)) === (await dump(guest)), { timeout: 15_000 }).toBe(true);
+});
+
 test('joining a room that does not exist says so', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Join a room', exact: true }).click();

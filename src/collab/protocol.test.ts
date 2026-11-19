@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Assembler, FrameKind, chunk, formatCode, frame, initials, makeCode, parseFrame, parseInvite, roomUrl } from './protocol';
+import { Assembler, FrameKind, chunk, maskDigest, formatCode, frame, initials, makeCode, parseFrame, parseInvite, roomUrl } from './protocol';
 
 describe('room codes', () => {
   it('makes 6 character codes without look-alike characters', () => {
@@ -88,5 +88,21 @@ describe('initials', () => {
     expect(initials('Mina Okafor')).toBe('MO');
     expect(initials('ario')).toBe('A');
     expect(initials('  ')).toBe('?');
+  });
+});
+
+describe('maskDigest', () => {
+  it('is equal for equal masks and differs when a voxel moves or changes', () => {
+    const a = new Uint8Array(64);
+    a[10] = 1;
+    a[40] = 2;
+    const b = a.slice();
+    expect(maskDigest(a)).toBe(maskDigest(b));
+    b[40] = 0;
+    b[41] = 2;
+    expect(maskDigest(a)).not.toBe(maskDigest(b));
+    const c = a.slice();
+    c[10] = 3;
+    expect(maskDigest(a)).not.toBe(maskDigest(c));
   });
 });
