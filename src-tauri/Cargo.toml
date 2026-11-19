@@ -6,7 +6,6 @@ version = "0.1.0"
 description = "Open medical volumes and correct segmentation masks."
 edition = "2021"
 rust-version = "1.77.2"
-license = "MIT"
 publish = false
 
 [lib]
