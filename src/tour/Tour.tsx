@@ -139,7 +139,7 @@ function Layer({ tour }: { tour: TourState }) {
         {tour.phase === 'offer' && (
           <div className="tour-body" key="offer">
             <h2>Welcome to W Annotator</h2>
-            <p>A short tour of the main controls, using a built-in sample image.</p>
+            <p>A short tour of the main controls. The sample is a public research scan.</p>
             <div className="tour-choices">
               <button
                 className="btn primary lg"
