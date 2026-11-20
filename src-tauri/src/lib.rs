@@ -10,6 +10,7 @@ mod dump;
 mod files;
 mod hosting;
 mod recovery;
+mod testing;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -317,6 +318,16 @@ async fn pick_save_path(
     title: Option<String>,
     filters: Option<Vec<Filter>>,
 ) -> Result<Option<String>, String> {
+    // Test hook: with W_E2E_SAVE_DIR set at launch, save there without a dialog.
+    if let Some(path) = testing::save_target(
+        std::env::var_os(testing::SAVE_DIR_VAR),
+        default_name.as_deref(),
+    ) {
+        let full = allowed
+            .allow_file(&path)
+            .map_err(|e| format!("Could not save to {}: {e}", display(&path)))?;
+        return Ok(Some(display(&full)));
+    }
     let mut dialog = file_dialog(&window, title, filters);
     if let Some(name) = default_name {
         dialog = dialog.set_file_name(name);
@@ -333,6 +344,24 @@ async fn pick_save_path(
         .allow_file(&path)
         .map_err(|e| format!("Could not save to {}: {e}", display(&path)))?;
     Ok(Some(display(&full)))
+}
+
+/// Test hook: true when the app was launched with W_SELFTEST set.
+#[tauri::command]
+fn selftest_enabled() -> bool {
+    testing::selftest_target(std::env::var_os(testing::SELFTEST_VAR)).is_some()
+}
+
+/// Test hook: writes the self-test result to the W_SELFTEST file and quits.
+/// Rejects, and writes nothing, when the app was launched without W_SELFTEST.
+#[tauri::command(async)]
+fn selftest_finish(app: AppHandle, report: String) -> Result<(), String> {
+    let path = testing::selftest_target(std::env::var_os(testing::SELFTEST_VAR))
+        .ok_or("The self-test is not enabled")?;
+    files::write_atomic(&path, report.as_bytes())
+        .map_err(|e| format!("Could not write {}: {e}", display(&path)))?;
+    app.exit(0);
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -386,6 +415,8 @@ pub fn run() {
             dump_files,
             pick_open_paths,
             pick_save_path,
+            selftest_enabled,
+            selftest_finish,
             recovery_write,
             recovery_read,
             recovery_list,

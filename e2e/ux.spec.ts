@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, openPhantom, pixelAt, tintedPixels } from './helpers';
+import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, modLabel, openPhantom, pixelAt, tab, tintedPixels } from './helpers';
 
 const TEXT_1 = 'rgb(231, 233, 236)';
 const WARN = 'rgb(229, 180, 84)';
@@ -66,10 +66,12 @@ test('a fixed key is refused with a note, and Tab leaves the choice', async ({ p
   await openPhantom(page);
   await page.keyboard.press('?');
   await key(page, 'tool.brush').click();
+  // WebKit does not move focus to a button that is clicked, so say where Tab starts from.
+  await key(page, 'tool.brush').focus();
   await page.keyboard.press('1');
   await expect(help(page)).toHaveText("1 is fixed and can't be reassigned. Press other keys, or Esc to cancel.");
   await expect(key(page, 'tool.brush')).toHaveText('Press keys…');
-  await page.keyboard.press('Tab');
+  await tab(page);
   await expect(key(page, 'tool.brush')).toHaveText('B');
   await expect(key(page, 'tool.eraser')).toBeFocused();
 });
@@ -79,11 +81,11 @@ test('taking a key from another action says so and can be undone', async ({ page
   await page.keyboard.press('?');
   await key(page, 'tool.pan').click();
   await page.keyboard.press('Control+s');
-  await expect(help(page)).toContainText('Ctrl+S now selects Pan. Save mask has no shortcut.');
+  await expect(help(page)).toContainText(`${modLabel('S')} now selects Pan. Save mask has no shortcut.`);
   await expect(key(page, 'file.save')).toHaveText('—');
   await expect(key(page, 'file.save')).toHaveCSS('color', WARN);
   await help(page).getByRole('button', { name: 'Undo' }).click();
-  await expect(key(page, 'file.save')).toHaveText('Ctrl+S');
+  await expect(key(page, 'file.save')).toHaveText(modLabel('S'));
   await expect(key(page, 'tool.pan')).toHaveText('H');
 
   await key(page, 'tool.pan').click();
@@ -116,7 +118,7 @@ test('tooltips and menu hints show the key an action is bound to now', async ({ 
   await expect(page.locator('.panel header button')).toHaveAttribute('data-tip', 'Add segment  J');
   await expect(page.locator('[data-view="axial"]').getByRole('button', { name: 'Maximise' })).toHaveAttribute('data-tip', 'Maximise  U');
   await page.locator('.filebtn').click();
-  await expect(page.getByRole('menuitem', { name: 'Save mask' }).locator('kbd')).toHaveText('Ctrl+D');
+  await expect(page.getByRole('menuitem', { name: 'Save mask' }).locator('kbd')).toHaveText(modLabel('D'));
 });
 
 test('focus goes back to what opened a menu or dialog', async ({ page }) => {
@@ -307,7 +309,7 @@ test('a pressed segmented button shows a focus ring', async ({ page }) => {
   await page.keyboard.press('b');
   const circle = page.getByRole('group', { name: 'Brush shape' }).getByRole('button', { name: 'Circle' });
   await page.getByRole('group', { name: 'Brush shape' }).getByRole('button', { name: 'Sphere' }).focus();
-  await page.keyboard.press('Shift+Tab');
+  await tab(page, true);
   await expect(circle).toBeFocused();
   await expect(circle).toHaveAttribute('aria-pressed', 'true');
   expect(await circle.evaluate((el) => getComputedStyle(el).boxShadow)).toContain('inset');

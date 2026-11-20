@@ -93,3 +93,165 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Unsigned, no installers: checks that the app compiles and the config is valid.
       - run: pnpm tauri build --debug --no-bundle
+
+  # Drives the real desktop app through WebDriver (tauri-driver). See e2e-desktop/README.md.
+  desktop-e2e:
+    name: Desktop app e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Software rendering on the runners; without this WebKitGTK can come up blank.
+      WEBKIT_DISABLE_DMABUF_RENDERER: 1
+      # 0: WebView2 picks the port and writes it where the Edge driver looks for it.
+      W_WEBVIEW2_DEBUG_PORT: 0
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux dependencies, the WebKit driver and a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS webkit2gtk-driver xvfb
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-e2e
+      - run: pnpm install --frozen-lockfile
+      # The web job owns lint and types; here only the bundle is needed.
+      - run: pnpm exec vite build
+      # On Windows the test build opens WebView2's debugging port; e2e-desktop/ci-config.mjs says why.
+      - name: Build the app
+        run: |
+          node e2e-desktop/ci-config.mjs ${{ runner.os == 'Windows' && env.W_WEBVIEW2_DEBUG_PORT || '' }} > tauri.test.json
+          pnpm tauri build --debug --no-bundle --config tauri.test.json
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+      # The self-test needs no driver, so it also tells an app problem from a driver problem.
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a pnpm selftest:desktop
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm selftest:desktop
+        env:
+          W_WEBVIEW_VERSION_FILE: ${{ runner.temp }}\webview-version.txt
+      # The runner can hold a newer WebView2 than the one apps load, and the driver must match
+      # the one in use exactly, so ask the app (the self-test reports it) rather than the registry.
+      - name: Install the Edge driver that matches the WebView2 in use
+        if: runner.os == 'Windows'
+        run: |
+          version=$(cat "$RUNNER_TEMP/webview-version.txt")
+          echo "WebView2 $version"
+          mkdir -p "$RUNNER_TEMP/edgedriver"
+          cd "$RUNNER_TEMP/edgedriver"
+          curl -fsSL --retry 3 -o driver.zip "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip"
+          unzip -o -q driver.zip msedgedriver.exe
+          echo "W_NATIVE_DRIVER=$(cygpath -w "$PWD/msedgedriver.exe")" >> "$GITHUB_ENV"
+      - name: Desktop e2e (Linux)
+        if: runner.os == 'Linux' && !cancelled()
+        run: xvfb-run -a pnpm e2e:desktop
+      - name: Desktop e2e (Windows)
+        if: runner.os == 'Windows' && !cancelled()
+        run: pnpm e2e:desktop
+
+  # macOS has no WebDriver for WKWebView. The closest checks: the web suite in
+  # WebKit, and the built app testing itself (W_SELFTEST).
+  macos-webkit-and-selftest:
+    name: macOS (WebKit e2e, app self-test)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-e2e
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install webkit
+      - name: Web e2e in WebKit
+        run: pnpm e2e --reporter=list,json
+        env:
+          W_E2E_BROWSER: webkit
+          PLAYWRIGHT_JSON_OUTPUT_NAME: results.json
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-webkit
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7
+      # The self-test does not depend on the WebKit run, so it reports even when that fails.
+      - name: Build the app (unsigned .app, no installer, no updater archive)
+        if: ${{ !cancelled() }}
+        run: |
+          pnpm exec vite build
+          node e2e-desktop/ci-config.mjs > tauri.test.json
+          pnpm tauri build --debug --bundles app --config tauri.test.json
+      - name: Self-test of the built app
+        if: ${{ !cancelled() }}
+        run: |
+          binary=$(find target/debug/bundle/macos -path '*.app/Contents/MacOS/*' -type f | head -n 1)
+          test -n "$binary"
+          pnpm selftest:desktop "$binary"
+
+      - name: Why WebKit tests failed
+        if: failure()
+        run: node e2e/failures.mjs results.json || true
+
+  # One real, openly licensed scan (LUNA16, CC BY 4.0), fetched once and cached.
+  # The data never enters the repository. See docs/reviews/real-data.md.
+  real-data:
+    name: Real data (one LUNA16 case)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: relay
+      - name: Restore the case
+        id: case
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/realdata
+          key: realdata-luna16-${{ hashFiles('e2e/fetch-real-case.py') }}
+      - name: Fetch the case from Zenodo
+        if: steps.case.outputs.cache-hit != 'true'
+        run: |
+          python3 -m pip install --user remotezip==0.12.6
+          python3 e2e/fetch-real-case.py "$RUNNER_TEMP/realdata"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Real-data checks
+        run: W_REALDATA_DIR="$RUNNER_TEMP/realdata" pnpm e2e e2e/real-data.spec.ts

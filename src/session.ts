@@ -43,6 +43,7 @@ import {
   type Patch,
 } from './mask/patch';
 import { RoomClient } from './collab/client';
+import { joinProblem } from './collab/hosting';
 import {
   Assembler,
   FrameKind,
@@ -1254,35 +1255,43 @@ let hostingLocally = false;
 /** True once the name differs from the one the room server was given, so newcomers need telling. */
 let renamed = false;
 
-export async function startRoom(name: string): Promise<{ code: string; link: string } | string> {
-  if (!image) return 'Open an image first.';
-  let server = platform.relayServer();
-  hostingLocally = false;
-  if (!server) {
-    const hosted = await platform.hostRoom();
-    if (!hosted) return "Rooms need a room server. Add one under 'Server'.";
-    server = hosted;
-    hostingLocally = true;
-  }
-  const code = makeCode();
-  return connect(server, code, name, true);
+export interface RoomStarted {
+  code: string;
+  link: string;
+  /** True when the room is hosted here and the computer has no network address. */
+  localOnly?: boolean;
 }
 
-export async function joinRoom(name: string, invite: string): Promise<{ code: string; link: string } | string> {
-  const parsed = parseInvite(invite, platform.relayServer() ?? '');
-  if (!parsed) return 'Enter the room code or paste the invite link.';
+export async function startRoom(name: string): Promise<RoomStarted | string> {
+  if (!image) return 'Open an image first.';
+  const server = platform.relayServer();
+  hostingLocally = false;
+  const code = makeCode();
+  if (server) return connect(server, code, name, true);
+  const hosted = await platform.hostRoom();
+  if (!hosted) return "Rooms need a room server. Add one under 'Server'.";
+  hostingLocally = true;
+  // The host talks to its own relay over loopback; the invite carries the network address.
+  const result = await connect(hosted.connect, code, name, true, hosted.share);
+  return typeof result === 'string' ? result : { ...result, localOnly: hosted.localOnly };
+}
+
+export async function joinRoom(name: string, invite: string): Promise<RoomStarted | string> {
+  const server = platform.relayServer() ?? '';
+  const parsed = parseInvite(invite, server);
+  if (!parsed) return joinProblem(invite, server);
   return connect(parsed.server, parsed.code, name, false);
 }
 
-function connect(server: string, code: string, name: string, starting: boolean): Promise<{ code: string; link: string } | string> {
+function connect(server: string, code: string, name: string, starting: boolean, shareServer = server): Promise<RoomStarted | string> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (value: { code: string; link: string } | string) => {
+    const finish = (value: RoomStarted | string) => {
       if (settled) return;
       settled = true;
       resolve(value);
     };
-    const link = inviteLink(server, code);
+    const link = inviteLink(shareServer, code);
     renamed = false;
     const client = new RoomClient(server, code, name, {
       onStatus: (status) => {

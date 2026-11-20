@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { findUpdate, isTauri, onFilesGiven, onNativeDrag, startFilesDump } from './platform';
+import { findUpdate, isTauri, onFilesGiven, onNativeDrag, selfTestRequested, startFilesDump } from './platform';
 import { stepBrushSize } from './mask/brush';
 import * as session from './session';
 import { DROP_TEXT, dropHint } from './files/roles';
@@ -210,6 +210,10 @@ export function App() {
       error: (text) => toast('error', text),
     }).then((off) => (gone ? off() : (stopFiles = off)));
     void startFilesDump(() => ({ image: get().image?.name ?? null, files: fileRows(get()).map(({ kind, label, active }) => ({ kind, label, active })) }));
+    // Test hook, off unless the app was launched with W_SELFTEST. It waits for the launch files itself.
+    void selfTestRequested().then(async (wanted) => {
+      if (wanted) void (await import('./selftest')).run();
+    });
     void findUpdate().then((update) => update && set({ update }));
     if (shouldShowTour(getSettings().tourSeen, location.search)) startTour();
     const warn = (e: BeforeUnloadEvent) => {

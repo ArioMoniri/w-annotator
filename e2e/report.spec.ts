@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openPhantom } from './helpers';
+import { copiedText, openPhantom } from './helpers';
 
 /** Records what the app asks the browser to open, instead of leaving for GitHub. */
 async function stubOpen(page: Page): Promise<() => Promise<{ url: string; target: string; features: string }[]>> {
@@ -97,8 +97,8 @@ test('technical details are left out when the box is unticked', async ({ page })
   expect(decodeURIComponent(url)).not.toMatch(/phantom/i);
 });
 
-test('an idea can be sent from the empty state, by keyboard, or copied instead', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+test('an idea can be sent from the empty state, by keyboard, or copied instead', async ({ page }) => {
+  const readCopied = await copiedText(page);
   const opened = await stubOpen(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Report a problem' }).click();
@@ -115,7 +115,7 @@ test('an idea can be sent from the empty state, by keyboard, or copied instead',
 
   await dialog.getByRole('button', { name: 'Copy report' }).click();
   await expect(page.locator('.toast')).toContainText('Report copied');
-  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  const copied = await readCopied();
   expect(copied).toContain('Feature: Lasso');
   expect(copied).toContain('Problem\nOutlining is slow');
   expect(copied).toContain('Proposal\nA lasso tool?');

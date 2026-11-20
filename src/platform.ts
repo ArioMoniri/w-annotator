@@ -1,5 +1,6 @@
 /** Everything that differs between the desktop app and a plain browser tab. */
 
+import { hostedRoom, type HostedRoom } from './collab/hosting';
 import { getSettings, setSetting } from './state/settings';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -24,14 +25,12 @@ export function relayServer(): string | null {
   return isTauri ? null : `ws://${location.hostname}:8787`;
 }
 
-/** Start the room server built into the desktop app. Returns its address on the local network. */
-export async function hostRoom(): Promise<string | null> {
+/** Start the room server built into the desktop app. Returns where to connect and what to share. */
+export async function hostRoom(): Promise<HostedRoom | null> {
   if (!isTauri) return null;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
-    const info = await invoke<{ port: number; addresses: string[] }>('host_room', {});
-    const host = info.addresses[0] ?? '127.0.0.1';
-    return `ws://${host}:${info.port}`;
+    return hostedRoom(await invoke<{ port: number; addresses: string[] }>('host_room', {}));
   } catch {
     return null;
   }
@@ -198,6 +197,23 @@ export async function startFilesDump(describe: () => unknown): Promise<void> {
   } catch {
     /* not available */
   }
+}
+
+/** Test hook: true when the desktop app was launched with W_SELFTEST set. See src/selftest.ts. */
+export async function selfTestRequested(): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<boolean>('selftest_enabled');
+  } catch {
+    return false;
+  }
+}
+
+/** Test hook: hands the self-test result to the app, which writes it and quits. */
+export async function finishSelfTest(report: string): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('selftest_finish', { report });
 }
 
 export interface ReadyUpdate {

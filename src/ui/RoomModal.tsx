@@ -2,7 +2,7 @@ import { X } from 'lucide-react';
 import { useState } from 'react';
 import { formatCode } from '../collab/protocol';
 import { SERVER_HELP, copyText, isTauri, saveName, saveServer, savedName, savedServer } from '../platform';
-import { joinRoom, startRoom } from '../session';
+import { joinRoom, startRoom, type RoomStarted } from '../session';
 import { set, toast, useStore } from '../state/store';
 import { Modal } from './common';
 
@@ -23,7 +23,7 @@ function RoomDialog() {
   const [server, setServer] = useState(savedServer());
   const [error, setError] = useState('');
   const [working, setWorking] = useState(false);
-  const [started, setStarted] = useState<{ code: string; link: string } | null>(null);
+  const [started, setStarted] = useState<RoomStarted | null>(null);
   if (!mode) return null;
 
   const close = () => set({ roomModal: null });
@@ -64,7 +64,11 @@ function RoomDialog() {
             {started.link}
           </div>
           {started.link.startsWith('ws://') && isTauri && (
-            <span className="help">This room runs on your computer, so others need to be on the same network or VPN.</span>
+            <span className="help" data-testid="room-note">
+              {started.localOnly
+                ? 'No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others.'
+                : 'This room runs on your computer, so others need to be on the same network or VPN.'}
+            </span>
           )}
         </div>
         <div className="footer">

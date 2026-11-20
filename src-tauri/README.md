@@ -9,6 +9,7 @@ src/batch.rs     gathers files that arrive close together into one open
 src/dump.rs      a test hook, off unless asked for
 src/recovery.rs  recovery copies in the app's local data folder
 src/hosting.rs   the embedded room relay (the `w-relay` crate in ../relay)
+src/testing.rs   hooks for automated tests, off unless asked for (see "Test hooks")
 capabilities/    what the window may call in the plugins
 ```
 
@@ -64,7 +65,7 @@ const path = await invoke<string | null>('pick_save_path', {
 });
 ```
 
-Returns the absolute path, or `null` if the user cancelled. The system dialog has already asked about replacing an existing file.
+Returns the absolute path, or `null` if the user cancelled. The system dialog has already asked about replacing an existing file. (With the test hook `W_E2E_SAVE_DIR` there is no dialog; see "Test hooks".)
 
 ### `write_file`
 
@@ -186,8 +187,10 @@ const { port, addresses } = await invoke<{ port: number; addresses: string[] }>(
   port: 8787, // optional, default 8787
 });
 // Others join with: ws://<addresses[i]>:<port>/r/<ROOM>?name=<name>
-// The host itself can use ws://127.0.0.1:<port>/r/<ROOM>?name=<name>
+// The host itself uses ws://127.0.0.1:<port>/r/<ROOM>?name=<name>
 ```
+
+The web side always connects the host over `127.0.0.1`, so a firewall or network setting cannot keep the host out of its own room; the invite link carries `addresses[0]`. When `addresses` is empty the link falls back to `127.0.0.1` and the dialog says it only works on this computer (`../src/collab/hosting.ts`).
 
 Starts the relay on `0.0.0.0`. If the port is taken, a free one is used, so always read `port` from the result. `addresses` holds this machine's IPv4 addresses on the network (no loopback), private ranges first; it can be empty when offline. Calling it again while hosting returns the running relay and ignores `port`. The relay protocol is in `../relay/README.md`.
 
@@ -198,6 +201,31 @@ await invoke<void>('stop_hosting');
 ```
 
 Stops the relay and disconnects everyone. Does nothing if not hosting. Hosting also stops when the app quits.
+
+## Test hooks
+
+Two environment variables, read when the app is launched, let automated tests reach what they otherwise could not. Both are compiled into every build and do nothing unless set. They only take an absolute path. The code is in `src/testing.rs` and `../src/selftest.ts`; the tests that use them are in `../e2e-desktop`.
+
+| Variable | Effect |
+| --- | --- |
+| `W_E2E_SAVE_DIR=<folder>` | `pick_save_path` shows no dialog and returns `<folder>/<defaultName>` (only the file name of `defaultName` is used, so the path cannot leave the folder; `mask.nii.gz` if there is none). The folder must exist. |
+| `W_SELFTEST=<file>` | After the files from the command line have opened, the app runs a short scripted check in its own window, writes the result to `<file>` as JSON and quits. |
+
+The self-test expects an image and a mask with at least two segments on the command line. Its steps: the files opened; a mouse stroke with the brush added voxels; a room hosted by the app was joined, and left, by a second WebSocket connection made from the window to the invite link; the mask was saved (so set `W_E2E_SAVE_DIR` too). The result looks like this:
+
+```json
+{
+  "ok": true,
+  "steps": [{ "name": "files opened", "ok": true, "detail": "…" }],
+  "saved": { "file": "phantom_seg.nii.gz", "voxels": 839 },
+  "userAgent": "…",
+  "webview": "156.0.3900.12"
+}
+```
+
+`webview` is the exact WebView2 version on Windows and `null` elsewhere. CI uses it to fetch the Edge driver that matches the WebView2 the app really loads, which is not always the newest one installed.
+
+Two commands serve the self-test: `selftest_enabled` returns whether `W_SELFTEST` was set, and `selftest_finish({ report })` writes the report and quits. Without the variable `selftest_finish` rejects and writes nothing, and the web side never loads the self-test code.
 
 ## Plugins
 

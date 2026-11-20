@@ -81,6 +81,32 @@ export async function drag(page: Page, view: string, from: [number, number], to:
   await page.waitForTimeout(400);
 }
 
+/**
+ * Gives the test a way to read what the app copies. Call it before the copy.
+ * Chromium: grants clipboard access, and the returned function reads the real clipboard.
+ * WebKit: Playwright has no clipboard permission to grant there and reading the clipboard
+ * asks the user, so the app's write is recorded instead of reaching the system clipboard.
+ */
+export async function copiedText(page: Page): Promise<() => Promise<string>> {
+  if (page.context().browser()?.browserType().name() !== 'webkit') {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    return () => page.evaluate(() => navigator.clipboard.readText());
+  }
+  const record = () => {
+    // A blank page, before the app is loaded, has no clipboard.
+    if (typeof Clipboard === 'undefined') return;
+    Object.defineProperty(Clipboard.prototype, 'writeText', {
+      configurable: true,
+      value: async (text: string) => {
+        (window as unknown as { __copied: string }).__copied = text;
+      },
+    });
+  };
+  await page.addInitScript(record);
+  await page.evaluate(record);
+  return () => page.evaluate(() => (window as unknown as { __copied?: string }).__copied ?? '');
+}
+
 /** Centres of the two segments in the phantom, as voxel indices. */
 export const SEGMENT_1: [number, number, number] = [30, 22, 24];
 export const SEGMENT_2: [number, number, number] = [17, 27, 23];
@@ -145,4 +171,17 @@ export async function jumpToVoxel(page: Page, ijk: [number, number, number]): Pr
     const s = vol.spacing as number[];
     w.engine.jumpTo([0, 1, 2].map((r) => vol.origin[r] + d[r] * s[0] * ijk[0] + d[3 + r] * s[1] * ijk[1] + d[6 + r] * s[2] * ijk[2]));
   }, ijk);
+}
+
+/** A shortcut with the main modifier as the app shows it on this system: "Ctrl+S", or "⌘ S" on a Mac. */
+export const modLabel = (key: string): string => (process.platform === 'darwin' ? `⌘ ${key}` : `Ctrl+${key}`);
+
+/**
+ * Presses Tab the way that reaches every control. WebKit on macOS, like Safari and the desktop
+ * app's webview there, only stops at text fields with plain Tab unless "Keyboard navigation" is
+ * on in System Settings; Option+Tab stops at buttons too, so that is what a keyboard user presses.
+ */
+export async function tab(page: Page, back = false): Promise<void> {
+  const mac = process.platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit';
+  await page.keyboard.press(`${mac ? 'Alt+' : ''}${back ? 'Shift+' : ''}Tab`);
 }
