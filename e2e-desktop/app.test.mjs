@@ -148,22 +148,15 @@ describe('with an image and a mask from the command line', () => {
     const start = await maskVoxels(browser);
     await pick('scissors');
     assert.deepEqual(await store(browser, (s) => [s.scissorsShape, s.scissorsAction]), ['rectangle', 'erase']);
-    // The rectangle has to start and end inside the view, whatever size the window opened at.
+    // The rectangle has to start on the image, clear of the view's name button in the corner,
+    // whatever size the window opened at.
     const [w, h] = await viewSize(browser, 'axial');
-    const r = Math.min(140, Math.floor(Math.min(w, h) / 2) - 12);
-    await browser.execute(() => {
-      window.__ev = [];
-      for (const t of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick', 'pointercancel', 'dragstart', 'contextmenu'])
-        document.addEventListener(t, (e) => window.__ev.push(`${t}@${e.clientX},${e.clientY} d${e.detail} b${e.buttons} ${e.target.tagName}.${String(e.target.className).slice(0, 30)} ${e.defaultPrevented ? 'P' : ''}`), true);
-      window.__moves = 0;
-      document.addEventListener('mousemove', (e) => { if (e.buttons) window.__moves++; }, true);
-    });
+    const r = Math.min(140, Math.floor(Math.min(w, h) / 2) - 48);
     await drag(browser, 'axial', [-r, -r], [r, r]);
-    const diag = await browser.execute(() => JSON.stringify({ ev: window.__ev, moves: window.__moves, rect: document.querySelector('[data-view="axial"]').getBoundingClientRect().toJSON(), dpr: devicePixelRatio, tool: window.__w.store?.getState?.().tool }));
     // The cut lands a moment after the mouse is released; wait for it instead of a fixed pause.
     const cut = await until(() => maskVoxels(browser), (v) => v < start, {
       timeout: 5_000,
-      what: `the scissors to remove voxels (mask still has ${start}; view ${w} x ${h}, dragged ±${r}) ${diag}`,
+      what: `the scissors to remove voxels (mask still has ${start}; view ${w} x ${h}, dragged ±${r})`,
     });
     assert.ok(cut < start, `scissors removed nothing (${start} to ${cut})`);
     await undo();
