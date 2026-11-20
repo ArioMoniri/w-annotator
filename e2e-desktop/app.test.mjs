@@ -149,7 +149,11 @@ describe('with an image and a mask from the command line', () => {
     await pick('scissors');
     assert.deepEqual(await store(browser, (s) => [s.scissorsShape, s.scissorsAction]), ['rectangle', 'erase']);
     await drag(browser, 'axial', [-140, -140], [140, 140]);
-    const cut = await maskVoxels(browser);
+    // The cut lands a moment after the mouse is released; wait for it instead of a fixed pause.
+    const cut = await until(() => maskVoxels(browser), (v) => v < start, {
+      timeout: 5_000,
+      what: `the scissors to remove voxels (mask still has ${start})`,
+    });
     assert.ok(cut < start, `scissors removed nothing (${start} to ${cut})`);
     await undo();
     assert.equal(await maskVoxels(browser), start);
