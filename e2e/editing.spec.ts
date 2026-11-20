@@ -45,8 +45,9 @@ test('an enlarged view fills the whole view area and can be painted on, whicheve
     expect(box.width).toBeCloseTo(grid.width, 0);
     expect(box.height).toBeCloseTo(grid.height, 0);
     // The other views take no room in the layout, so they cannot squeeze this one.
-    const others = await page.locator('.cell[data-max="false"]').evaluateAll((cells) => cells.map((c) => getComputedStyle(c).position));
-    expect(others).toEqual(['absolute', 'absolute', 'absolute']);
+    for (const other of ['axial', 'sagittal', 'coronal', 'volume3d'].filter((v) => v !== view)) {
+      await expect(page.locator(`[data-view="${other}"]`)).toBeHidden();
+    }
     await expect(page.locator(`[data-view="${view}"]`).getByRole('button', { name: 'Restore' })).toBeAttached();
   }
   await page.evaluate(() => (window as never as { __w: { store: { setState(s: object): void } } }).__w.store.setState({ maximized: 'axial' }));
