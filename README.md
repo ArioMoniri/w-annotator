@@ -38,6 +38,10 @@ W Annotator shows a volume in axial, sagittal and coronal views with a 3D view o
 - Segments: add, rename, recolour, hide, lock, clear and delete. Each row shows the volume in mL.
 - Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, and combine with another segment.
 - Viewing: crosshair, pan, zoom, a ruler, window/level with CT presets, mask opacity and an outline-only view.
+- Layouts: 2×2, one large view with three beside it, three across, two across or a single view. Any pane can show any view, and lines link the planes.
+- Files: a list of the open image and up to four masks. One mask is edited; the others show as outlines for comparison.
+- Mouse and trackpad: two-finger scroll moves through slices, pinch zooms about the pointer, and the settings let you change both.
+- Autosave keeps a recovery copy of unsaved edits and offers it back after a crash.
 - Undo and redo, a light, dark or system theme, and a form that turns a problem report into a GitHub issue.
 
 ## File formats
@@ -46,7 +50,7 @@ W Annotator shows a volume in axial, sagittal and coronal views with a 3D view o
   <img src="docs/assets/formats.svg" width="640" alt="NIfTI, MetaImage, NRRD, DICOM series and DICOM SEG">
 </p>
 
-Opens NIfTI (`.nii`, `.nii.gz`), MetaImage (`.mha`, `.mhd`), NRRD (`.nrrd`, `.seg.nrrd`), DICOM series (uncompressed, RLE, JPEG, JPEG-LS, JPEG 2000 and HTJ2K) and DICOM SEG. Saves masks as `.nii.gz`, `.nii`, `.mha`, `.nrrd` or DICOM SEG (`.dcm`).
+Drop files onto the window, use *Open with* from the system file manager (an image and its mask can be selected together), or open them from the menu. Opens NIfTI (`.nii`, `.nii.gz`), MetaImage (`.mha`, `.mhd`), NRRD (`.nrrd`, `.seg.nrrd`), DICOM series (uncompressed, RLE, JPEG, JPEG-LS, JPEG 2000 and HTJ2K) and DICOM SEG. Saves masks as `.nii.gz`, `.nii`, `.mha`, `.nrrd` or DICOM SEG (`.dcm`).
 
 ## Working together
 
@@ -71,6 +75,7 @@ With the server field left empty, the desktop app hosts the room itself. That wo
 | `N` | New segment | `1`–`9` | Select segment |
 | `O` | Outline only | `X` | Hide or show the mask |
 | `↑` `↓` | Previous / next slice | `M` | Maximise or restore a view |
+| `Ctrl+1`–`5` | Choose a layout | `Ctrl+,` | Settings |
 | `Ctrl+Z` | Undo | `Ctrl+Shift+Z` | Redo |
 | `Ctrl+O` | Open image | `Ctrl+Shift+O` | Open mask |
 | `Ctrl+S` | Save mask | `?` | All shortcuts |
