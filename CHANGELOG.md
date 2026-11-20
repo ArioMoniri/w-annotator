@@ -17,6 +17,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Room server: groundwork for the next version of rooms (member keys, invite links that expire, edits in one order, rooms where guests view through the host). Rooms in the app work as before; see `docs/design/ROOMS-PROTOCOL.md`.
 - Autosave and crash recovery. While a mask has unsaved changes, a recovery copy is kept on this device. Opening the same image again offers to restore it. Saving the mask removes the copy, and switching autosave off removes them all.
 
+### Fixed
+
+- macOS and Linux: enlarging a view no longer collapses it to a thin strip, which left the views black and the mask impossible to edit.
+- A key press whose release never reached the app (switching apps, a save dialog) no longer leaves the tools dead until the next key press.
+- The brush always paints at least the voxel under the cursor. The size control now starts at the smallest size that paints on the open image, and takes decimals below 5 mm.
+- A click on the 3D view with an edit tool says where to paint instead of doing nothing.
+- Room and report dialogs: the close button no longer sits on top of the tabs.
+- Tooltips of the buttons over a view open below them instead of over the neighbouring button, and their text is no longer outlined.
+- Menus and popovers in the segments panel, and the room popover, cover the rows from edge to edge, so no pieces of rows show beside them.
+- The segment menu stays above the status bar at small window sizes; every item can be reached.
+- A narrow status bar drops whole items instead of cutting the save state mid-word.
+
 ## [0.1.0] - 2026-11-19
 
 First release.

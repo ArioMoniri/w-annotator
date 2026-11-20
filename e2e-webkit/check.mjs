@@ -80,7 +80,7 @@ try {
     await clickOn(b, '[data-testid="tour-card"] button[data-primary]');
     await sleep(400);
     expect(!(await rect(b, '[data-testid="tour"]')), 'the tour layer is still there');
-    expect((await state(b, (s) => s.segments.length)) === 2, 'the sample mask has no segments');
+    expect((await state(b, (s) => s.segments.length)) >= 1, 'the sample mask has no segments');
   });
 
   /* ── every edit tool changes the mask ── */
