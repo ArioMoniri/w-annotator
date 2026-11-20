@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-20
+
 ### Added
 
 - Trackpad support. A two-finger scroll moves through slices in proportion to how far the fingers move, and a pinch zooms about the pointer. Shift+scroll moves five slices at a time, and Alt+scroll changes the brush size while a brush tool is active. Scroll and pinch zoom the 3D view.
@@ -90,5 +92,6 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ArioMoniri/w-annotator/releases/tag/v0.1.0
