@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { SEGMENT_1, drag, jumpToVoxel, maskVoxels, openPhantom, pixelAt, isTinted, skipTour } from './helpers';
 
 /** A 48³ NIfTI label volume with one ball, built in the page like the phantom. */
-async function ballFile(page: Page, name: string, centre: [number, number, number], radius: number, label = 1): Promise<number[]> {
+async function ballFile(page: Page, _name: string, centre: [number, number, number], radius: number, label = 1): Promise<number[]> {
   return page.evaluate(
     ({ centre, radius, label }) => {
       const n = 48;

@@ -3,6 +3,8 @@
 //!
 //! The JavaScript signature of every command is documented in `README.md`.
 
+#[cfg(test)]
+mod associations;
 mod batch;
 mod dump;
 mod files;

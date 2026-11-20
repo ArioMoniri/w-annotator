@@ -1,0 +1,49 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["nii"],
+        "name": "NIfTI image",
+        "description": "NIfTI image",
+        "mimeType": "application/x-nifti"
+      },
+      {
+        "ext": ["nii.gz"],
+        "name": "NIfTI image (compressed)",
+        "description": "NIfTI image (compressed)",
+        "mimeType": "application/x-nifti-gz"
+      },
+      {
+        "ext": ["mha", "mhd"],
+        "name": "MetaImage",
+        "description": "MetaImage",
+        "mimeType": "application/x-metaimage"
+      },
+      {
+        "ext": ["nrrd", "nhdr"],
+        "name": "NRRD image",
+        "description": "NRRD image",
+        "mimeType": "application/x-nrrd"
+      },
+      {
+        "ext": ["dcm"],
+        "name": "DICOM image",
+        "description": "DICOM image",
+        "mimeType": "application/dicom"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/mime/packages/w-annotator.xml": "linux/w-annotator-mime.xml"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/mime/packages/w-annotator.xml": "linux/w-annotator-mime.xml"
+        }
+      }
+    }
+  }
+}

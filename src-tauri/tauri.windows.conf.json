@@ -1,0 +1,40 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["nii"],
+        "name": "WAnnotator.NIfTI",
+        "description": "NIfTI image",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mha", "mhd"],
+        "name": "WAnnotator.MetaImage",
+        "description": "MetaImage",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["nrrd", "nhdr"],
+        "name": "WAnnotator.NRRD",
+        "description": "NRRD image",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dcm"],
+        "name": "WAnnotator.DICOM",
+        "description": "DICOM image",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh"
+      }
+    }
+  }
+}
