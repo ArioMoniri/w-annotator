@@ -33,8 +33,7 @@ function Row({ row }: { row: FileRow }) {
           role="radio"
           aria-checked={row.active}
           aria-label={`Edit ${row.label}`}
-          data-tip={row.active ? 'Being edited' : 'Edit this mask'}
-          data-tip-side="top"
+          title={row.active ? 'Being edited' : 'Edit this mask'}
           onClick={() => setActiveMask(row.id)}
         />
       )}
