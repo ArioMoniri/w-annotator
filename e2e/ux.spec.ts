@@ -66,6 +66,8 @@ test('a fixed key is refused with a note, and Tab leaves the choice', async ({ p
   await openPhantom(page);
   await page.keyboard.press('?');
   await key(page, 'tool.brush').click();
+  // WebKit does not move focus to a button that is clicked, so say where Tab starts from.
+  await key(page, 'tool.brush').focus();
   await page.keyboard.press('1');
   await expect(help(page)).toHaveText("1 is fixed and can't be reassigned. Press other keys, or Esc to cancel.");
   await expect(key(page, 'tool.brush')).toHaveText('Press keys…');
