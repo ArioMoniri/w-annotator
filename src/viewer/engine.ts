@@ -16,6 +16,7 @@ import type { SegmentInfo } from '../collab/protocol';
 import type { ToolId, ViewId } from '../state/store';
 import { hexToRgb } from './geometry';
 import { zoomAbout } from './gestures';
+import { LINE_CENTRE_GAP, LinkedLinesTool } from './linkedLines';
 
 const {
   ToolGroupManager,
@@ -25,7 +26,6 @@ const {
   PanTool,
   ZoomTool,
   WindowLevelTool,
-  CrosshairsTool,
   TrackballRotateTool,
   RectangleScissorsTool,
   CircleScissorsTool,
@@ -66,6 +66,20 @@ let ready: Promise<void> | null = null;
 let engine: RenderingEngine | null = null;
 let imageLoaded = false;
 let maskLoaded = false;
+
+/** The canvas size, in CSS pixels, each view was last drawn at. A view that has never been on screen has none. */
+const drawnSize = new Map<string, { w: number; h: number }>();
+/** The views on screen now. */
+const onScreen = new Set<string>();
+
+/** When the lines marking the other two planes are drawn. */
+export type LinesSetting = 'always' | 'hover' | 'crosshair';
+const lines: { setting: LinesSetting; hovering: boolean; tool: ToolId; mode: 'Active' | 'Passive' | 'Enabled' | 'Disabled' } = {
+  setting: 'hover',
+  hovering: false,
+  tool: 'crosshair',
+  mode: 'Disabled',
+};
 
 /** Geometry of the local volumes, so each slice reports its own position. */
 const geometry = new Map<string, VolumeData>();
@@ -109,7 +123,7 @@ export function initEngine(): Promise<void> {
         PanTool,
         ZoomTool,
         WindowLevelTool,
-        CrosshairsTool,
+        LinkedLinesTool,
         TrackballRotateTool,
         RectangleScissorsTool,
         CircleScissorsTool,
@@ -140,6 +154,9 @@ let mounted: ViewportElements | null = null;
 export function mountViewports(els: ViewportElements): void {
   unmountViewports();
   mounted = els;
+  drawnSize.clear();
+  onScreen.clear();
+  lines.mode = 'Disabled';
   engine = new RenderingEngine(ENGINE_ID);
   const { ViewportType, OrientationAxis } = Enums;
   const background: Types.Point3 = [0, 0, 0];
@@ -198,11 +215,15 @@ function setupToolGroups(): void {
   ortho.addTool(CircleScissorsTool.toolName);
   ortho.addTool(SphereScissorsTool.toolName);
   ortho.addTool(PaintFillTool.toolName);
-  ortho.addTool(CrosshairsTool.toolName, {
-    getReferenceLineColor: (viewportId: string) => VIEW_COLORS[viewportId] ?? '#ffffff',
-    getReferenceLineControllable: () => true,
-    getReferenceLineDraggableRotatable: () => false,
+  ortho.addTool(LinkedLinesTool.toolName, {
+    // A plane that is not on screen has no line: there is nothing to see move when it is dragged.
+    getReferenceLineColor: (viewportId: string) => (onScreen.has(viewportId) ? (VIEW_COLORS[viewportId] ?? '#ffffff') : 'transparent'),
+    getReferenceLineControllable: (viewportId: string) => onScreen.has(viewportId),
+    // Draggable, so a line scrolls its plane and leaves a gap at the centre. LinkedLinesTool removes the rotation.
+    getReferenceLineDraggableRotatable: () => true,
     getReferenceLineSlabThicknessControlsOn: () => false,
+    referenceLinesCenterGapRadius: LINE_CENTRE_GAP,
+    handleRadius: 0,
   });
   const brush = (name: string, activeStrategy: string) =>
     ortho.addToolInstance(name, BrushTool.toolName, { activeStrategy, preview: { enabled: false } });
@@ -234,7 +255,7 @@ export interface ToolOptions {
 function toolNameFor(tool: ToolId, o: ToolOptions): string {
   switch (tool) {
     case 'crosshair':
-      return CrosshairsTool.toolName;
+      return LinkedLinesTool.toolName;
     case 'pan':
       return PanTool.toolName;
     case 'zoom':
@@ -285,8 +306,8 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
     if (t === LengthTool.toolName) group.setToolPassive(t);
     else group.setToolDisabled(t);
   }
-  if (name === CrosshairsTool.toolName) group.setToolActive(name, { bindings: [primary] });
-  else group.setToolDisabled(CrosshairsTool.toolName);
+  lines.tool = tool;
+  applyLines();
 
   // Bindings add up across calls, so clear the navigation tools before binding them again.
   for (const t of [PanTool.toolName, ZoomTool.toolName, WindowLevelTool.toolName]) {
@@ -317,6 +338,43 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
     });
   }
   eng().render();
+}
+
+/** Tools that only move the view. With one of them a reference line can be dragged; with the others it is display only. */
+const NAVIGATION_TOOLS: ToolId[] = ['pan', 'zoom', 'window'];
+
+/**
+ * Shows or hides the reference lines. With the crosshair tool they are always on and a click
+ * moves them. With a navigation tool they can be dragged. With an edit tool or the ruler they
+ * are drawn but never take a press, so a stroke that starts on a line is still a stroke.
+ */
+function applyLines(): void {
+  const group = ToolGroupManager.getToolGroup(ORTHO_GROUP);
+  if (!group || !imageLoaded) return;
+  const shown = lines.setting === 'always' || (lines.setting === 'hover' && lines.hovering);
+  const mode =
+    lines.tool === 'crosshair' ? 'Active' : !shown ? 'Disabled' : NAVIGATION_TOOLS.includes(lines.tool) ? 'Passive' : 'Enabled';
+  if (mode === lines.mode) return;
+  lines.mode = mode;
+  const name = LinkedLinesTool.toolName;
+  if (mode === 'Active') group.setToolActive(name, { bindings: [{ mouseButton: MouseBindings.Primary }] });
+  else if (mode === 'Passive') group.setToolPassive(name, { removeAllBindings: true });
+  else if (mode === 'Enabled') {
+    group.setToolPassive(name, { removeAllBindings: true });
+    group.setToolEnabled(name);
+  } else group.setToolDisabled(name);
+  csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
+}
+
+export function setReferenceLines(setting: LinesSetting): void {
+  lines.setting = setting;
+  applyLines();
+}
+
+/** Whether the pointer is over the views; reference lines set to "on hover" follow it. */
+export function setLinesHover(hovering: boolean): void {
+  lines.hovering = hovering;
+  applyLines();
 }
 
 export function setBrushSize(mm: number): void {
@@ -400,7 +458,14 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   await setVolumesForViewports(e, [{ volumeId: IMAGE_VOLUME_ID }], [VOLUME3D_ID]);
   (e.getViewport(VOLUME3D_ID) as Types.IVolumeViewport).setProperties({ preset: 'CT-Bone' });
   imageLoaded = true;
-  for (const id of ORTHO_IDS) orthoViewport(id).resetCamera();
+  for (const id of ALL_IDS) {
+    const vp = e.getViewport(id) as Types.IVolumeViewport;
+    if (id !== VOLUME3D_ID) vp.resetCamera();
+    // Fitted to the canvas as it is now. A view that is not on screen is fitted when it first appears.
+    const size = canvasSize(vp);
+    if (size) drawnSize.set(id, size);
+    else drawnSize.delete(id);
+  }
   setVoi(voi.lower, voi.upper);
   e.render();
 }
@@ -506,6 +571,20 @@ export function setMaskStyle(opacity: number, outlineOnly: boolean): void {
     outlineOpacityInactive: 1,
   };
   segmentation.segmentationStyle.setStyle({ type: LABELMAP }, style);
+  // The 3D view shows whole segments. With an outline the mapper draws one cut through the
+  // volume instead, so there the outline is off and the fill is solid.
+  segmentation.segmentationStyle.setStyle(
+    { type: LABELMAP, viewportId: VOLUME3D_ID },
+    {
+      ...style,
+      renderFill: true,
+      renderFillInactive: true,
+      fillAlpha: 1,
+      fillAlphaInactive: 1,
+      renderOutline: false,
+      renderOutlineInactive: false,
+    },
+  );
   repaintMask();
 }
 
@@ -669,13 +748,95 @@ export function fitAll(): void {
   for (const id of ALL_IDS) {
     const vp = engine.getViewport(id) as Types.IVolumeViewport;
     vp.resetCamera();
+    // A view that is not on screen cannot be fitted yet; it is when it comes back.
+    if (!canvasSize(vp)) drawnSize.delete(id);
     vp.render();
   }
 }
 
+function canvasSize(vp: { canvas: HTMLCanvasElement }): { w: number; h: number } | null {
+  const { clientWidth: w, clientHeight: h } = vp.canvas;
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+/** Draws now whatever is waiting for the next frame. */
+function renderNow(): void {
+  if (!engine) return;
+  // Cornerstone only renders on an animation frame. These two are its own frame callback and handle.
+  type Frames = { _renderFlaggedViewports?: () => void; _animationFrameHandle?: number | null };
+  const e = (engine as unknown as { _implementation?: Frames })._implementation;
+  if (typeof e?._renderFlaggedViewports !== 'function') return;
+  if (e._animationFrameHandle != null) cancelAnimationFrame(e._animationFrameHandle);
+  e._renderFlaggedViewports();
+}
+
+/**
+ * Call after the views have been moved or sized. Each canvas that changed gets its new
+ * backing size and is drawn before this returns, so it is never shown stretched.
+ *
+ * The image does not move or change size on screen: every view keeps its millimetres per
+ * pixel and the point at its centre. Cornerstone alone keeps the camera's parallel scale,
+ * which is half the view's height in millimetres, so a taller view would magnify the image.
+ * A view that is not on screen is skipped and costs nothing; it is picked up here when it returns.
+ */
 export function resizeViewports(): void {
   if (!engine) return;
-  engine.resize(true, true);
+  // A frame that is still waiting makes Cornerstone skip the resize, so draw it first.
+  renderNow();
+  const changed: { vp: Types.IVolumeViewport; id: string; size: { w: number; h: number }; mmPerPx: number | null }[] = [];
+  let visibility = false;
+  for (const id of ALL_IDS) {
+    const vp = engine.getViewport(id) as Types.IVolumeViewport;
+    const size = canvasSize(vp);
+    if (!!size !== onScreen.has(id)) {
+      visibility = true;
+      if (size) onScreen.add(id);
+      else onScreen.delete(id);
+    }
+    if (!size) continue;
+    const last = drawnSize.get(id);
+    if (last && last.w === size.w && last.h === size.h) continue;
+    const scale = imageLoaded ? vp.getCamera().parallelScale : undefined;
+    changed.push({ vp, id, size, mmPerPx: last && scale ? (2 * scale) / last.h : null });
+  }
+  if (changed.length) {
+    engine.resize(false, true);
+    for (const { vp, id, size, mmPerPx } of changed) {
+      if (!imageLoaded) continue;
+      if (mmPerPx !== null) vp.setCamera({ parallelScale: (mmPerPx * size.h) / 2 });
+      else fitKeepingSlice(vp, id);
+      drawnSize.set(id, size);
+      vp.render();
+    }
+  }
+  if (visibility && imageLoaded) csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
+  renderNow();
+}
+
+/** Fits a view that is on screen for the first time since the image was opened, without losing its slice. */
+function fitKeepingSlice(vp: Types.IVolumeViewport, id: string): void {
+  const before = vp.getCamera();
+  vp.resetCamera();
+  if (id === VOLUME3D_ID) return;
+  const cam = vp.getCamera();
+  const n = cam.viewPlaneNormal!;
+  const f = cam.focalPoint!;
+  const p = cam.position!;
+  const b = before.focalPoint!;
+  const d = (b[0] - f[0]) * n[0] + (b[1] - f[1]) * n[1] + (b[2] - f[2]) * n[2];
+  vp.setCamera({
+    focalPoint: [f[0] + n[0] * d, f[1] + n[1] * d, f[2] + n[2] * d],
+    position: [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d],
+  });
+}
+
+/** Millimetres covered by one screen pixel in a view. */
+export function getMmPerPixel(id: string): number | null {
+  if (!engine || !imageLoaded) return null;
+  const vp = engine.getViewport(id) as Types.IVolumeViewport;
+  const size = canvasSize(vp);
+  const scale = vp.getCamera().parallelScale;
+  return size && scale ? (2 * scale) / size.h : null;
 }
 
 export function clearMeasurements(): void {

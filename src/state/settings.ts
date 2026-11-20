@@ -1,4 +1,12 @@
 import { create } from 'zustand';
+import { DEFAULT_ORDER, formatOrder, parseLayout, parseOrder } from '../viewer/layout';
+
+/** When the lines that mark the other two planes are drawn in a view. */
+export type ReferenceLines = 'always' | 'hover' | 'crosshair';
+
+export function parseReferenceLines(raw: string): ReferenceLines {
+  return raw === 'always' || raw === 'crosshair' ? raw : 'hover';
+}
 
 /** Preferences that persist between launches. Add new ones here with a default. */
 export interface Settings {
@@ -23,6 +31,12 @@ export interface Settings {
   wheelZooms: boolean;
   /** 1 (slow) to 10 (fast). */
   zoomSpeed: number;
+  /** How the views are arranged: a LayoutId from viewer/layout. */
+  layout: string;
+  /** Which view each pane shows, as a comma-separated list in pane order. */
+  viewOrder: string;
+  /** A ReferenceLines value. */
+  referenceLines: string;
 }
 
 /** Settings that are one of a few words, and the words allowed. */
@@ -46,6 +60,9 @@ export const DEFAULT_SETTINGS: Settings = {
   pinchZoom: true,
   wheelZooms: false,
   zoomSpeed: 5,
+  layout: 'grid',
+  viewOrder: formatOrder(DEFAULT_ORDER),
+  referenceLines: 'hover',
 };
 
 const KEY = 'w-annotator:settings';
@@ -68,6 +85,10 @@ export function parseSettings(raw: string | null): Settings {
   } catch {
     /* unreadable settings fall back to the defaults */
   }
+  // Choices saved by another version, or edited by hand, fall back rather than break the views.
+  out.layout = parseLayout(out.layout);
+  out.viewOrder = formatOrder(parseOrder(out.viewOrder));
+  out.referenceLines = parseReferenceLines(out.referenceLines);
   return out;
 }
 

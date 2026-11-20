@@ -780,13 +780,15 @@ input[type='range']:focus-visible {
 
 /* ── Viewports ─────────────────────────────────── */
 
+/* ── Viewport layouts (begin) ──────────────────────
+   The panes are placed in pixels by Viewports.tsx from viewer/layout.ts: left, top, width
+   and height are set on each .cell, and a view with no pane is display: none. Nothing here
+   sizes a pane, so every webview lays the views out the same way. */
+
 .views {
   grid-area: view;
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 2px;
+  overflow: hidden;
   background: var(--bg-view-gap);
   min-width: 0;
   min-height: 0;
@@ -797,21 +799,84 @@ input[type='range']:focus-visible {
   /* Gestures over the image belong to the viewer, not to the page. */
   touch-action: none;
   overscroll-behavior: none;
+  position: absolute;
   background: var(--bg-viewport);
   color: var(--text-1);
-  min-width: 0;
-  min-height: 0;
   overflow: hidden;
 }
 
-.cell[data-max='true'] {
-  grid-area: 1 / 1 / 3 / 3;
-  z-index: 5;
+.cell[data-drop='true']::after {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-.cell[data-max='false'] {
-  visibility: hidden;
+.topbar .layouts {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
+
+.topbar .layouts button {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.viewlabel {
+  position: relative;
+  pointer-events: auto;
+}
+
+.viewlabel > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  margin: -2px -4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  text-shadow: inherit;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.viewlabel > button svg {
+  opacity: 0;
+}
+
+.cell:hover .viewlabel > button svg,
+.viewlabel > button:focus-visible svg,
+.viewlabel > button[aria-expanded='true'] svg {
+  opacity: 1;
+}
+
+.viewlabel > button:hover,
+.viewlabel > button[aria-expanded='true'] {
+  background: rgba(18, 20, 23, 0.8);
+  color: #fff;
+}
+
+.viewlabel .menu {
+  top: 24px;
+  left: -4px;
+  min-width: 132px;
+  font: 13px/20px var(--font-ui);
+  color: var(--text-1);
+  text-shadow: none;
+}
+
+.viewlabel .menu .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.viewlabel .menu [aria-checked='true'] {
+  background: var(--bg-active);
+}
+
+/* ── Viewport layouts (end) ──────────────────────── */
 
 .cell .canvas {
   position: absolute;
@@ -835,11 +900,13 @@ input[type='range']:focus-visible {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-/* Labels sit on unpredictable pixels: a dark stroke behind each glyph keeps them readable over bone. */
+/* Labels sit on unpredictable pixels: a dark edge around each glyph keeps them readable over bone.
+   The edge is built from shadows. A text stroke with paint-order is drawn behind only part of
+   a label in some webviews; shadows are drawn the same way by all of them. */
 .overlay,
 .orient {
-  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.8);
-  paint-order: stroke fill;
+  --label-edge: 1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000, 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000,
+    -1px 1px 0 #000, 0 0 2px #000;
 }
 
 .overlay {
@@ -847,7 +914,7 @@ input[type='range']:focus-visible {
   z-index: 10;
   font: 11px/16px var(--font-mono);
   color: var(--text-2);
-  text-shadow: 0 0 2px #000, 0 1px 1px #000;
+  text-shadow: var(--label-edge);
   pointer-events: none;
   font-variant-numeric: tabular-nums;
 }
@@ -904,7 +971,7 @@ input[type='range']:focus-visible {
   z-index: 10;
   font: 600 12px/16px var(--font-mono);
   color: var(--text-1);
-  text-shadow: 0 0 2px #000, 0 1px 1px #000;
+  text-shadow: var(--label-edge);
   pointer-events: none;
 }
 

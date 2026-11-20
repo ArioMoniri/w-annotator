@@ -10,6 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Trackpad support. A two-finger scroll moves through slices in proportion to how far the fingers move, and a pinch zooms about the pointer. Shift+scroll moves five slices at a time, and Alt+scroll changes the brush size while a brush tool is active. Scroll and pinch zoom the 3D view.
 - Settings → Mouse and trackpad: scroll direction, trackpad scroll speed, whether a two-finger scroll changes slice or pans, pinch to zoom, mouse wheel zooms, and zoom speed.
+- View layouts: 2 × 2, 1 large and 3 stacked, 3 side by side, 2 side by side and single, from the middle of the top bar or with Ctrl/⌘ 1–5. The layout is remembered.
+- Any pane can show any view: click a pane's name to pick Axial, Sagittal, Coronal or 3D, or drag the name onto another pane to swap the two.
+- Reference lines: each view shows where the other two cut it. Drag a line to scroll that view. Settings → Appearance chooses when they show: always, on hover, or with the crosshair tool only.
 - Report a problem or suggest an idea from the file menu or the start screen. The app fills in GitHub's new-issue form in your browser; you review and submit it there. Technical details are optional, shown before sending, and never hold file names or paths.
 - Refine a segment from its menu: grow, shrink and smooth by a distance in millimetres, fill holes, keep the largest island, remove small islands. Each is one undo step and is shared with the room.
 - Combine: add one segment into another.
@@ -22,6 +25,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Scrolling with a trackpad moved one slice for every event the trackpad sent, and dropped the slow ones, so it could not be controlled. Pinch did nothing in the macOS app. (#18)
+- Maximising a view on macOS showed it as a thin strip. A maximised view now fills the whole area.
+- Opening or closing the segments panel, resizing the window or maximising a view no longer changes the zoom or moves the image, and the image is never shown stretched while it happens.
+- The 3D view showed one slice of each segment, so a segment away from the middle was missing or a sliver. It now shows whole segments and follows every edit.
+- The dark edge behind view labels covers the whole label.
 
 ## [0.1.0] - 2026-11-19
 

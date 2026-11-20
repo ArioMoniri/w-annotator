@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { SERVER_HELP, openExternal } from '../platform';
 import { SAMPLE_SOURCES } from '../sample';
 import { setDisplayName } from '../session';
-import { NAME_MAX, setSetting, useSettings } from '../state/settings';
+import { NAME_MAX, parseReferenceLines, setSetting, useSettings, type ReferenceLines } from '../state/settings';
 import { get, set, useStore, type SettingsSection } from '../state/store';
 import { startTour } from '../tour/state';
 import { Choice, MOD, Modal, Slider, Switch } from './common';
@@ -64,11 +64,29 @@ function Profile() {
   );
 }
 
+const REFERENCE_LINES: { id: ReferenceLines; label: string }[] = [
+  { id: 'always', label: 'Always' },
+  { id: 'hover', label: 'On hover' },
+  { id: 'crosshair', label: 'With crosshair tool only' },
+];
+
 function Appearance() {
   const reduceMotion = useSettings((s) => s.reduceMotion);
+  const referenceLines = parseReferenceLines(useSettings((s) => s.referenceLines));
   return (
     <>
       <Row label="Theme">{() => <ThemeControl />}</Row>
+      <Row label="Show reference lines" help="Lines in each view that mark where the other two views cut it. Drag one to scroll that view.">
+        {(ids) => (
+          <div className="seg-control" role="group" aria-labelledby={ids.label} aria-describedby={ids.help}>
+            {REFERENCE_LINES.map((o) => (
+              <button key={o.id} aria-pressed={referenceLines === o.id} onClick={() => setSetting('referenceLines', o.id)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </Row>
       <Row label="Reduce motion" help="Turns off transitions and animated hints.">
         {(ids) => <Switch on={reduceMotion} labelledBy={ids.label} describedBy={ids.help} onChange={(v) => setSetting('reduceMotion', v)} />}
       </Row>

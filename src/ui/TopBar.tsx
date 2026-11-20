@@ -1,7 +1,11 @@
 import { ChevronDown, PanelRight, Users } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { formatCode, initials } from '../collab/protocol';
+import { useSettings } from '../state/settings';
+import type { ActionId } from '../state/shortcuts';
 import { set, toast, useStore } from '../state/store';
+import { chooseLayout } from '../state/views';
+import { LAYOUTS, paneRects, parseLayout, type LayoutId } from '../viewer/layout';
 import { closeImage, leaveRoom, saveMask } from '../session';
 import { copyText } from '../platform';
 import { jumpTo } from '../viewer/engine';
@@ -177,6 +181,38 @@ function RoomButton() {
   );
 }
 
+/** A small picture of a layout, drawn from the same rectangles the views use. */
+function LayoutIcon({ id }: { id: LayoutId }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      {paneRects(id, 14, 12).map((r, i) => (
+        <rect key={i} x={r.x + 1} y={r.y + 2} width={r.w} height={r.h} rx="1" />
+      ))}
+    </svg>
+  );
+}
+
+function LayoutSwitcher() {
+  const layout = parseLayout(useSettings((s) => s.layout));
+  const maximized = useStore((s) => !!s.maximized);
+  const key = useKeyHint();
+  return (
+    <div className="seg-control layouts" role="group" aria-label="Layout">
+      {LAYOUTS.map((l) => (
+        <button
+          key={l.id}
+          aria-label={l.label}
+          aria-pressed={!maximized && layout === l.id}
+          data-tip={`${l.label}  ${key(`layout.${l.id}` as ActionId)}`.trimEnd()}
+          onClick={() => chooseLayout(l.id)}
+        >
+          <LayoutIcon id={l.id} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TopBar() {
   const hasImage = useStore((s) => !!s.image);
   const panelOpen = useStore((s) => s.panelOpen);
@@ -185,6 +221,7 @@ export function TopBar() {
     <header className="topbar" data-tauri-drag-region>
       {hasImage ? <FileMenu /> : <span className="brand">W Annotator</span>}
       <div className="spacer" data-tauri-drag-region />
+      {hasImage && <LayoutSwitcher />}
       <RoomButton />
       {hasImage && (
         <button
