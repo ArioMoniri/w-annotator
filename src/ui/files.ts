@@ -46,15 +46,28 @@ async function walk(entry: Entry, out: File[]): Promise<void> {
   }
 }
 
-/** Files from a drop, including everything inside dropped folders. */
+/**
+ * Files from a drop, including everything inside dropped folders.
+ *
+ * The drop's data is only readable while the event is being handled, so
+ * everything is taken from it before the first wait. A file comes from its
+ * item directly; only folders are walked, because WebKit can hand out an entry
+ * for a single file that then fails to open.
+ */
 export async function droppedFiles(data: DataTransfer): Promise<File[]> {
-  const entries: Entry[] = [];
-  for (const item of Array.from(data.items)) {
+  const listed = Array.from(data.files);
+  const files: File[] = [];
+  const folders: Entry[] = [];
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') continue;
     const entry = (item as unknown as { webkitGetAsEntry?: () => Entry | null }).webkitGetAsEntry?.();
-    if (entry) entries.push(entry);
+    if (entry?.isDirectory) folders.push(entry);
+    else {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
   }
-  if (entries.length === 0) return Array.from(data.files);
-  const out: File[] = [];
-  for (const e of entries) await walk(e, out);
-  return out.filter((f) => !f.name.startsWith('.'));
+  if (files.length === 0 && folders.length === 0) return listed;
+  for (const folder of folders) await walk(folder, files);
+  return files.filter((f) => !f.name.startsWith('.'));
 }

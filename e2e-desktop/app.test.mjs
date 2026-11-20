@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { gunzipSync } from 'node:zlib';
-import { click, drag, idle, launch, maskVoxels, openInWindow, sleep, store, until } from './driver.mjs';
+import { click, drag, idle, launch, maskVoxels, openInWindow, sleep, store, until, viewSize } from './driver.mjs';
 import { count, N, readNifti, writeFixtures } from './fixtures.mjs';
 
 const TOOLS = ['crosshair', 'pan', 'zoom', 'window', 'measure', 'brush', 'eraser', 'threshold', 'scissors', 'fill'];
@@ -148,11 +148,14 @@ describe('with an image and a mask from the command line', () => {
     const start = await maskVoxels(browser);
     await pick('scissors');
     assert.deepEqual(await store(browser, (s) => [s.scissorsShape, s.scissorsAction]), ['rectangle', 'erase']);
-    await drag(browser, 'axial', [-140, -140], [140, 140]);
+    // The rectangle has to start and end inside the view, whatever size the window opened at.
+    const [w, h] = await viewSize(browser, 'axial');
+    const r = Math.min(140, Math.floor(Math.min(w, h) / 2) - 12);
+    await drag(browser, 'axial', [-r, -r], [r, r]);
     // The cut lands a moment after the mouse is released; wait for it instead of a fixed pause.
     const cut = await until(() => maskVoxels(browser), (v) => v < start, {
       timeout: 5_000,
-      what: `the scissors to remove voxels (mask still has ${start})`,
+      what: `the scissors to remove voxels (mask still has ${start}; view ${w} x ${h}, dragged ±${r})`,
     });
     assert.ok(cut < start, `scissors removed nothing (${start} to ${cut})`);
     await undo();

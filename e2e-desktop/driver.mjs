@@ -173,6 +173,13 @@ async function centre(browser, view) {
   return box;
 }
 
+/** Width and height of a view, in CSS pixels. */
+export const viewSize = (browser, view) =>
+  browser.execute((view) => {
+    const r = document.querySelector(`[data-view="${view}"]`).getBoundingClientRect();
+    return [Math.round(r.width), Math.round(r.height)];
+  }, view);
+
 /** Drags with the left button inside a view; offsets are from the view's centre, in CSS pixels. */
 export async function drag(browser, view, from, to, steps = 8) {
   const c = await centre(browser, view);
