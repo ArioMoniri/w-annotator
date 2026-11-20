@@ -90,6 +90,25 @@ async function mouseSettings(page: Page): Promise<void> {
 
 const closeSettings = (page: Page) => page.keyboard.press('Escape');
 
+/**
+ * One notch of a mouse wheel. Elsewhere it goes through the browser's real
+ * input path. On a Mac, Playwright's wheel arrives as a smooth pixel scroll,
+ * which is what a trackpad sends, so the event a notched mouse makes there is
+ * dispatched instead: a small fractional delta, with Cmd as the zoom key.
+ */
+const macWebKit = (page: Page) => process.platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit';
+async function notch(page: Page, direction: 1 | -1, held?: 'Shift' | 'Zoom'): Promise<void> {
+  if (macWebKit(page)) {
+    await wheel(page, 'axial', [{ deltaY: direction * 12.0007, shiftKey: held === 'Shift', metaKey: held === 'Zoom' }]);
+    return;
+  }
+  const key = held === 'Zoom' ? 'Control' : held;
+  if (key) await page.keyboard.down(key);
+  await page.mouse.wheel(0, direction * 100);
+  await page.waitForTimeout(80);
+  if (key) await page.keyboard.up(key);
+}
+
 test('a trackpad scroll moves through the slices smoothly and in proportion to its distance', async ({ page }) => {
   await openPhantom(page);
   const start = await slice(page);
@@ -122,25 +141,17 @@ test('a mouse wheel moves one slice per notch, five with Shift, and zooms with C
   await hover(page, 'axial');
   const start = await slice(page);
   for (let i = 0; i < 3; i++) {
-    await page.mouse.wheel(0, 100);
-    await page.waitForTimeout(80);
+    await notch(page, 1);
   }
   expect(await slice(page)).toBe(start + 3);
-  await page.mouse.wheel(0, -100);
-  await page.waitForTimeout(80);
+  await notch(page, -1);
   expect(await slice(page)).toBe(start + 2);
 
-  await page.keyboard.down('Shift');
-  await page.mouse.wheel(0, 100);
-  await page.waitForTimeout(80);
-  await page.keyboard.up('Shift');
+  await notch(page, 1, 'Shift');
   expect(await slice(page)).toBe(start + 7);
 
   const before = await zoom(page);
-  await page.keyboard.down('Control');
-  await page.mouse.wheel(0, -100);
-  await page.waitForTimeout(80);
-  await page.keyboard.up('Control');
+  await notch(page, -1, 'Zoom');
   expect((await zoom(page)) / before).toBeCloseTo(Math.exp(0.1), 2);
   expect(await slice(page)).toBe(start + 7);
   expect(await pageMoved(page)).toBe(false);
@@ -326,8 +337,7 @@ test('the Mouse and trackpad settings change what the gestures do, and are kept'
   await page.getByRole('switch', { name: 'Mouse wheel zooms' }).click();
   await closeSettings(page);
   await hover(page, 'axial');
-  await page.mouse.wheel(0, -100);
-  await page.waitForTimeout(80);
+  await notch(page, -1);
   const z1 = await zoom(page);
   expect(z1 / z0).toBeCloseTo(Math.exp(0.1), 2);
   expect(await slice(page)).toBe(start + 2);
@@ -335,8 +345,7 @@ test('the Mouse and trackpad settings change what the gestures do, and are kept'
   await page.getByRole('slider', { name: 'Zoom speed' }).fill('10');
   await closeSettings(page);
   await hover(page, 'axial');
-  await page.mouse.wheel(0, -100);
-  await page.waitForTimeout(80);
+  await notch(page, -1);
   expect((await zoom(page)) / z1).toBeCloseTo(Math.exp(0.4), 2);
 
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('w-annotator:settings')!) as Record<string, unknown>);
@@ -355,7 +364,7 @@ test('the shortcuts list describes the mouse and trackpad gestures', async ({ pa
   const list = page.locator('.shortcuts');
   await expect(list.getByRole('heading', { name: 'Mouse and trackpad' })).toBeVisible();
   await expect(list).toContainText('Change slice, five at a time');
-  await expect(list).toContainText('Ctrl+Scroll or pinch');
+  await expect(list).toContainText(`${process.platform === 'darwin' ? '⌘' : 'Ctrl'}+Scroll or pinch`);
   await expect(list).toContainText('Brush size, with a brush tool');
 });
 
