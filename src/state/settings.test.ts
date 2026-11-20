@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, applyReduceMotion, cleanName, parseSettings } from './settings';
+import { DEFAULT_SETTINGS, applyReduceMotion, cleanName, parseReferenceLines, parseSettings } from './settings';
 
 describe('parseSettings', () => {
   it('returns the defaults for nothing or for garbage', () => {
@@ -15,6 +15,29 @@ describe('parseSettings', () => {
     expect(s.autosave).toBe(true);
     expect(s.displayName).toBe('Mina');
     expect('extra' in s).toBe(false);
+  });
+});
+
+describe('view settings', () => {
+  it('start as the 2 × 2 grid in the usual order, with reference lines on hover', () => {
+    const s = parseSettings(null);
+    expect(s.layout).toBe('grid');
+    expect(s.viewOrder).toBe('axial,sagittal,coronal,volume3d');
+    expect(s.referenceLines).toBe('hover');
+  });
+  it('keep what was saved', () => {
+    const s = parseSettings('{"layout":"focus","viewOrder":"coronal,sagittal,axial,volume3d","referenceLines":"always"}');
+    expect(s.layout).toBe('focus');
+    expect(s.viewOrder).toBe('coronal,sagittal,axial,volume3d');
+    expect(s.referenceLines).toBe('always');
+  });
+  it('fall back when a saved value is not one of the choices', () => {
+    const s = parseSettings('{"layout":"9x9","viewOrder":"axial,axial,axial,axial","referenceLines":"sometimes"}');
+    expect(s.layout).toBe('grid');
+    expect(s.viewOrder).toBe('axial,sagittal,coronal,volume3d');
+    expect(s.referenceLines).toBe('hover');
+    expect(parseReferenceLines('crosshair')).toBe('crosshair');
+    expect(parseReferenceLines('')).toBe('hover');
   });
 });
 

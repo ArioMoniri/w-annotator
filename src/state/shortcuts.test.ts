@@ -67,6 +67,14 @@ describe('bindings', () => {
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys.some(isReserved)).toBe(false);
   });
+  it('gives each layout a key of its own', () => {
+    const b = defaultBindings();
+    expect(actionFor(b, 'mod+1')).toBe('layout.grid');
+    expect(actionFor(b, 'mod+2')).toBe('layout.focus');
+    expect(actionFor(b, 'mod+3')).toBe('layout.three');
+    expect(actionFor(b, 'mod+4')).toBe('layout.two');
+    expect(actionFor(b, 'mod+5')).toBe('layout.single');
+  });
   it('finds the action for a key', () => {
     expect(actionFor(defaultBindings(), 'b')).toBe('tool.brush');
     expect(actionFor(defaultBindings(), 'q')).toBeNull();
