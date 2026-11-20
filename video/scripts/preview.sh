@@ -10,8 +10,8 @@ IN="${1:-../docs/assets/launch.mp4}"
 OUT="${2:-../docs/assets/launch.webp}"
 FPS="${FPS:-12}"
 TMP="$(mktemp -d)"
-ffmpeg -y -loglevel error -i "$IN" -vf "${CUT:-select='between(t,0.5,1.9)+between(t,3.1,4.1)+between(t,5.1,6.9)+between(t,9.7,12.1)+between(t,14.3,15.9)+between(t,19.5,22.5)',setpts=N/FRAME_RATE/TB},fps=$FPS,scale=960:-2:flags=lanczos" "$TMP/%04d.png"
-python3 - "$TMP" "$OUT" "$FPS" "${Q:-74}" <<'PY'
+ffmpeg -y -loglevel error -i "$IN" -vf "${CUT:-select='between(t,2.4,4.5)+between(t,6.2,8.6)+between(t,11.9,12.8)+between(t,15.3,18.0)+between(t,19.9,23.4)',setpts=N/FRAME_RATE/TB},fps=$FPS,scale=960:-2:flags=lanczos" "$TMP/%04d.png"
+python3 - "$TMP" "$OUT" "$FPS" "${Q:-84}" <<'PY'
 import glob, sys
 from PIL import Image
 tmp, out, fps, q = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])

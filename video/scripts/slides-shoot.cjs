@@ -31,6 +31,17 @@ async function open(p) {
   await p.evaluate(() => { const s = window.__w.session; s.patchSegment(3, { name: 'Left lung' }); s.patchSegment(4, { name: 'Right lung' }); s.patchSegment(5, { name: 'Airways' }); s.setVoi(-1350, 150); });
   await p.locator('[data-view="axial"] canvas').first().waitFor(); await p.waitForTimeout(3500);
 }
+// Enlarges one view (or, with null, goes back to all four). The app keeps the image at the size it had, so the image
+// is then magnified by as much as the view grew: the picture is of the view filled, as after Maximise and a zoom.
+const grown = new Map();
+async function enlarge(p, v) {
+  const was = await p.evaluate(() => window.__w.store.getState().maximized);
+  if (was) { await p.evaluate(([id, k]) => window.__w.engine.zoomBy(id, 1 / k), [was, grown.get(p)]); await p.evaluate(() => window.__w.store.setState({ maximized: null })); await p.waitForTimeout(700); }
+  if (!v) return;
+  const a = await box(p, v); await p.evaluate((m) => window.__w.store.setState({ maximized: m }), v); await p.waitForTimeout(700); const b = await box(p, v);
+  const k = Math.min(b.width / a.width, b.height / a.height); grown.set(p, k);
+  await p.evaluate(([id, k]) => window.__w.engine.zoomBy(id, k), [v, k]); await p.waitForTimeout(500);
+}
 async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down(); for (const q of pts.slice(1)) { await p.mouse.move(...q, { steps: 4 }); await p.waitForTimeout(30); } await p.mouse.up(); await p.waitForTimeout(250); }
 
 (async () => {
@@ -57,8 +68,8 @@ async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down()
     await B.waitForFunction(() => { const s = window.__w.store.getState(); return s.image !== null && s.busy === null && s.maskName !== null; }, null, { timeout: 300000 });
     await B.locator('[data-view="axial"] canvas').first().waitFor(); await B.waitForTimeout(2500);
     await B.evaluate(() => { const s = window.__w.session; s.setVoi(-1350, 150); s.selectSegment(4); s.setTool('brush'); s.setBrushSize(14); });
-    await A.evaluate(() => { const s = window.__w.session; s.selectSegment(3); s.setTool('brush'); s.setBrushSize(14); window.__w.store.setState({ maximized: 'axial' }); });
-    await B.evaluate(() => window.__w.store.setState({ maximized: 'axial' })); await B.waitForTimeout(1500);
+    await A.evaluate(() => { const s = window.__w.session; s.selectSegment(3); s.setTool('brush'); s.setBrushSize(14); });
+    await enlarge(A, 'axial'); await enlarge(B, 'axial'); await B.waitForTimeout(1500);
     // Mina has just corrected the edge of the left lung; Sam is half way along the edge of the right one.
     const edgeOut = async (pg, b, v, dir, seg) => { let inside = false; for (let u = dir * 0.16; Math.abs(u) <= 0.47; u += dir * 0.008) { const s = await hoverSeg(pg, ...P(b, u, v)); if (s === seg) inside = true; else if (inside) return u; } return null; };
     const ab = await box(A, 'axial'); const bb = await box(B, 'axial');
@@ -71,7 +82,7 @@ async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down()
     await B.waitForTimeout(900);
     await shot(A, 'room');
     // the people list, for checking how the popover sits over the panel
-    await A.evaluate(() => window.__w.store.setState({ maximized: null }));
+    await enlarge(A, null);
     const chip = A.locator('.topbar [aria-haspopup]').last(); if (await chip.count()) { await chip.click().catch(() => {}); await shot(A, 'check-room-popover'); await A.keyboard.press('Escape'); }
     await B.mouse.up(); await B.context().close();
     await A.evaluate(() => { window.__w.session.leaveRoom(true); }); await A.waitForTimeout(500);
@@ -105,15 +116,17 @@ async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down()
     await A.evaluate((i) => window.__w.session.patchSegment(i, { name: 'Mediastinum' }), NEW);
     await scrollBy(-STEP); await dab(A, ring(0.02)); await scrollBy(STEP); await dab(A, ring(0.045)); await scrollBy(STEP); await dab(A, ring(0.028)); await scrollBy(-STEP);
     await park(A); await A.waitForTimeout(1500);
-    const rects = {}; for (const v of [null, 'sagittal', 'coronal']) { await A.evaluate((m) => window.__w.store.setState({ maximized: m }), v); await A.waitForTimeout(900); if (v) rects[v] = await box(A, v); await shot(A, 'fill-before-' + (v || 'all')); }
+    const rects = {}; for (const v of [null, 'sagittal', 'coronal']) { await enlarge(A, v); await A.waitForTimeout(400); if (v) rects[v] = await box(A, v); await shot(A, 'fill-before-' + (v || 'all')); }
     fs.writeFileSync(OUT + '/rects.json', JSON.stringify({ vw: VW, vh: VH, ...rects }));
-    await A.evaluate(() => window.__w.store.setState({ maximized: null }));
+    await enlarge(A, null);
+    await A.evaluate(() => window.__w.store.setState({ activeView: 'axial' })); // the fill joins slices of the view that was used last
     await A.getByRole('button', { name: 'Fill between slices' }).click(); await idle(A); await A.waitForTimeout(600);
+    console.log('fill', await A.evaluate(() => window.__w.store.getState().toasts.map(t => t.message).join(' | ')));
     await A.locator('.toast button[aria-label]').last().click().catch(() => {}); // dismiss the toast so it is not in the picture
     await park(A); await A.waitForTimeout(1500);
-    for (const v of [null, 'sagittal', 'coronal']) { await A.evaluate((m) => window.__w.store.setState({ maximized: m }), v); await A.waitForTimeout(900); await shot(A, 'fill-after-' + (v || 'all')); }
+    for (const v of [null, 'sagittal', 'coronal']) { await enlarge(A, v); await A.waitForTimeout(400); await shot(A, 'fill-after-' + (v || 'all')); }
     // checks: does the new segment reach the 3D view?
-    await A.evaluate((i) => { window.__w.session.showOnly(i); window.__w.store.setState({ maximized: 'volume3d' }); }, NEW); await A.waitForTimeout(2500); await shot(A, 'check-3d-new-segment-only');
+    await enlarge(A, null); await A.evaluate((i) => { window.__w.session.showOnly(i); window.__w.store.setState({ maximized: 'volume3d' }); }, NEW); await A.waitForTimeout(2500); await shot(A, 'check-3d-new-segment-only');
     await A.evaluate(() => window.__w.store.setState({ maximized: null })); await A.waitForTimeout(600);
 
     await A.context().close();
