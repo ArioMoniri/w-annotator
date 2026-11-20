@@ -16,6 +16,7 @@ import {
 import type { ScalarArray, VolumeData } from './io/types';
 import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
+import { brushRadius, cleanBrushSize, minBrushSize } from './mask/brush';
 import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
 import {
   combine,
@@ -57,7 +58,7 @@ import {
 } from './collab/protocol';
 import * as engine from './viewer/engine';
 import { indexToWorld } from './viewer/geometry';
-import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, type ToolId, type ViewId } from './state/store';
+import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, useStore, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
 import { SAMPLE_WINDOW, loadSample, makeSample } from './sample';
@@ -271,7 +272,16 @@ async function loadImage(vol: VolumeData): Promise<void> {
   const auto = autoWindow(renderable);
   const voi = looksLikeCt ? { lower: -160, upper: 240 } : auto;
   image = renderable;
-  set({ image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt }, voi, hover: null, maximized: null });
+  // The smallest brush is the one that still paints a voxel of this image.
+  const brushMin = minBrushSize(vol.spacing);
+  set({
+    image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt },
+    voi,
+    hover: null,
+    maximized: null,
+    brushMin,
+    brushSize: cleanBrushSize(get().brushSize, brushMin),
+  });
   // The viewport elements mount when `image` is set; wait for them.
   await nextFrame();
   await engine.showImage(renderable, voi);
@@ -393,18 +403,33 @@ export function setTool(tool: ToolId): void {
   applyTool();
 }
 
+/**
+ * The radius the brush tools use, in mm. The number on screen is a diameter. On a view
+ * whose voxels are larger than the brush, the radius is widened to reach the voxel under
+ * the cursor, so a click always paints.
+ */
+export function currentBrushRadius(): number {
+  const s = get();
+  if (!image) return s.brushSize / 2;
+  const view = s.activeView === 'volume3d' ? 'axial' : s.activeView;
+  return brushRadius(s.brushSize, image.spacing, sliceAxisFor(image.direction, view));
+}
+
+// Each view cuts the voxels along a different plane, so the smallest radius follows the view in use.
+useStore.subscribe((now, before) => {
+  if (now.activeView !== before.activeView && image) engine.setBrushSize(currentBrushRadius());
+});
+
 function applyTool(): void {
   const s = get();
-  engine.setBrushSize(s.brushSize / 2);
+  engine.setBrushSize(currentBrushRadius());
   engine.setThreshold(s.threshold);
   engine.setTool(s.tool, { brushShape: s.brushShape, scissorsShape: s.scissorsShape, scissorsAction: s.scissorsAction });
 }
 
 export function setBrushSize(mm: number): void {
-  const size = Math.min(100, Math.max(1, Math.round(mm)));
-  set({ brushSize: size });
-  // The number on screen is the brush diameter; the tools want a radius.
-  engine.setBrushSize(size / 2);
+  set({ brushSize: cleanBrushSize(mm, get().brushMin) });
+  engine.setBrushSize(currentBrushRadius());
 }
 
 export function setToolOption(
@@ -1313,7 +1338,7 @@ export function shareCursor(vp: ViewId | null, w?: [number, number, number]): vo
   lastCursor = now;
   const s = get();
   const painting = s.tool === 'brush' || s.tool === 'eraser' || s.tool === 'threshold';
-  room.send({ t: 'cursor', vp, w, r: painting ? s.brushSize / 2 : undefined });
+  room.send({ t: 'cursor', vp, w, r: painting ? currentBrushRadius() : undefined });
 }
 
 export function roomCodeLabel(): string {

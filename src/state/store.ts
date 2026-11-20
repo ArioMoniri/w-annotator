@@ -81,7 +81,10 @@ interface State {
   progress: number | null;
 
   tool: ToolId;
+  /** Brush diameter in mm. */
   brushSize: number;
+  /** The smallest diameter that paints a voxel of the open image. */
+  brushMin: number;
   brushShape: 'circle' | 'sphere';
   threshold: [number, number];
   scissorsShape: 'rectangle' | 'circle' | 'sphere';
@@ -136,6 +139,7 @@ export const useStore = create<State>(() => ({
 
   tool: 'crosshair',
   brushSize: 8,
+  brushMin: 1,
   brushShape: 'circle',
   threshold: [0, 0],
   scissorsShape: 'rectangle',

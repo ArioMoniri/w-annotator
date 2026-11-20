@@ -29,6 +29,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Opening or closing the segments panel, resizing the window or maximising a view no longer changes the zoom or moves the image, and the image is never shown stretched while it happens.
 - The 3D view showed one slice of each segment, so a segment away from the middle was missing or a sliver. It now shows whole segments and follows every edit.
 - The dark edge behind view labels covers the whole label.
+- macOS and Linux: enlarging a view no longer collapses it to a thin strip, which left the views black and the mask impossible to edit.
+- A key press whose release never reached the app (switching apps, a save dialog) no longer leaves the tools dead until the next key press.
+- The brush always paints at least the voxel under the cursor. The size control now starts at the smallest size that paints on the open image, and takes decimals below 5 mm.
+- A click on the 3D view with an edit tool says where to paint instead of doing nothing.
+- Room and report dialogs: the close button no longer sits on top of the tabs.
+- Tooltips of the buttons over a view open below them instead of over the neighbouring button, and their text is no longer outlined.
+- Menus and popovers in the segments panel, and the room popover, cover the rows from edge to edge, so no pieces of rows show beside them.
+- The segment menu stays above the status bar at small window sizes; every item can be reached.
+- A narrow status bar drops whole items instead of cutting the save state mid-word.
 
 ## [0.1.0] - 2026-11-19
 

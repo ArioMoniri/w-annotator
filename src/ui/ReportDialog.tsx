@@ -78,9 +78,7 @@ function ReportForm({ initial }: { initial: ReportKind }) {
   const heading = kind === 'bug' ? 'Report a problem' : 'Suggest an idea';
   return (
     <Modal title={heading} onClose={close} wide>
-      <button className="iconbtn close" aria-label="Close" onClick={close}>
-        <X size={16} />
-      </button>
+      {/* One row, as in the room dialog: the close button beside the tabs, not on them. */}
       <div className="tabs">
         <div className="seg-control" role="tablist" aria-label="Kind of report">
           <button role="tab" aria-selected={kind === 'bug'} onClick={() => tab('bug')}>
@@ -90,6 +88,9 @@ function ReportForm({ initial }: { initial: ReportKind }) {
             Idea
           </button>
         </div>
+        <button className="iconbtn close" aria-label="Close" onClick={close}>
+          <X size={16} />
+        </button>
       </div>
       <form className="form" onSubmit={submit} noValidate>
         <label>

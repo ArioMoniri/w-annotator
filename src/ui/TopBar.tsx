@@ -104,6 +104,13 @@ function RoomButton() {
     );
   }
   const code = formatCode(room.code);
+  // Over the segments panel the popover takes the panel's inner width, so no piece of a row shows beside it.
+  const panel = open ? document.querySelector('.panel .seglist')?.getBoundingClientRect() : null;
+  const pill = open ? ref.current?.querySelector('.pill')?.getBoundingClientRect() : null;
+  const place: React.CSSProperties =
+    panel && pill && panel.width > 0
+      ? { position: 'fixed', top: pill.bottom + 6, left: panel.left + 6, width: panel.width - 12 }
+      : { right: 0, top: 34, width: 280 };
   const copy = async (text: string, done: string) => {
     if (await copyText(text)) toast('success', done);
   };
@@ -139,7 +146,7 @@ function RoomButton() {
         {room.status !== 'online' && <span>{room.status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span>}
       </button>
       {open && (
-        <div className="menu" role="menu" style={{ right: 0, top: 34, width: 280 }}>
+        <div className="menu" role="menu" style={place}>
           <div className="title">Room {code}</div>
           <button className="item" onClick={() => void copy(room.link, 'Invite link copied')}>
             Copy invite link

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { findUpdate, launchFiles } from './platform';
+import { stepBrushSize } from './mask/brush';
 import * as session from './session';
 import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/shortcuts';
 import { EDIT_TOOLS, get, set, useStore, type ToolId } from './state/store';
@@ -63,8 +64,8 @@ function useHotkeys() {
       'tool.scissors': () => session.setTool('scissors'),
       'tool.fill': () => session.setTool('fill'),
       'tool.last': () => session.setTool(previousTool.current),
-      'brush.smaller': () => session.setBrushSize(get().brushSize - (get().brushSize > 10 ? 2 : 1)),
-      'brush.larger': () => session.setBrushSize(get().brushSize + (get().brushSize >= 10 ? 2 : 1)),
+      'brush.smaller': () => session.setBrushSize(stepBrushSize(get().brushSize, -1, get().brushMin)),
+      'brush.larger': () => session.setBrushSize(stepBrushSize(get().brushSize, 1, get().brushMin)),
       'mask.interpolate': () => session.fillBetweenSlices(),
       'segment.new': () => session.addSegment(),
       'segment.next': () => cycleSegment(1),
