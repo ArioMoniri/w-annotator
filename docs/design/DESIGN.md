@@ -136,6 +136,8 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 
 ### 2.5 Right panel — 264 wide, `--bg-surface`, left border, collapsible (Mod+\\)
 
+Above Segments sits **Files**, a section that folds to its 36 px heading: one 28 px row for the image, then one per mask. A mask row starts with a radio mark (filled: the mask being edited), then a type icon, the short name (full name and size in the tooltip, an accent dot when unsaved), and on hover an eye and a `…` menu. Masks that are not being edited are drawn as 2 px outlines in one neutral colour each (white, pale blue, pale pink); the row's icon shows that colour on black.
+
 ```
 ┌ Segments                        [+] ┐  header 40
 ├─────────────────────────────────────┤
@@ -628,6 +630,10 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Dragging over (empty) | Drop to open |
 | Dragging over (image open, mask file) | Drop to add as mask |
 | Dragging over (image open, image file) | Drop to replace image |
+| Dragging over (image open, kind not known: a folder, DICOM, or a browser that hides names) | Drop to add |
+| Replace confirm (nothing unsaved, dropped image) | Replace the current image? · follow_up.mha will open in place of ct.nii. · Add as mask (only when its values could be labels) · Cancel · Replace |
+| Files section | Files · New mask · Edit {name} · Hide / Show · Dim image / Show image at full brightness · Make active · Save… · Show in Finder / Explorer / folder · Close · Close image |
+| Too many masks | Up to 4 masks can be open at once. Close one in Files to add another. |
 | Replace confirm (unsaved) | Replace the current image? · Unsaved mask changes will be lost. · Cancel · Save and replace · Replace |
 | Loading | Opening chest_ct_014.nii.gz… |
 

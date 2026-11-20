@@ -2998,3 +2998,142 @@ button.avatar {
 :root[data-reduce-motion] .rcursor {
   transition: none;
 }
+
+/* ───────────────────────── Files section (right panel) ───────────────────────── */
+
+.files {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.files[data-open='false'] {
+  padding-bottom: 0;
+}
+
+.files-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  background: none;
+  border: 0;
+  color: var(--text-1);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-head svg {
+  color: var(--text-3);
+  flex: none;
+}
+
+.files-head:hover svg {
+  color: var(--text-1);
+}
+
+.files-head .count {
+  margin-left: auto;
+  color: var(--text-3);
+  font: 11px var(--font-mono);
+}
+
+.filelist {
+  padding: 0 6px;
+}
+
+.filerow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 6px;
+  border-radius: var(--radius-sm);
+}
+
+.filerow:hover {
+  background: var(--bg-hover);
+}
+
+/* The radio-style mark: filled for the mask being edited. The image has none, only its place. */
+.filerow .mark {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+  background: none;
+  border: 0;
+}
+
+.filerow button.mark {
+  border: 1.5px solid var(--border-control);
+  cursor: pointer;
+}
+
+.filerow button.mark:hover {
+  border-color: var(--accent);
+}
+
+.filerow button.mark[aria-checked='true'] {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px);
+}
+
+.filerow .kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  color: var(--text-2);
+}
+
+/* A comparison mask: its outline colour, on the black it is drawn over in the views. */
+.filerow .kind[style] {
+  background: var(--bg-viewport);
+}
+
+.filerow .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.filerow[data-kind='image'] .name,
+.filerow[data-active='true'] .name {
+  color: var(--text-1);
+}
+
+.filerow[data-active='true'] .name {
+  font-weight: 500;
+}
+
+.filerow[data-kind='mask'][data-hidden='true'] .name {
+  color: var(--text-3);
+}
+
+.filerow .unsaved {
+  color: var(--accent);
+}
+
+.filerow .act {
+  display: none;
+}
+
+.filerow:hover .act,
+.filerow:focus-within .act,
+.filerow .act[data-on='true'] {
+  display: inline-flex;
+}

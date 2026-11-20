@@ -67,8 +67,10 @@ export async function saveBytes(suggested: string, make: (name: string) => Uint8
     if (!path) return null;
     const name = path.split(/[\\/]/).pop() ?? suggested;
     await invoke('write_file', make(name), { headers: { 'x-file-path': encodeURIComponent(path) } });
+    savedPath = path;
     return name;
   }
+  savedPath = null;
   const bytes = make(suggested);
   const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
   const a = document.createElement('a');
@@ -79,20 +81,122 @@ export async function saveBytes(suggested: string, make: (name: string) => Uint8
   return suggested;
 }
 
-/** Files the app was launched with ("Open with"), as name + bytes, with the path they came from. */
-export async function launchFiles(): Promise<{ name: string; bytes: Uint8Array; path: string }[]> {
-  if (!isTauri) return [];
+let savedPath: string | null = null;
+/** Desktop app: where the last `saveBytes` wrote. Null in a browser, which does not tell. */
+export const lastSavedPath = (): string | null => savedPath;
+
+const leaf = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+export interface GivenFile {
+  name: string;
+  bytes: Uint8Array;
+  path: string;
+}
+
+export interface GivenHandlers {
+  /** Files are about to be read from disk. */
+  reading: (count: number) => void;
+  /** One batch, read and ready to open together. Awaited before the next batch is read. */
+  files: (files: GivenFile[]) => Promise<void> | void;
+  /** Something could not be taken, in words for the user. */
+  error: (text: string) => void;
+}
+
+/**
+ * Desktop app: files the system hands over, in batches that belong together:
+ * dropped on the window, opened with the app ("Open with", double click, the
+ * command line), at launch or while running. The Rust side makes each path
+ * readable when it arrives; this side can only read what it was given.
+ * Returns a function that stops listening.
+ */
+export async function onFilesGiven(handlers: GivenHandlers): Promise<() => void> {
+  if (!isTauri) return () => {};
   try {
     const { invoke } = await import('@tauri-apps/api/core');
-    const paths = await invoke<string[]>('opened_files');
-    const out: { name: string; bytes: Uint8Array; path: string }[] = [];
-    for (const path of paths) {
-      const data = await invoke<ArrayBuffer>('read_file', { path });
-      out.push({ name: path.split(/[\\/]/).pop() ?? path, bytes: new Uint8Array(data), path });
-    }
-    return out;
+    const { listen } = await import('@tauri-apps/api/event');
+    // One batch at a time, in the order they arrived.
+    let queue: Promise<void> = Promise.resolve();
+    const off = await listen<{ paths: string[]; error: string | null }>('files-given', (event) => {
+      const { paths, error } = event.payload;
+      queue = queue.then(async () => {
+        if (error) handlers.error(error);
+        if (paths.length === 0) return;
+        handlers.reading(paths.length);
+        const out: GivenFile[] = [];
+        for (const path of paths) {
+          try {
+            const data = await invoke<ArrayBuffer>('read_file', { path });
+            out.push({ name: leaf(path), bytes: new Uint8Array(data), path });
+          } catch {
+            handlers.error(`Can't read ${leaf(path)}. Check that the file still exists.`);
+          }
+        }
+        try {
+          await handlers.files(out);
+        } catch {
+          /* the handler reports its own errors */
+        }
+      });
+    });
+    // Files the app was launched with have waited for this.
+    await invoke('files_ready');
+    return off;
   } catch {
-    return [];
+    return () => {};
+  }
+}
+
+/**
+ * Desktop app: files are being dragged over the window. `names` are the file
+ * names when the system tells them before the drop, otherwise empty; null when
+ * the drag left or ended. The drop itself arrives through `onFilesGiven`.
+ */
+export async function onNativeDrag(handler: (names: string[] | null) => void): Promise<() => void> {
+  if (!isTauri) return () => {};
+  try {
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+    return await getCurrentWebview().onDragDropEvent((event) => {
+      const drag = event.payload;
+      if (drag.type === 'enter') handler(drag.paths.map(leaf));
+      else if (drag.type === 'leave' || drag.type === 'drop') handler(null);
+    });
+  } catch {
+    return () => {};
+  }
+}
+
+/** Desktop app: shows a file the user opened in Finder, Explorer or the file manager. */
+export async function revealFile(path: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('reveal_file', { path });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** What the system's file manager is called, for the menu item. */
+export const REVEAL_LABEL =
+  typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
+    ? 'Show in Finder'
+    : typeof navigator !== 'undefined' && /Win/i.test(navigator.platform)
+      ? 'Show in Explorer'
+      : 'Show in folder';
+
+/**
+ * Test hook of the desktop app: when it was launched with `W_FILES_DUMP=<file>`,
+ * writes what `describe` returns to that file twice a second. Does nothing otherwise.
+ */
+export async function startFilesDump(describe: () => unknown): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const write = () => invoke<boolean>('dump_files', { text: JSON.stringify(describe()) });
+    if (await write()) setInterval(() => void write().catch(() => undefined), 500);
+  } catch {
+    /* not available */
   }
 }
 

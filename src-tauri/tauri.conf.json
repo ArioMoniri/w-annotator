@@ -18,7 +18,7 @@
         "height": 800,
         "minWidth": 960,
         "minHeight": 600,
-        "dragDropEnabled": false
+        "dragDropEnabled": true
       }
     ],
     "security": {
@@ -44,26 +44,30 @@
         "ext": [
           "nii"
         ],
-        "name": "NIfTI volume",
-        "description": "NIfTI volume",
-        "role": "Editor"
+        "name": "NIfTI image",
+        "description": "NIfTI image",
+        "role": "Editor",
+        "rank": "Alternate"
       },
       {
         "ext": [
           "mha",
           "mhd"
         ],
-        "name": "MetaImage volume",
-        "description": "MetaImage volume",
-        "role": "Editor"
+        "name": "MetaImage",
+        "description": "MetaImage",
+        "role": "Editor",
+        "rank": "Alternate"
       },
       {
         "ext": [
-          "nrrd"
+          "nrrd",
+          "nhdr"
         ],
-        "name": "NRRD volume",
-        "description": "NRRD volume",
-        "role": "Editor"
+        "name": "NRRD image",
+        "description": "NRRD image",
+        "role": "Editor",
+        "rank": "Alternate"
       },
       {
         "ext": [
@@ -72,7 +76,8 @@
         "name": "DICOM image",
         "description": "DICOM image",
         "mimeType": "application/dicom",
-        "role": "Viewer"
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ],
     "macOS": {

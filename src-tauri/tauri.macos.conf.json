@@ -1,0 +1,55 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["nii"],
+        "name": "NIfTI image",
+        "description": "NIfTI image",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["nii.gz"],
+        "name": "NIfTI image (compressed)",
+        "description": "NIfTI image (compressed)",
+        "role": "Editor",
+        "rank": "Alternate",
+        "exportedType": {
+          "identifier": "com.wannotator.nifti-gz",
+          "conformsTo": ["org.gnu.gnu-zip-archive"]
+        }
+      },
+      {
+        "ext": ["gz"],
+        "contentTypes": ["org.gnu.gnu-zip-archive"],
+        "name": "Compressed NIfTI image",
+        "description": "Compressed NIfTI image",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mha", "mhd"],
+        "name": "MetaImage",
+        "description": "MetaImage",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["nrrd", "nhdr"],
+        "name": "NRRD image",
+        "description": "NRRD image",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["dcm"],
+        "contentTypes": ["org.nema.dicom"],
+        "name": "DICOM image",
+        "description": "DICOM image",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

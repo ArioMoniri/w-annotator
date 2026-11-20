@@ -5,6 +5,8 @@ The Rust side of W Annotator (Tauri v2). It does four things: reads and writes f
 ```
 src/lib.rs       commands and app setup
 src/files.rs     which paths may be read or written
+src/batch.rs     gathers files that arrive close together into one open
+src/dump.rs      a test hook, off unless asked for
 src/recovery.rs  recovery copies in the app's local data folder
 src/hosting.rs   the embedded room relay (the `w-relay` crate in ../relay)
 capabilities/    what the window may call in the plugins
@@ -33,7 +35,9 @@ The web side can only touch paths the user chose in this run of the app:
 | A file inside a folder picked with `pick_open_paths({ directory: true })` | yes | no |
 | Anything else | no | no |
 
-Paths picked with the JavaScript dialog plugin (`open()` / `save()` from `@tauri-apps/plugin-dialog`) are **not** on this list, because the Rust side never sees them. Use the two `pick_*` commands below for anything you will pass to `read_file` or `write_file`. Files dropped on the window arrive as HTML5 `File` objects and need no command.
+Paths picked with the JavaScript dialog plugin (`open()` / `save()` from `@tauri-apps/plugin-dialog`) are **not** on this list, because the Rust side never sees them. Use the two `pick_*` commands below for anything you will pass to `read_file` or `write_file`.
+
+Files and folders dropped on the window, opened with the app or named on the command line are on the list too: the Rust side records them when the system hands them over, and tells the web side with the `files-given` event (below). A dropped folder is readable like a picked one. The web side never makes a path readable by naming it.
 
 ### `pick_open_paths`
 
@@ -87,19 +91,53 @@ const bytes = new Uint8Array(buffer);
 
 Returns the raw bytes as an `ArrayBuffer`. The path must be readable under the rule above.
 
-### `opened_files`
+### Files handed over by the system: `files-given`, `files_ready`
 
 ```ts
-const paths = await invoke<string[]>('opened_files');
+type GivenFiles = { paths: string[]; error: string | null };
 
-const unlisten = await listen<string[]>('opened-files', (event) => {
-  // event.payload: paths opened while the app was already running (macOS)
+const unlisten = await listen<GivenFiles>('files-given', (event) => {
+  // event.payload.paths: absolute paths, readable with read_file, to open together
+  // event.payload.error: why something was left out, in words for the user
 });
+await invoke<void>('files_ready'); // after listening; files from the launch are sent now
 ```
 
-Returns every file the system has asked the app to open so far: paths on the command line ("Open with" on Windows and Linux) and macOS file-open events. Call it once at startup. The list is not cleared by reading it. Each later macOS open also emits the `opened-files` event with just the new paths. These paths are readable and writable.
+One event is one batch of files that belong together. They come from:
 
-Limits: `.nii.gz` is not registered as a file type (the system only sees `.gz`); on Linux only `.dcm` is registered, because the other formats have no standard MIME type; and on Windows and Linux "Open with" while the app is already running starts a second window instead of reusing the first.
+| Source | How it arrives | Batching |
+| --- | --- | --- |
+| Dropped on the window | Tauri's native drag-and-drop event (`dragDropEnabled: true`), with real paths | sent at once |
+| "Open with", double click, command line at launch | arguments (Windows, Linux); `RunEvent::Opened` (macOS) | gathered |
+| The same while the app is running | a second launch hands its arguments to the running app and quits (`tauri-plugin-single-instance`); `RunEvent::Opened` (macOS) | gathered |
+
+Gathered means: everything that arrives within 300 ms of the previous arrival is one batch (`src/batch.rs`), and nothing is sent before `files_ready`. An image and its mask selected together and opened with the app therefore reach the window as one pair, however many pieces the system delivered them in.
+
+Folders are replaced by the files inside them (hidden files skipped). One hand-over takes at most 20 000 files and 4 GB; past that the rest is left out and `error` says so. Arguments may be relative (read from the folder of the second launch) or `file://` addresses.
+
+### `reveal_file`
+
+```ts
+await invoke<void>('reveal_file', { path });
+```
+
+Shows a file in Finder, Explorer or the file manager. Only for a path that is readable under the rule above; the opener plugin's own reveal command is not granted to the window, since it takes any path.
+
+### File types ("Open with")
+
+`bundle.fileAssociations` in `tauri.conf.json` is the common list; `tauri.macos.conf.json`, `tauri.windows.conf.json` and `tauri.linux.conf.json` each replace it with what their system needs. `src/associations.rs` checks that all four cover the same formats.
+
+| | What is registered | Limits |
+| --- | --- | --- |
+| macOS | `.nii`, `.mha`, `.mhd`, `.nrrd`, `.nhdr` (which covers `.seg.nrrd`) and `.dcm`, all with rank Alternate: the app is in "Open With" and never becomes the default by itself. | Finder sees `.nii.gz` as a gzip archive. The app is listed for gzip archives (Alternate, viewer), so it is offered for every `.gz`, not only NIfTI. It also declares a type for the double extension `nii.gz`; macOS may ignore that. |
+| Windows | The same extensions, each with its own file class (`WAnnotator.NIfTI` …). `.gz` is not claimed: the NSIS installer only adds the app to the "Open with" list of `.gz` (`windows/hooks.nsh`). | Tauri's installers register the listed extensions the normal way, which makes the app the default where no other program has been chosen; Windows keeps the user's own choice. The `.gz` entry is not added by the `.msi`. |
+| Linux | MIME types in the `.desktop` entry (`linux/w-annotator.desktop`, with `%F` so the chosen files are passed). `application/x-nifti`, `application/x-nifti-gz` (`*.nii.gz`, which wins over `*.gz`), `application/x-metaimage` and `application/x-nrrd` are defined in `linux/w-annotator-mime.xml`, installed by the `.deb` and `.rpm`. | The AppImage installs nothing into the system, so it has no "Open with" entry unless a launcher tool adds one. |
+
+Folders cannot be associated on any system; drop them or use Open DICOM folder.
+
+### Test hook: `W_FILES_DUMP`
+
+Launched with `W_FILES_DUMP=<absolute file>`, the app writes what is open to that file twice a second, as JSON: `{ "image": "ct.mha", "files": [{ "kind": "image", "label": "ct", "active": false }, …] }`. It lets a test look at a running app from outside, for example after a second launch. Without the variable the `dump_files` command writes nothing. Code: `src/dump.rs`.
 
 ### Recovery copies
 
