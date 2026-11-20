@@ -140,7 +140,8 @@ export async function findUpdate(): Promise<ReadyUpdate | null> {
 
 /**
  * Opens a web page in the user's browser. The desktop app may only open pages
- * under the project's GitHub repository (see src-tauri/capabilities).
+ * under the project's GitHub repository and the three pages about the sample
+ * data (see src-tauri/capabilities).
  */
 export async function openExternal(url: string): Promise<boolean> {
   try {

@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { SERVER_HELP } from '../platform';
+import { SERVER_HELP, openExternal } from '../platform';
+import { SAMPLE_SOURCES } from '../sample';
 import { setDisplayName } from '../session';
 import { NAME_MAX, setSetting, useSettings } from '../state/settings';
 import { get, set, useStore, type SettingsSection } from '../state/store';
@@ -99,6 +100,23 @@ function Files() {
   );
 }
 
+/** A link that opens in the user's browser, in the desktop app too. */
+function External({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => {
+        e.preventDefault();
+        void openExternal(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 function Help({ go }: { go: (section: SettingsSection) => void }) {
   return (
     <>
@@ -123,6 +141,11 @@ function Help({ go }: { go: (section: SettingsSection) => void }) {
         W Annotator, version {__APP_VERSION__}
         <br />
         Free for non-commercial use. © Ariorad Moniri.
+        <br />
+        <span>
+          Sample data: <External href={SAMPLE_SOURCES.luna16}>LUNA16</External> / <External href={SAMPLE_SOURCES.lidc}>LIDC-IDRI</External>,{' '}
+          <External href={SAMPLE_SOURCES.licence}>CC BY 4.0</External>
+        </span>
       </p>
     </>
   );
