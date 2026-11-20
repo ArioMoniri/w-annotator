@@ -30,6 +30,8 @@ src/         web app (React + TypeScript)
 src-tauri/   Rust side of the Tauri app
 server/      room relay
 e2e/         Playwright tests and fixtures
+public/      files shipped as they are; `sample/` is the scan the welcome tour opens
+scripts/     one-off build scripts (`make-sample.mjs` rebuilds the sample)
 docs/        process and design docs
 ```
 

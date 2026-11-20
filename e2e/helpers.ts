@@ -142,6 +142,7 @@ export async function jumpToVoxel(page: Page, ijk: [number, number, number]): Pr
     const w = (window as any).__w;
     const vol = w.session.getMask();
     const d = vol.direction as number[];
-    w.engine.jumpTo([0, 1, 2].map((r) => vol.origin[r] + d[r] * ijk[0] + d[3 + r] * ijk[1] + d[6 + r] * ijk[2]));
+    const s = vol.spacing as number[];
+    w.engine.jumpTo([0, 1, 2].map((r) => vol.origin[r] + d[r] * s[0] * ijk[0] + d[3 + r] * s[1] * ijk[1] + d[6 + r] * s[2] * ijk[2]));
   }, ijk);
 }

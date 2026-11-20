@@ -2405,6 +2405,17 @@ button.avatar {
   line-height: 18px;
 }
 
+.modal.settings .pane p.about a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: 2px;
+}
+
+.modal.settings .pane p.about a:hover {
+  color: var(--text-1);
+}
+
 @media (max-width: 640px) {
   .modal.settings {
     grid-template-columns: 132px minmax(0, 1fr);

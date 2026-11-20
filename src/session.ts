@@ -62,7 +62,7 @@ import { indexToWorld } from './viewer/geometry';
 import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
-import { makeSample } from './sample';
+import { SAMPLE_WINDOW, loadSample, makeSample } from './sample';
 import { cleanName, setSetting } from './state/settings';
 
 let image: VolumeData | null = null;
@@ -1341,9 +1341,25 @@ export function setDisplayName(name: string): void {
   room.send({ t: 'rename', name: clean });
 }
 
-/** Opens the built-in synthetic image and mask used by the welcome tour. */
+/**
+ * Opens the sample used by the welcome tour: the scan shipped with the app, on
+ * a lung window, or a small phantom when that scan cannot be loaded.
+ */
 export async function openSample(): Promise<void> {
-  await openFiles(makeSample());
+  const hadImage = !!image;
+  set({ busy: 'Opening the sample…' });
+  let sample = await loadSample();
+  await openFiles(sample.files);
+  if (sample.bundled && !image && !hadImage) {
+    // The files were there but would not open. The phantom always does.
+    sample = { files: makeSample(), bundled: false };
+    await openFiles(sample.files);
+  }
+  if (!sample.bundled) {
+    toast('info', "The sample scan couldn't be loaded. A simple test image is open instead.");
+    return;
+  }
+  if (get().image?.name === sample.files[0].name) setVoi(SAMPLE_WINDOW.lower, SAMPLE_WINDOW.upper);
 }
 
 export function leaveRoom(silent = false): void {

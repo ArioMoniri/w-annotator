@@ -1,9 +1,57 @@
 /**
- * A small synthetic image and a two-label mask for the welcome tour, made in
- * code so the app ships with no image data. It is a phantom, not anatomy: an
- * ellipsoid "body" in air with two blobs and a bright rod, laid out off-centre
- * so left and right can be told apart.
+ * The sample the welcome tour opens.
+ *
+ * It is a public chest CT with a lung mask, shipped with the app in
+ * `public/sample/` (see ATTRIBUTION.md there for its source and licence, and
+ * scripts/make-sample.mjs for how it was made). When those files cannot be
+ * loaded, a small phantom made in code takes their place: an ellipsoid "body"
+ * in air with two blobs and a bright rod, laid out off-centre so left and
+ * right can be told apart. The phantom is not anatomy.
  */
+import { readVolume, type InputFile } from './io';
+
+/** The bundled files, image first, as paths under the app's base address. */
+export const SAMPLE_PATHS = ['sample/chest_ct.nii.gz', 'sample/lungs.nii.gz'] as const;
+
+/** A lung window for the bundled scan, in HU. */
+export const SAMPLE_WINDOW = { lower: -1350, upper: 150 } as const;
+
+/** Where the bundled scan comes from. The desktop app may open exactly these pages (see src-tauri/capabilities). */
+export const SAMPLE_SOURCES = {
+  luna16: 'https://luna16.grand-challenge.org/',
+  lidc: 'https://www.cancerimagingarchive.net/collection/lidc-idri/',
+  licence: 'https://creativecommons.org/licenses/by/4.0/',
+} as const;
+
+export interface Sample {
+  /** Image first, ready for the normal open path. */
+  files: InputFile[];
+  /** False when the bundled scan could not be loaded and this is the phantom. */
+  bundled: boolean;
+}
+
+/**
+ * Loads the bundled scan and its mask. Any failure (offline, a missing or
+ * damaged file, a page served in its place) gives the phantom instead, so the
+ * caller always has something to open.
+ */
+export async function loadSample(fetcher: typeof fetch = fetch, base: string = import.meta.env.BASE_URL ?? '/'): Promise<Sample> {
+  try {
+    const files = await Promise.all(
+      SAMPLE_PATHS.map(async (path) => {
+        const response = await fetcher(base + path);
+        if (!response.ok) throw new Error(`${path}: ${response.status}`);
+        const file = { name: path.split('/').pop()!, bytes: new Uint8Array(await response.arrayBuffer()) };
+        // Throws unless this really is a volume.
+        readVolume([file]);
+        return file;
+      }),
+    );
+    return { files, bundled: true };
+  } catch {
+    return { files: makeSample(), bundled: false };
+  }
+}
 
 export const SAMPLE_IMAGE_NAME = 'sample_image.nii';
 export const SAMPLE_MASK_NAME = 'sample_mask.nii';
@@ -34,7 +82,7 @@ function nifti(data: Int16Array | Uint8Array, dtype: number, bitpix: number): Ui
 const inside = (x: number, y: number, z: number, c: readonly number[], r: readonly number[]) =>
   ((x - c[0]) / r[0]) ** 2 + ((y - c[1]) / r[1]) ** 2 + ((z - c[2]) / r[2]) ** 2 < 1;
 
-/** The sample as files, image first, ready for the normal open path. */
+/** The phantom as files, image first, ready for the normal open path. */
 export function makeSample(): { name: string; bytes: Uint8Array }[] {
   const [nx, ny, nz] = DIMS;
   const image = new Int16Array(nx * ny * nz).fill(-1000);
