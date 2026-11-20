@@ -6,13 +6,14 @@ import { setDisplayName } from '../session';
 import { NAME_MAX, setSetting, useSettings } from '../state/settings';
 import { get, set, useStore, type SettingsSection } from '../state/store';
 import { startTour } from '../tour/state';
-import { Modal, Switch } from './common';
+import { Choice, MOD, Modal, Slider, Switch } from './common';
 import { ShortcutsList } from './Shortcuts';
 import { ThemeControl } from './ThemeControl';
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'appearance', label: 'Appearance' },
+  { id: 'mouse', label: 'Mouse and trackpad' },
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'files', label: 'Files' },
   { id: 'help', label: 'Help' },
@@ -70,6 +71,66 @@ function Appearance() {
       <Row label="Theme">{() => <ThemeControl />}</Row>
       <Row label="Reduce motion" help="Turns off transitions and animated hints.">
         {(ids) => <Switch on={reduceMotion} labelledBy={ids.label} describedBy={ids.help} onChange={(v) => setSetting('reduceMotion', v)} />}
+      </Row>
+    </>
+  );
+}
+
+function Mouse() {
+  const s = useSettings();
+  return (
+    <>
+      <Row label="Scroll direction" help="Natural follows your system: scrolling down goes to the next slice.">
+        {(ids) => (
+          <Choice
+            label="Scroll direction"
+            labelledBy={ids.label}
+            value={s.scrollDirection}
+            options={[
+              { value: 'natural', label: 'Natural' },
+              { value: 'reversed', label: 'Reversed' },
+            ]}
+            onChange={(v) => setSetting('scrollDirection', v)}
+          />
+        )}
+      </Row>
+      <Row label="Two-finger scroll" help="On a trackpad. When it pans, hold Shift to change slice.">
+        {(ids) => (
+          <Choice
+            label="Two-finger scroll"
+            labelledBy={ids.label}
+            value={s.twoFingerScroll}
+            options={[
+              { value: 'slice', label: 'Change slice' },
+              { value: 'pan', label: 'Pan' },
+            ]}
+            onChange={(v) => setSetting('twoFingerScroll', v)}
+          />
+        )}
+      </Row>
+      <Row label="Trackpad scroll speed" help="How far a scroll moves through the slices.">
+        {() => (
+          <span className="speed">
+            <span aria-hidden>Slow</span>
+            <Slider label="Trackpad scroll speed" min={1} max={10} value={s.trackpadSpeed} onChange={(v) => setSetting('trackpadSpeed', v)} />
+            <span aria-hidden>Fast</span>
+          </span>
+        )}
+      </Row>
+      <Row label="Pinch to zoom">
+        {(ids) => <Switch on={s.pinchZoom} labelledBy={ids.label} onChange={(v) => setSetting('pinchZoom', v)} />}
+      </Row>
+      <Row label="Mouse wheel zooms" help={`The wheel zooms instead of changing slice. ${MOD}+wheel then changes slice.`}>
+        {(ids) => <Switch on={s.wheelZooms} labelledBy={ids.label} describedBy={ids.help} onChange={(v) => setSetting('wheelZooms', v)} />}
+      </Row>
+      <Row label="Zoom speed">
+        {() => (
+          <span className="speed">
+            <span aria-hidden>Slow</span>
+            <Slider label="Zoom speed" min={1} max={10} value={s.zoomSpeed} onChange={(v) => setSetting('zoomSpeed', v)} />
+            <span aria-hidden>Fast</span>
+          </span>
+        )}
       </Row>
     </>
   );
@@ -199,6 +260,7 @@ function Dialog({ section }: { section: SettingsSection }) {
         <h3>{label}</h3>
         {section === 'profile' && <Profile />}
         {section === 'appearance' && <Appearance />}
+        {section === 'mouse' && <Mouse />}
         {section === 'shortcuts' && <ShortcutsList />}
         {section === 'files' && <Files />}
         {section === 'help' && <Help go={go} />}

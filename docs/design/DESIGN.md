@@ -119,6 +119,7 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
   - edge midpoints: orientation letters `A P R L S I`, `--text-3`
 - **Double-click** a viewport (or press `M`) to maximise; same again, or `Esc`, restores. With an edit tool active, double-click is still maximise — strokes start on pointer move, not on click.
 - Scroll = slice. Mod+scroll = zoom. Middle-drag = pan. Right-drag = window/level. These work regardless of the active tool.
+- Trackpad: two-finger scroll = slice, in proportion to distance (or pan, by a setting); pinch = zoom about the pointer. Shift+scroll = five slices at a time. Alt+scroll = brush size while a brush tool is active. In the 3D view scroll and pinch zoom. A sideways swipe does nothing. The window itself never scrolls or zooms.
 - The brush cursor is a 1px ring in the active segment colour with a 1px black halo.
 - Focus layout: maximised view takes the left 3/4; the other three stack in the right 1/4.
 

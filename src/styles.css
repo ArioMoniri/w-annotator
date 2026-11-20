@@ -133,6 +133,8 @@ body {
   color: var(--text-1);
   background: var(--bg-app);
   overflow: hidden;
+  /* A scroll that runs past the end must not bounce the window or go back a page. */
+  overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
   cursor: default;
@@ -792,6 +794,9 @@ input[type='range']:focus-visible {
 
 .cell {
   position: relative;
+  /* Gestures over the image belong to the viewer, not to the page. */
+  touch-action: none;
+  overscroll-behavior: none;
   background: var(--bg-viewport);
   color: var(--text-1);
   min-width: 0;
@@ -2366,6 +2371,18 @@ button.avatar {
   gap: 2px;
   font-size: 13px;
   color: var(--text-1);
+}
+
+.setting .speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.setting .speed input[type='range'] {
+  width: 140px;
 }
 
 .setting .help {

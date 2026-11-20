@@ -4,6 +4,7 @@ import { attachEditTracking, getImage, getMask, setShow3dImage, setVoi, shareCur
 import { EDIT_TOOLS, activeSegmentInfo, set, toast, useStore, type ViewId } from '../state/store';
 import * as engine from '../viewer/engine';
 import { useKeyHint } from './common';
+import { attachViewportGestures } from './gestureInput';
 import { voxelAt } from '../viewer/geometry';
 
 const VIEWS: { id: ViewId; label: string; letters?: [string, string, string, string] }[] = [
@@ -117,6 +118,7 @@ export function Viewports() {
         setTick((t) => t + 1);
       });
     };
+    for (const v of VIEWS) offs.push(attachViewportGestures(els[v.id].parentElement!, v.id));
     for (const id of engine.ORTHO_IDS) {
       const el = els[id];
       const onCamera = () => refresh();

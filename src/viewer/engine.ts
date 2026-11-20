@@ -15,6 +15,7 @@ import type { VolumeData } from '../io/types';
 import type { SegmentInfo } from '../collab/protocol';
 import type { ToolId, ViewId } from '../state/store';
 import { hexToRgb } from './geometry';
+import { zoomAbout } from './gestures';
 
 const {
   ToolGroupManager,
@@ -24,7 +25,6 @@ const {
   PanTool,
   ZoomTool,
   WindowLevelTool,
-  StackScrollTool,
   CrosshairsTool,
   TrackballRotateTool,
   RectangleScissorsTool,
@@ -109,7 +109,6 @@ export function initEngine(): Promise<void> {
         PanTool,
         ZoomTool,
         WindowLevelTool,
-        StackScrollTool,
         CrosshairsTool,
         TrackballRotateTool,
         RectangleScissorsTool,
@@ -194,7 +193,6 @@ function setupToolGroups(): void {
   ortho.addTool(PanTool.toolName);
   ortho.addTool(ZoomTool.toolName);
   ortho.addTool(WindowLevelTool.toolName);
-  ortho.addTool(StackScrollTool.toolName);
   ortho.addTool(LengthTool.toolName);
   ortho.addTool(RectangleScissorsTool.toolName);
   ortho.addTool(CircleScissorsTool.toolName);
@@ -222,9 +220,8 @@ function setupToolGroups(): void {
   vol.addTool(PanTool.toolName);
   vol.addViewport(VOLUME3D_ID, ENGINE_ID);
   vol.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: MouseBindings.Primary }] });
-  vol.setToolActive(ZoomTool.toolName, {
-    bindings: [{ mouseButton: MouseBindings.Secondary }, { mouseButton: MouseBindings.Wheel }],
-  });
+  // Wheel, trackpad and pinch are handled in src/ui/gestureInput.ts, not by Cornerstone's wheel tools.
+  vol.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: MouseBindings.Secondary }] });
   vol.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: MouseBindings.Auxiliary }] });
 }
 
@@ -272,7 +269,10 @@ const PRIMARY_TOOLS = [
   ...Object.values(BRUSH),
 ];
 
-/** Makes one tool the left-button tool. Scroll, pan, zoom and window stay on their own buttons. */
+/**
+ * Makes one tool the left-button tool. Pan and window stay on their own buttons.
+ * Nothing is bound to the wheel: src/ui/gestureInput.ts handles wheel, trackpad and pinch.
+ */
 export function setTool(tool: ToolId, o: ToolOptions): void {
   const group = ToolGroupManager.getToolGroup(ORTHO_GROUP);
   if (!group || !imageLoaded) return;
@@ -289,23 +289,17 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
   else group.setToolDisabled(CrosshairsTool.toolName);
 
   // Bindings add up across calls, so clear the navigation tools before binding them again.
-  for (const t of [StackScrollTool.toolName, PanTool.toolName, ZoomTool.toolName, WindowLevelTool.toolName]) {
+  for (const t of [PanTool.toolName, ZoomTool.toolName, WindowLevelTool.toolName]) {
     group.setToolPassive(t, { removeAllBindings: true });
   }
   for (const t of [BRUSH.eraseCircle, BRUSH.eraseSphere]) {
     if (t !== name) group.setToolPassive(t, { removeAllBindings: true });
     if (t !== name) group.setToolDisabled(t);
   }
-  group.setToolActive(StackScrollTool.toolName, { bindings: [{ mouseButton: MouseBindings.Wheel }] });
   group.setToolActive(PanTool.toolName, {
     bindings: [{ mouseButton: MouseBindings.Auxiliary }, ...(name === PanTool.toolName ? [primary] : [])],
   });
-  group.setToolActive(ZoomTool.toolName, {
-    bindings: [
-      { mouseButton: MouseBindings.Wheel, modifierKey: KeyboardBindings.Ctrl },
-      ...(name === ZoomTool.toolName ? [primary] : []),
-    ],
-  });
+  if (name === ZoomTool.toolName) group.setToolActive(ZoomTool.toolName, { bindings: [primary] });
   group.setToolActive(WindowLevelTool.toolName, {
     bindings: [{ mouseButton: MouseBindings.Secondary }, ...(name === WindowLevelTool.toolName ? [primary] : [])],
   });
@@ -620,6 +614,54 @@ export function jumpTo(w: [number, number, number], except?: string): void {
 export function scrollSlices(id: string, delta: number): void {
   if (!engine || !imageLoaded) return;
   csUtils.scroll(orthoViewport(id) as unknown as Parameters<typeof csUtils.scroll>[0], { delta });
+}
+
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 64;
+
+/**
+ * Magnifies a view by `factor`. In a slice view the image point at `at`
+ * (canvas pixels) stays where it is; without `at` the centre does.
+ */
+export function zoomBy(id: string, factor: number, at?: [number, number]): void {
+  if (!engine || !imageLoaded || !(factor > 0) || factor === 1) return;
+  const vp = engine.getViewport(id) as Types.IVolumeViewport;
+  const cam = vp.getCamera();
+  const focal = cam.focalPoint as Types.Point3;
+  const position = cam.position as Types.Point3;
+  if (id === VOLUME3D_ID) {
+    if (cam.parallelProjection) vp.setCamera({ parallelScale: cam.parallelScale! / factor });
+    // A perspective camera gets closer instead; it still turns about the same point.
+    else vp.setCamera({ position: zoomAbout(position, focal, factor) });
+    vp.render();
+    return;
+  }
+  const zoom = vp.getZoom();
+  const f = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor)) / zoom;
+  if (f === 1) return;
+  const point = at ? (vp.canvasToWorld(at) as Types.Point3) : focal;
+  const next = zoomAbout(focal, point, f);
+  const shift = [next[0] - focal[0], next[1] - focal[1], next[2] - focal[2]];
+  vp.setCamera({
+    parallelScale: cam.parallelScale! / f,
+    focalPoint: next,
+    position: [position[0] + shift[0], position[1] + shift[1], position[2] + shift[2]],
+  });
+  vp.render();
+}
+
+/** Moves the image in a slice view by a number of canvas pixels. */
+export function panBy(id: string, dx: number, dy: number): void {
+  if (!engine || !imageLoaded || id === VOLUME3D_ID || (dx === 0 && dy === 0)) return;
+  const vp = orthoViewport(id);
+  const from = vp.canvasToWorld([dx, dy]);
+  const to = vp.canvasToWorld([0, 0]);
+  const cam = vp.getCamera();
+  const f = cam.focalPoint!;
+  const p = cam.position!;
+  const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+  vp.setCamera({ focalPoint: [f[0] + d[0], f[1] + d[1], f[2] + d[2]], position: [p[0] + d[0], p[1] + d[1], p[2] + d[2]] });
+  vp.render();
 }
 
 export function fitAll(): void {

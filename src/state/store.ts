@@ -16,7 +16,7 @@ export type ToolId =
 
 export const EDIT_TOOLS: ToolId[] = ['brush', 'eraser', 'threshold', 'scissors', 'fill'];
 
-export type SettingsSection = 'profile' | 'appearance' | 'shortcuts' | 'files' | 'help';
+export type SettingsSection = 'profile' | 'appearance' | 'mouse' | 'shortcuts' | 'files' | 'help';
 
 export type ViewId = 'axial' | 'sagittal' | 'coronal' | 'volume3d';
 
