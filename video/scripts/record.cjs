@@ -147,17 +147,18 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     const S1 = 70, S2 = 80, S3 = 90; // the three slices the new segment is painted on
     const HEART = { [S1]: [0.06, -0.1, 0.03], [S2]: [0.065, -0.09, 0.055], [S3]: [0.03, -0.12, 0.035] }; // centre and radius of each blob
     await scrollTo(A, S1);
-    await ses(A, 'setTool', 'crosshair'); await A.mouse.click(...P(ax, HEART[S2][0], HEART[S2][1])); await A.waitForTimeout(400); // the sagittal view now cuts through the heart
+    // move the sagittal and coronal views to the heart, so that they cut through what is painted later
+    await A.evaluate(([x, y]) => { const e = window.__w.engine; e.jumpTo(e.canvasToWorld('axial', x, y), 'axial'); }, [P(ax, ...HEART[S2])[0] - ax.x, P(ax, ...HEART[S2])[1] - ax.y]); await A.waitForTimeout(400);
     await ses(A, 'setTool', 'brush'); await ses(A, 'selectSegment', 4);
     const MM = 1 / (await A.evaluate(() => window.__w.engine.getMmPerPixel('axial'))) / Math.min(ax.width, ax.height); // one millimetre in units of P()
-    const BRUSH = 30, R = (BRUSH / 2) * MM;
+    const BRUSH = 36, R = (BRUSH / 2) * MM;
     const biteRows = [0.0, 0.035, 0.07, 0.105], spillRows = [-0.17, -0.14, -0.11, -0.08];
     const biteEdge = await edges(A, ax, biteRows, -0.2, -1, 4), spillEdge = await edges(A, ax, spillRows, -0.2, -1, 4);
     log('edges', JSON.stringify(biteEdge), JSON.stringify(spillEdge), 'mm', MM);
-    await ses(A, 'setTool', 'eraser'); await ses(A, 'setBrushSize', 34);
+    await ses(A, 'setTool', 'eraser'); await ses(A, 'setBrushSize', 42);
     await offCamera(A, biteRows.slice(1, 3).map((v, i) => P(ax, biteEdge[i + 1] + 0.022, v)));
-    await ses(A, 'setTool', 'brush'); await ses(A, 'setBrushSize', 26);
-    await offCamera(A, spillRows.slice(1, 3).map((v, i) => P(ax, spillEdge[i + 1] - 0.03, v)));
+    await ses(A, 'setTool', 'brush'); await ses(A, 'setBrushSize', 32);
+    await offCamera(A, spillRows.slice(1, 3).map((v, i) => P(ax, spillEdge[i + 1] - 0.04, v)));
     await ses(A, 'setBrushSize', BRUSH); await ses(A, 'setTool', 'pan');
     win.A.x = 640; win.A.y = 400; await A.mouse.move(win.A.x, win.A.y);
     await A.evaluate(() => window.__w.store.setState({ toasts: [] }));
@@ -199,7 +200,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     const gapRows = [0.0, 0.035, 0.07, 0.105];
     const samEdge = await edges(A, ax, gapRows, -0.2, -1, 4); await ses(A, 'selectSegment', 3); const minaEdge = await edges(A, ax, gapRows, 0.25, 1, 3);
     log('room edges', JSON.stringify(samEdge), JSON.stringify(minaEdge));
-    await ses(A, 'setTool', 'eraser'); await ses(A, 'setBrushSize', 34);
+    await ses(A, 'setTool', 'eraser'); await ses(A, 'setBrushSize', 42);
     await offCamera(A, gapRows.slice(1, 3).map((v, i) => P(ax, samEdge[i + 1] + 0.022, v)));
     await offCamera(A, gapRows.slice(1, 3).map((v, i) => P(ax, minaEdge[i + 1] - 0.022, v)));
     await ses(A, 'setTool', 'brush'); await ses(A, 'setBrushSize', BRUSH);
@@ -208,7 +209,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     const joined = await ses(B, 'joinRoom', 'Sam', room.link); if (typeof joined === 'string') throw new Error('join: ' + joined);
     await loaded(B); await B.locator('[data-view="axial"] canvas').first().waitFor({ timeout: 60000 }); await B.waitForTimeout(2500);
     await scrollTo(B, S2);
-    await B.evaluate(() => { const s = window.__w.session; s.setVoi(-1350, 150); s.selectSegment(4); s.setTool('brush'); s.setBrushSize(30); window.__w.store.setState({ filesOpen: false, toasts: [] }); });
+    await B.evaluate(() => { const s = window.__w.session; s.setVoi(-1350, 150); s.selectSegment(4); s.setTool('brush'); s.setBrushSize(36); window.__w.store.setState({ filesOpen: false, toasts: [] }); });
     await A.evaluate(() => window.__w.store.setState({ toasts: [] }));
     const samFix = gapRows.map((v, i) => P(ax, samEdge[i] + R + 0.004, v)), minaFix = gapRows.map((v, i) => P(ax, minaEdge[i] - R - 0.004, v));
     win.A.x = axc[0] + 40; win.A.y = ax.y + ax.height * 0.84; await A.mouse.move(win.A.x, win.A.y);
