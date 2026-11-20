@@ -23,7 +23,8 @@ describe('loadSample', () => {
     expect(sample.bundled).toBe(true);
     expect(asked.sort()).toEqual(['/sample/chest_ct.nii.gz', '/sample/lungs.nii.gz']);
     expect(sample.files.map((f) => f.name)).toEqual(['chest_ct.nii.gz', 'lungs.nii.gz']);
-    expect(sample.files[0].bytes).toEqual(bundled('sample/chest_ct.nii.gz'));
+    // Comparing 7 MB element by element can outlast the test timeout on a busy machine.
+    expect(Buffer.compare(Buffer.from(sample.files[0].bytes), Buffer.from(bundled('sample/chest_ct.nii.gz')))).toBe(0);
   });
   it('asks under the base the app is served from', async () => {
     const asked: string[] = [];
