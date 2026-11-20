@@ -6,6 +6,9 @@ import raw from './track.json';
 
 /** Written by scripts/build-footage.cjs from the recorded session. One entry per footage frame. */
 interface Track {
+  /** size of the app window in CSS pixels */
+  w: number;
+  h: number;
   n: number;
   /** [name, first frame, end frame) of each scene */
   scenes: [string, number, number][];
@@ -17,14 +20,20 @@ interface Track {
   /** per frame: zoom and the centre of the view in app pixels, already smoothed */
   az: [number, number, number][];
   bz: [number, number, number][];
+  /** per frame: the axial slice on screen, counted from 1 */
+  slice: number[];
+  /** per frame: '' or the key that is held ('shift', 'save') */
+  key: string[];
+  /** per frame: -1, or how far the two dropped files have come (0 to 1), then 1 to 2 while they land */
+  drop: number[];
 }
 const track = raw as unknown as Track;
 
-export const TITLE = 66;
-export const END = 96;
+export const TITLE = 54;
+export const END = 72;
 const OVERLAP = 10; // frames of cross-fade between the cards and the footage
-const APP_W = 1440;
-const APP_H = 900;
+const APP_W = track.w;
+const APP_H = track.h;
 
 const ORANGE = '#E69F00';
 const SKY = '#56B4E9';
@@ -57,13 +66,43 @@ const type = (weight: number, size: number, line: number, tracking: number): CSS
   whiteSpace: 'nowrap',
 });
 
-const CAPTIONS: Record<string, string> = {
-  open: 'Open any image with any mask',
-  paint: 'Fix the mask by hand',
-  fill: 'Paint three slices. Fill the rest.',
-  refine: 'Grow, shrink, smooth, measure',
-  room: 'Correct the same mask together, live',
-  save: 'Save as NIfTI, MetaImage, NRRD or DICOM SEG',
+/** A key as it is drawn in a caption or over the window. */
+const Key = ({ label, size, lit }: { label: string; size: number; lit: boolean }) => (
+  <span
+    style={{
+      ...type(600, size * 0.56, size, 0),
+      display: 'inline-block',
+      height: size,
+      minWidth: size,
+      padding: `0 ${size * 0.3}px`,
+      boxSizing: 'border-box',
+      textAlign: 'center',
+      borderRadius: size * 0.2,
+      color: lit ? '#111317' : INK,
+      background: lit ? SKY : '#2A2E36',
+      boxShadow: lit ? `0 ${size * 0.03}px 0 #2B7FB0` : `inset 0 0 0 1px rgba(255,255,255,0.16), 0 ${size * 0.07}px 0 #15171B`,
+      transform: `translateY(${lit ? size * 0.04 : 0}px)`,
+    }}
+  >
+    {label}
+  </span>
+);
+
+/** One statement per scene: what the viewer is looking at. */
+const CAPTIONS: Record<string, (lit: boolean) => ReactNode> = {
+  open: () => 'Open an image and its mask — MHA, NIfTI, NRRD or DICOM',
+  paint: () => 'Paint to correct the mask',
+  erase: (lit) => (
+    <>
+      <span style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6, marginTop: -6 }}>
+        <Key label="Shift" size={52} lit={lit} />
+      </span>
+      -drag erases
+    </>
+  ),
+  fill: () => 'Paint a few slices, fill the rest',
+  room: () => 'Work on the same mask at the same time',
+  save: () => 'Save it back as .nii.gz, .mha, .nrrd or DICOM SEG',
 };
 
 const inOut = Easing.inOut(Easing.cubic);
@@ -109,19 +148,21 @@ const Background = () => (
   </AbsoluteFill>
 );
 
+/** The pointer. `since` is the number of frames since the button went down: a soft ring spreads from the click. */
 const Cursor = ({ x, y, down, scale, since }: { x: number; y: number; down: boolean; scale: number; since: number }) => (
   <div style={{ position: 'absolute', left: x, top: y, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
-    {since < 14 && (
+    {since < 16 && (
       <div
         style={{
           position: 'absolute',
-          left: -(8 + since * 2),
-          top: -(8 + since * 2),
-          width: 16 + since * 4,
-          height: 16 + since * 4,
+          left: -(10 + since * 2.2),
+          top: -(10 + since * 2.2),
+          width: 20 + since * 4.4,
+          height: 20 + since * 4.4,
           borderRadius: '50%',
+          background: 'rgba(255,255,255,0.10)',
           border: `2px solid ${INK}`,
-          opacity: 0.7 * (1 - since / 14),
+          opacity: 0.75 * (1 - since / 16),
         }}
       />
     )}
@@ -139,19 +180,31 @@ interface Rect {
   bar: number;
 }
 
+/** The part of the app a camera shows: its left and top edge in app pixels. */
+function view(cam: number[]): [number, number] {
+  const [z, cx, cy] = cam;
+  const vw = APP_W / z;
+  const vh = APP_H / z;
+  return [Math.min(Math.max(cx - vw / 2, 0), APP_W - vw), Math.min(Math.max(cy - vh / 2, 0), APP_H - vh)];
+}
+
+/** Where a point of the app is on the 1920 x 1080 frame. */
+function onFrame(rect: Rect, cam: number[], x: number, y: number): [number, number] {
+  const k = (rect.w / APP_W) * cam[0];
+  const [left, top] = view(cam);
+  return [rect.x + (x - left) * k, rect.y + rect.bar + (y - top) * k];
+}
+
 const LIGHTS = ['#FF5F57', '#FEBC2E', '#28C840'];
 
 /**
  * A window: a title bar, then the footage below it. The two never share pixels: the bar is its own strip
  * and the footage is clipped to the box under it. The camera zooms the footage inside that box, not the window.
  */
-const AppWindow = ({ rect, title, cam, cursor, since, opacity = 1, children }: { rect: Rect; title: string; cam: number[]; cursor: number[]; since: number; opacity?: number; children: ReactNode }) => {
+const AppWindow = ({ rect, cam, cursor, since, pointer = true, children, over }: { rect: Rect; cam: number[]; cursor: number[]; since: number; pointer?: boolean; children: ReactNode; over?: ReactNode }) => {
   const s = rect.w / APP_W;
-  const [z, cx, cy] = cam;
-  const vw = APP_W / z;
-  const vh = APP_H / z;
-  const left = Math.min(Math.max(cx - vw / 2, 0), APP_W - vw);
-  const top = Math.min(Math.max(cy - vh / 2, 0), APP_H - vh);
+  const z = cam[0];
+  const [left, top] = view(cam);
   const k = rect.bar / 36;
   return (
     <div
@@ -160,7 +213,6 @@ const AppWindow = ({ rect, title, cam, cursor, since, opacity = 1, children }: {
         left: rect.x,
         top: rect.y,
         width: rect.w,
-        opacity,
         borderRadius: 14,
         boxShadow: '0 0 0 1px rgba(255,255,255,0.10), 0 2px 6px rgba(0,0,0,0.30), 0 24px 48px rgba(0,0,0,0.38), 0 60px 120px rgba(0,0,0,0.42)',
       }}
@@ -172,13 +224,14 @@ const AppWindow = ({ rect, title, cam, cursor, since, opacity = 1, children }: {
               <div key={c} style={{ width: 12 * k, height: 12 * k, borderRadius: '50%', background: c, boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.25)' }} />
             ))}
           </div>
-          <span style={{ ...type(500, 13 * k, 16 * k, 0), color: '#B4B9C2' }}>{title}</span>
+          <span style={{ ...type(500, 13 * k, 16 * k, 0), color: '#B4B9C2' }}>W Annotator</span>
         </div>
         <div style={{ position: 'relative', width: rect.w, height: rect.w * (APP_H / APP_W), overflow: 'hidden' }}>
           <div style={{ position: 'absolute', left: 0, top: 0, width: APP_W, height: APP_H, transformOrigin: '0 0', transform: `scale(${s * z}) translate(${-left}px, ${-top}px)` }}>
             {children}
-            <Cursor x={cursor[0]} y={cursor[1]} down={cursor[2] === 1} scale={1.25 / (s * z)} since={since} />
+            {pointer && <Cursor x={cursor[0]} y={cursor[1]} down={cursor[2] === 1} scale={1.5 / (s * z)} since={since} />}
           </div>
+          {over}
         </div>
       </div>
     </div>
@@ -187,63 +240,129 @@ const AppWindow = ({ rect, title, cam, cursor, since, opacity = 1, children }: {
 
 /** Frames since the button last went down in this window. */
 function sinceDown(list: number[][], f: number): number {
-  for (let i = f; i > 0 && f - i < 14; i--) if (list[i][2] === 1 && list[i - 1][2] === 0) return f - i;
+  for (let i = f; i > 0 && f - i < 16; i--) if (list[i][2] === 1 && list[i - 1][2] === 0) return f - i;
   return 99;
 }
 
 const video: CSSProperties = { width: APP_W, height: APP_H, display: 'block' };
 
-// The window sits in the top 950 px; the caption has the band below it to itself.
-const SINGLE: Rect = { x: 256, y: 34, w: 1408, bar: 36 };
-const LEFT: Rect = { x: 24, y: 184, w: 924, bar: 30 };
-const RIGHT: Rect = { x: 972, y: 184, w: 924, bar: 30 };
+// The window sits in the top 900 px; the caption has the band below it to itself.
+const SINGLE: Rect = { x: 288, y: 22, w: 1344, bar: 36 };
+const LEFT: Rect = { x: 24, y: 190, w: 924, bar: 30 };
+const RIGHT: Rect = { x: 972, y: 190, w: 924, bar: 30 };
 
-const Caption = ({ f }: { f: number }) => {
-  const shown = track.scenes.filter(([name]) => CAPTIONS[name]);
-  return (
-    <div style={{ position: 'absolute', left: 0, right: 0, top: 950, height: 130 }}>
-      {shown.map(([name, from, to]) => {
-        const o = fade(f, from + 2, from + 12, to - 8, to);
-        if (o <= 0) return null;
-        return (
-          <div key={name} style={{ position: 'absolute', left: 0, right: 0, top: 30, textAlign: 'center', opacity: o, transform: `translateY(${(1 - o) * 8}px)`, ...type(500, 36, 48, -0.014), color: INK }}>
-            {CAPTIONS[name]}
-          </div>
-        );
-      })}
-      <div style={{ position: 'absolute', left: 0, right: 0, top: 96, display: 'flex', justifyContent: 'center', gap: 8 }}>
-        {shown.map(([name, from, to], i) => {
-          const p = interpolate(f, [from, to], [0, 1], clamp);
-          return (
-            <div key={name} style={{ width: 36, height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.16)', overflow: 'hidden' }}>
-              <div style={{ width: `${p * 100}%`, height: '100%', background: i % 2 ? SKY : ORANGE }} />
+const sceneAt = (f: number) => track.scenes.find(([, from, to]) => f >= from && f < to);
+
+const Caption = ({ f }: { f: number }) => (
+  <div style={{ position: 'absolute', left: 0, right: 0, top: 916, height: 164 }}>
+    {track.scenes.map(([name, from, to]) => {
+      const o = fade(f, from + 1, from + 9, to - 7, to - 1);
+      if (o <= 0 || !CAPTIONS[name]) return null;
+      return (
+        <div key={name} style={{ position: 'absolute', left: 0, right: 0, top: 0, textAlign: 'center', opacity: o, transform: `translateY(${(1 - o) * 8}px)` }}>
+          <div style={{ ...type(500, 42, 56, -0.016), color: INK }}>{CAPTIONS[name](track.key[f] === 'shift')}</div>
+          {name === 'fill' && (
+            <div style={{ ...type(500, 30, 40, 0), color: MUTED, marginTop: 14, fontVariantNumeric: 'tabular-nums' }}>
+              Slice <span style={{ color: SKY, fontWeight: 600 }}>{track.slice[f]}</span>
             </div>
-          );
-        })}
+          )}
+        </div>
+      );
+    })}
+  </div>
+);
+
+/** A file as it is carried to the window: an icon and its name. */
+const FileChip = ({ name, color }: { name: string; color: string }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 56, padding: '0 20px 0 16px', borderRadius: 12, background: '#23262D', boxShadow: '0 0 0 1px rgba(255,255,255,0.14), 0 12px 28px rgba(0,0,0,0.5)' }}>
+    <svg width="24" height="28" viewBox="0 0 24 28">
+      <path d="M3 1.5 H14.5 L21 8 V24.5 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 Z" fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      <path d="M14 2 V8.5 H20.5" fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+    <span style={{ ...type(500, 28, 32, -0.005), color: INK }}>{name}</span>
+  </div>
+);
+
+/** The two files on their way to the empty window. A drag between applications cannot be recorded, so it is drawn. */
+const Drop = ({ f }: { f: number }) => {
+  const d = track.drop[f];
+  if (d < 0) return null;
+  const end = onFrame(SINGLE, track.az[f], track.a[f][0], track.a[f][1]);
+  const p = inOut(Math.min(d, 1));
+  const x = lerp(-200, end[0], p);
+  const y = lerp(760, end[1], p) - Math.sin(Math.PI * p) * 40;
+  const land = Math.max(0, d - 1); // 0 to 1 once the files are let go
+  return (
+    <>
+      <div style={{ position: 'absolute', left: x + 22, top: y + 26, opacity: 1 - Math.min(1, land * 1.6), transform: `scale(${1 - land * 0.35})`, transformOrigin: '0 0' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, transform: 'rotate(-2deg)' }}>
+          <FileChip name="chest_ct.mha" color={ORANGE} />
+        </div>
+        <div style={{ position: 'absolute', left: 34, top: 66, transform: 'rotate(1.5deg)' }}>
+          <FileChip name="lungs.nii.gz" color={SKY} />
+        </div>
+      </div>
+      {d <= 1 && <Cursor x={x} y={y} down scale={1.5} since={99} />}
+    </>
+  );
+};
+
+/** Ctrl and S over the window while the mask is saved. */
+const SaveKeys = ({ f }: { f: number }) => {
+  const from = track.key.indexOf('save');
+  if (from < 0) return null;
+  const to = track.key.lastIndexOf('save') + 1;
+  const o = fade(f, from - 8, from, to + 6, to + 16);
+  if (o <= 0) return null;
+  const lit = f >= from + 6 && f < to;
+  return (
+    <div style={{ position: 'absolute', left: 0, right: 0, top: '30%', display: 'flex', justifyContent: 'center', opacity: o }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '22px 30px 26px', borderRadius: 24, background: 'rgba(14,16,20,0.88)', boxShadow: '0 0 0 1px rgba(255,255,255,0.12), 0 20px 50px rgba(0,0,0,0.5)' }}>
+        <Key label="Ctrl" size={84} lit={lit} />
+        <span style={{ ...type(500, 44, 84, 0), color: MUTED }}>+</span>
+        <Key label="S" size={84} lit={lit} />
       </div>
     </div>
   );
 };
 
+const Person = ({ rect, name, color, opacity }: { rect: Rect; name: string; color: string; opacity: number }) => (
+  <div style={{ position: 'absolute', left: rect.x, width: rect.w, top: rect.y - 84, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, opacity }}>
+    <div style={{ ...type(600, 26, 48, 0), width: 48, height: 48, borderRadius: 24, textAlign: 'center', background: color, color: '#111317' }}>{name[0]}</div>
+    <div style={{ ...type(500, 38, 48, -0.012), color: INK }}>{name}’s computer</div>
+  </div>
+);
+
 const Footage = () => {
   const frame = useCurrentFrame();
   const f = Math.min(Math.max(frame, 0), track.n - 1);
   const d = track.dual;
-  const t = d ? fade(f, d[0], d[0] + 14, d[1] - 14, d[1]) : 0;
-  const a: Rect = { x: lerp(SINGLE.x, LEFT.x, t), y: lerp(SINGLE.y, LEFT.y, t), w: lerp(SINGLE.w, LEFT.w, t), bar: lerp(SINGLE.bar, LEFT.bar, t) };
-  const b: Rect = { ...RIGHT, x: lerp(1920 + 40, RIGHT.x, t) };
+  const two = d !== null && f >= d[0] && f < d[1];
+  // going from one window to two and back is a short dip to the background, not a move
+  const dip = d ? Math.min(...[d[0], d[1]].map((c) => interpolate(Math.abs(f - c + 0.5), [0, 7], [0, 1], { ...clamp, easing: inOut }))) : 1;
+  const scene = sceneAt(f);
+  const firstDrop = track.drop.findIndex((v) => v >= 0);
+  const carrying = scene?.[0] === 'open' && (track.drop[f] < 0 ? f < firstDrop : track.drop[f] <= 1);
+  const landed = track.drop.findIndex((v) => v > 1);
   return (
     <AbsoluteFill>
-      <AppWindow rect={a} title={t > 0.5 ? 'W Annotator — Mina' : 'W Annotator'} cam={track.az[f]} cursor={track.a[f]} since={sinceDown(track.a, f)}>
-        <OffthreadVideo src={staticFile('footage-a.mp4')} style={video} muted />
-      </AppWindow>
-      {d && f >= d[0] && f < d[1] && (
-        <AppWindow rect={b} title="W Annotator — Sam" cam={track.bz[f]} cursor={track.b[f]} since={sinceDown(track.b, f)} opacity={t}>
-          <Sequence from={d[0]} layout="none">
-            <OffthreadVideo src={staticFile('footage-b.mp4')} style={video} muted />
-          </Sequence>
+      <AbsoluteFill style={{ opacity: dip }}>
+        <AppWindow rect={two ? LEFT : SINGLE} cam={track.az[f]} cursor={track.a[f]} since={landed >= 0 && f >= landed && f - landed < 16 ? f - landed : sinceDown(track.a, f)} pointer={!carrying} over={two ? null : <SaveKeys f={f} />}>
+          <OffthreadVideo src={staticFile('footage-a.mp4')} style={video} muted />
         </AppWindow>
-      )}
+        {two && d && (
+          <>
+            <AppWindow rect={RIGHT} cam={track.bz[f]} cursor={track.b[f]} since={sinceDown(track.b, f)}>
+              <Sequence from={d[0]} layout="none">
+                <OffthreadVideo src={staticFile('footage-b.mp4')} style={video} muted />
+              </Sequence>
+            </AppWindow>
+            <Person rect={LEFT} name="Mina" color={SKY} opacity={1} />
+            <Person rect={RIGHT} name="Sam" color={ORANGE} opacity={1} />
+          </>
+        )}
+      </AbsoluteFill>
+      <Drop f={f} />
       <Caption f={f} />
     </AbsoluteFill>
   );
@@ -252,7 +371,7 @@ const Footage = () => {
 const useRise = () => {
   const f = useCurrentFrame();
   return (from: number): CSSProperties => {
-    const o = interpolate(f, [from, from + 14], [0, 1], { ...clamp, easing: inOut });
+    const o = interpolate(f, [from, from + 10], [0, 1], { ...clamp, easing: inOut });
     return { opacity: o, transform: `translateY(${(1 - o) * 12}px)` };
   };
 };
@@ -261,9 +380,9 @@ const TitleCard = () => {
   const rise = useRise();
   return (
     <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-      <Img src={staticFile('logo.svg')} style={{ width: 176, height: 176, ...rise(2) }} />
-      <div style={{ ...type(600, 104, 112, -0.035), color: INK, marginTop: 24, ...rise(7) }}>W Annotator</div>
-      <div style={{ ...type(400, 36, 48, -0.012), color: MUTED, marginTop: 24, ...rise(13) }}>View and correct segmentation masks. Alone or together.</div>
+      <Img src={staticFile('logo.svg')} style={{ width: 176, height: 176, ...rise(0) }} />
+      <div style={{ ...type(600, 104, 112, -0.035), color: INK, marginTop: 24, ...rise(3) }}>W Annotator</div>
+      <div style={{ ...type(400, 40, 48, -0.012), color: MUTED, marginTop: 24, ...rise(6) }}>Open a scan and its mask. Fix the mask. Together.</div>
     </AbsoluteFill>
   );
 };
@@ -272,14 +391,15 @@ const EndCard = () => {
   const rise = useRise();
   return (
     <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-      <Img src={staticFile('logo.svg')} style={{ width: 120, height: 120, ...rise(4) }} />
-      <div style={{ ...type(600, 64, 72, -0.03), color: INK, marginTop: 16, ...rise(8) }}>W Annotator</div>
-      <div style={{ ...type(500, 44, 56, -0.02), color: INK, marginTop: 56, ...rise(14) }}>Free for non-commercial use</div>
-      <div style={{ ...type(500, 32, 40, -0.008), color: SKY, marginTop: 16, ...rise(20) }}>github.com/ArioMoniri/w-annotator</div>
-      <div style={{ ...type(400, 22, 32, 0), color: MUTED, marginTop: 72, ...rise(26) }}>© Ariorad Moniri · PolyForm Noncommercial 1.0.0 · Not a medical device</div>
+      <Img src={staticFile('logo.svg')} style={{ width: 120, height: 120, ...rise(2) }} />
+      <div style={{ ...type(600, 64, 72, -0.03), color: INK, marginTop: 16, ...rise(4) }}>W Annotator</div>
+      <div style={{ ...type(500, 40, 56, -0.016), color: INK, marginTop: 56, ...rise(7) }}>Free for non-commercial use · macOS, Windows, Linux</div>
+      <div style={{ ...type(500, 34, 40, -0.008), color: SKY, marginTop: 20, ...rise(10) }}>github.com/ArioMoniri/w-annotator</div>
+      <div style={{ ...type(400, 26, 32, 0), color: MUTED, marginTop: 64, ...rise(13) }}>© Ariorad Moniri</div>
     </AbsoluteFill>
   );
 };
+
 export const Launch = () => {
   const frame = useCurrentFrame();
   const footEnd = TITLE + track.n;
