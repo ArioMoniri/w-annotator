@@ -1,5 +1,6 @@
 #!/bin/sh
-# Makes the looping README preview from the rendered video: about eleven seconds cut from its parts, 960 px wide, no sound.
+# Makes the looping README preview from the rendered video, 960 px wide, no sound: about eleven seconds that tell the
+# story by themselves. One stretch from each of four scenes (open, paint, fill, work together), each with its caption.
 # usage: sh scripts/preview.sh [video] [output.webp]      (needs ffmpeg and Python with Pillow)
 # ffmpeg cuts the frames and Pillow writes the animation, because Pillow can ask for a full frame every second or so.
 # Without that the encoder keeps patching the first frame and faint blocks of earlier scenes stay in the background.

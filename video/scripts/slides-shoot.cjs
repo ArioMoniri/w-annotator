@@ -40,6 +40,7 @@ async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down()
     const p = await newPage(br, theme); await open(p); await park(p);
     await shot(p, 'views-' + theme);
     if (theme === 'light') { await p.context().close(); continue; }
+    await p.evaluate(() => window.__w.store.setState({ filesOpen: false })); // the close-ups that follow are about the segments
 
     // ── two people in one mask ──
     const A = p;

@@ -13,8 +13,8 @@ const img = (name) => 'file://' + SRC + '/' + name + '.png';
 // kind: full = the whole window; crop = part of it, in CSS pixels of the 1152 x 648 window; split = two themes of one window;
 // pair = the same close-up before and after.
 const SLIDES = [
-  { caption: 'Correct the same mask together, live', kind: 'full', a: 'room' },
-  { caption: 'Paint three slices. Fill the rest.', kind: 'pair', a: 'fill-before-coronal', b: 'fill-after-coronal', labels: ['Painted on three slices', 'Filled between them'] },
+  { caption: 'Work on the same mask at the same time', kind: 'full', a: 'room' },
+  { caption: 'Paint a few slices, fill the rest', kind: 'pair', a: 'fill-before-coronal', b: 'fill-after-coronal', labels: ['Painted on three slices', 'Filled between them'] },
   { caption: 'Grow, shrink, smooth, measure', kind: 'crop', a: 'refine-form', rect: [406, 0, 746, 419.6] },
   { caption: 'MHA, NIfTI, NRRD, DICOM — any image, any mask', kind: 'full', a: 'views-dark' },
   { caption: 'Light or dark', kind: 'split', a: 'views-dark', b: 'views-light' },

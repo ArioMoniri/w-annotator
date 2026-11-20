@@ -6,11 +6,28 @@ The video is real footage of the app, recorded by a script and composed with [Re
 
 ## How the video is made
 
-1. `scripts/record.cjs` drives the app with Playwright through one scripted session on a chest CT: open an image and a mask, paint a correction, paint a new segment on three slices and fill between them, grow it, start a room that a second browser joins, paint from both sides, and save. It forces the dark theme and marks the welcome tour as seen (`?tour=0` and the saved setting). It does not capture in real time. It takes one screenshot per video frame wherever the picture changes and writes a manifest that says, for every frame, which screenshot is showing, where each cursor is, whether the button is down, which scene it belongs to and where the view should be zoomed. A slow machine therefore gives the same result as a fast one.
-2. `scripts/build-footage.cjs` turns the screenshots into `public/footage-a.mp4` (the host's window) and `public/footage-b.mp4` (the second person's window), and writes `src/track.json` with the cursor path, the scene ranges and the eased camera path.
-3. `src/Launch.tsx` is the composition: a title card, the footage in a window, a cursor drawn from the recorded path, one caption per scene in the band under the window, and an end card.
+1. `scripts/record.cjs` drives the app with Playwright through one scripted session on a chest CT. It forces the dark theme, marks the welcome tour as seen (`?tour=0` and the saved setting), sets the reference lines to show with the crosshair tool only, and turns tooltips off. It does not capture in real time. It takes one screenshot per video frame wherever the picture changes and writes a manifest that says, for every frame, which screenshot is showing, where each cursor is, whether the button is down, which scene it belongs to, where the view should be zoomed, the slice on screen and the key that is held. A slow machine therefore gives the same result as a fast one.
+2. `scripts/build-footage.cjs` turns the screenshots into `public/footage-a.mp4` (the first person's window) and `public/footage-b.mp4` (the second person's window), and writes `src/track.json` with the cursor path, the scene ranges and the eased camera path.
+3. `src/Launch.tsx` is the composition: a title card, the footage in a window, a cursor drawn from the recorded path with a ring on each click, one caption per scene in the band under the window, and an end card.
 
-The window is drawn as a title bar with the footage in a separate box below it, so the bar never covers the app. At rest the whole app is visible, scaled to fit. A zoom enlarges the footage inside that box and is anchored to a corner of the app, so the app's own top bar keeps its place under the title bar. The background is a slow gradient with a little grain.
+### Storyboard
+
+Each scene shows one thing, and its caption says what that is.
+
+| Scene | Caption | What happens |
+| --- | --- | --- |
+| `open` | Open an image and its mask — MHA, NIfTI, NRRD or DICOM | `chest_ct.mha` and `lungs.nii.gz` are dropped on the empty window; the four views appear |
+| `paint` | Paint to correct the mask | the brush is picked and a bite missing from the right lung is painted in |
+| `erase` | Shift-drag erases | a spill outside the lung is removed |
+| `fill` | Paint a few slices, fill the rest | a new segment is painted on slices 71, 81 and 91; *Fill between slices* joins them, seen in the sagittal view |
+| `room` | Work on the same mask at the same time | two windows, Mina's and Sam's; each fills a gap in a different lung and both see both strokes |
+| `save` | Save it back as .nii.gz, .mha, .nrrd or DICOM SEG | Ctrl+S; the status goes from "Unsaved changes" to "Saved" |
+
+Three things in the picture are not the app's own pixels, and each stands for something that cannot be photographed. The two file chips are the files being dragged: the files really go through the app's drop handler, but a drag from the operating system has no picture in a browser. The slice number under the caption repeats the number the axial view shows. The keys (Shift, Ctrl+S) show what is pressed.
+
+The script also prepares what the corrections correct. Off camera, with the app's own eraser and brush, it takes a bite out of the right lung and paints a spill outside it before the `paint` scene, and takes one gap out of each lung before the `room` scene. It names the three segments, gives the new one a blue colour, closes the Files list and, for the last scene, the right panel, starts the room and joins it from the second window through the app's own functions, since none of that is what a scene is about. One thing is hidden: the brush ring in a view the pointer has left, which the app leaves in place.
+
+The window is drawn as a title bar with the footage in a separate box below it, so the bar never covers the app. At rest the whole app is visible, scaled to fit. When the action is in a small part of the app, the footage is enlarged inside that box until that part fills it, so that what matters is large enough to read. The background is a slow gradient with a little grain.
 
 The cursor, the zoom towards the action and the window on a background follow the approach of screen recorders such as [Recordly](https://github.com/webadderall/Recordly). Recordly itself is not used: it is a desktop app that records a real screen and has its own editor, not something a script can drive on a machine without a display. No code from it is included.
 
@@ -20,7 +37,7 @@ The cursor, the zoom towards the action and the window on a background follow th
 cd video
 npm install
 npm run render      # renders out/launch-full.mp4, then ffmpeg writes ../docs/assets/launch.mp4 (1920x1080, 30 fps, H.264, no audio)
-npm run preview     # writes ../docs/assets/launch.webp from that file (needs ffmpeg and Python with Pillow)
+npm run preview     # writes ../docs/assets/launch.webp, an 11-second cut of that file (needs ffmpeg and Python with Pillow)
 npm run studio      # opens the Remotion editor
 ```
 
@@ -28,7 +45,7 @@ Remotion downloads a headless Chrome the first time. To use one that is already 
 
 ## Record again
 
-Record against a build, not the dev server, so that an edit to the source cannot reload the page in the middle. From the repository root, build the app (`pnpm vite build`), serve `dist` on a port (`pnpm vite preview --port 4173`), start the relay (`cargo run -p w-relay -- --port 8787`) and put `chest_ct.mha` and `lungs.nii.gz` in a folder. Then:
+Record against a build, not the dev server, so that an edit to the source cannot reload the page in the middle. From the repository root, build the app (`pnpm vite build`), serve `dist` on a port (`pnpm vite preview --port 4173`), start the relay (`cargo run -p w-relay -- --port 8787`) and put `chest_ct.mha` and `lungs.nii.gz` in a folder. The window is 1280 x 800 and is photographed at twice that, so a zoom stays sharp. Then:
 
 ```
 APP=http://localhost:4173/ DATA=/path/to/folder node video/scripts/record.cjs

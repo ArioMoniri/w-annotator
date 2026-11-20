@@ -94,9 +94,10 @@ const edges = async (pg, b, vs, u0, dir, seg) => { const out = []; for (const v 
 async function offCamera(pg, pts, shift = false) { if (shift) await pg.keyboard.down('Shift'); await pg.mouse.move(...pts[0]); await pg.mouse.down(); for (const q of pts.slice(1)) { await pg.mouse.move(...q, { steps: 5 }); await pg.waitForTimeout(40); } await pg.mouse.up(); if (shift) await pg.keyboard.up('Shift'); await pg.waitForTimeout(300); }
 const idle = (p) => p.waitForFunction(() => window.__w.store.getState().busy === null, null, { timeout: 240000 });
 const loaded = (p) => p.waitForFunction(() => { const s = window.__w.store.getState(); return s.image !== null && s.maskName !== null && s.busy === null; }, null, { timeout: 300000 });
-// A fresh profile per window: dark theme, the welcome tour already seen, and the lines that mark the other planes
-// shown with the crosshair tool only, so that nothing but the mask changes while the pointer crosses a view.
-const profile = () => { try { localStorage.setItem('w-annotator:theme', 'dark'); const k = 'w-annotator:settings'; const s = JSON.parse(localStorage.getItem(k) || '{}'); s.tourSeen = true; s.referenceLines = 'crosshair'; localStorage.setItem(k, JSON.stringify(s)); } catch { /* storage is off */ } };
+// A fresh profile per window: dark theme, the welcome tour already seen, the lines that mark the other planes shown
+// with the crosshair tool only, so that nothing but the mask changes while the pointer crosses a view, and no
+// recovery copy, so that the status reads "Unsaved changes" and then "Saved" with nothing after it.
+const profile = () => { try { localStorage.setItem('w-annotator:theme', 'dark'); const k = 'w-annotator:settings'; const s = JSON.parse(localStorage.getItem(k) || '{}'); s.tourSeen = true; s.referenceLines = 'crosshair'; s.autosave = false; localStorage.setItem(k, JSON.stringify(s)); } catch { /* storage is off */ } };
 async function newPage(br, dsf) {
   const ctx = await br.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: dsf, acceptDownloads: true, colorScheme: 'dark' }); await ctx.addInitScript(profile);
   const p = await ctx.newPage(); p.on('pageerror', e => console.log('PAGEERR', e.message)); await p.goto(APP); await p.waitForFunction(() => '__w' in window);
@@ -123,8 +124,8 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
   // Cameras: [zoom, centre x, centre y] in app pixels.
   const FULL = [1, W / 2, H / 2];
   const ZONE = [1.45, 640, 380];   // the drop zone of the empty window
-  const AXIAL = [2.3, 278, 256];   // the tool rail and the axial view, and nothing else
-  const FILL = [1.6, 616, 290];    // the Fill button, the axial view and the sagittal view beside it
+  const AXIAL = [2.36, 271, 258.5]; // the tool rail and the axial view, and nothing else
+  const FILL = [1.6, 616, 294];    // the Fill button, the axial view and the sagittal view beside it
   const SAVE = [1.65, 892, 558];   // the message and the status at the bottom right
   try {
     // ── 1. two files are dropped on the empty window ──
@@ -147,7 +148,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     await A.mouse.move(...axc); await A.mouse.wheel(0, 100); await A.waitForTimeout(200); const up = (await st(A)).slice > s0 ? 1 : -1;
     const scrollTo = async (pg, want) => { await pg.mouse.move(...axc); for (let n = 0; n < 150; n++) { const cur = (await st(pg)).slice; if (cur === want) return; await pg.mouse.wheel(0, (cur < want ? up : -up) * 100); await pg.waitForTimeout(100); } throw new Error('could not reach slice ' + want); };
     const S1 = 70, S2 = 80, S3 = 90; // the three slices the new segment is painted on
-    const HEART = { [S1]: [0.06, -0.1, 0.03], [S2]: [0.065, -0.09, 0.055], [S3]: [0.03, -0.12, 0.035] }; // centre and radius of each blob
+    const HEART = { [S1]: [0.06, -0.1, 0.03], [S2]: [0.065, -0.09, 0.045], [S3]: [0.03, -0.12, 0.035] }; // centre of each blob and radius of the circle the brush is drawn round (less than the brush's own, so no hole is left)
     await scrollTo(A, S1);
     // move the sagittal and coronal views to the heart, so that they cut through what is painted later
     await A.evaluate(([x, y]) => { const e = window.__w.engine; e.jumpTo(e.canvasToWorld('axial', x, y), 'axial'); }, [P(ax, ...HEART[S2])[0] - ax.x, P(ax, ...HEART[S2])[1] - ax.y]); await A.waitForTimeout(400);
@@ -186,7 +187,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     // ── 4. a new segment on three slices, then fill between them ──
     scene = 'fill';
     await ses(A, 'addSegment'); const NEW = (await st(A)).active;
-    await ses(A, 'patchSegment', NEW, { name: 'Heart', color: '#0072B2' }); await ses(A, 'setBrushSize', 36); await ses(A, 'setPaintOver', 'empty');
+    await ses(A, 'patchSegment', NEW, { name: 'Heart', color: '#0072B2' }); await ses(A, 'setBrushSize', 40); await ses(A, 'setPaintOver', 'empty');
     const blob = (s) => { const [u, v, r] = HEART[s]; return [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => P(ax, u + r * Math.cos(i * 0.85), v + r * Math.sin(i * 0.85))); };
     await one(shot(), rest(5), mv('A', ...blob(S1)[0], 12), stroke('A', blob(S1), 18), rest(3), wheel('A', S2 - S1, up),
       mv('A', ...blob(S2)[0], 4), stroke('A', blob(S2), 18), rest(3), wheel('A', S3 - S2, up), mv('A', ...blob(S3)[0], 4), stroke('A', blob(S3), 18), rest(6));
@@ -228,7 +229,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
 
     // ── 6. save ──
     await ses(A, 'leaveRoom', true); await B.context().close(); B = null; await A.waitForTimeout(600);
-    await A.evaluate(() => window.__w.store.setState({ toasts: [], panelOpen: false })); await A.waitForTimeout(1500); // the views take the whole width, so the picture of the save is the image and the status
+    await A.evaluate(() => window.__w.store.setState({ toasts: [], panelOpen: false })); await A.waitForTimeout(2000); // the views take the whole width, so the picture of the save is the mask in 3D, the message and the status
     win.A.x = 860; win.A.y = 560; await A.mouse.move(win.A.x, win.A.y);
     dual = false; scene = 'save'; win.A.cam = SAVE.slice();
     log('before save', JSON.stringify(await st(A)));
