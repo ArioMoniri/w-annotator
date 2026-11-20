@@ -20,6 +20,7 @@ import { TopBar } from './ui/TopBar';
 import { Viewports } from './ui/Viewports';
 import { droppedFiles, pickImage, pickMask, toInputFiles } from './ui/files';
 import { getSettings } from './state/settings';
+import { chooseLayout, currentLayout } from './state/views';
 import { Tour } from './tour/Tour';
 import { startTour } from './tour/state';
 import { shouldShowTour } from './tour/steps';
@@ -74,7 +75,12 @@ function useHotkeys() {
       'slice.next': () => scrollActive(1),
       'slice.back5': () => scrollActive(-5),
       'slice.forward5': () => scrollActive(5),
-      'view.maximise': () => set({ maximized: get().maximized ? null : get().activeView }),
+      'view.maximise': () => set({ maximized: get().maximized || currentLayout() === 'single' ? null : get().activeView }),
+      'layout.grid': () => chooseLayout('grid'),
+      'layout.focus': () => chooseLayout('focus'),
+      'layout.three': () => chooseLayout('three'),
+      'layout.two': () => chooseLayout('two'),
+      'layout.single': () => chooseLayout('single'),
       'view.panel': () => set({ panelOpen: !get().panelOpen }),
       'edit.undo': () => session.undo(),
       'edit.redo': () => session.redo(),

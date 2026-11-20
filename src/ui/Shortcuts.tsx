@@ -23,6 +23,9 @@ const MOUSE: [string, string][] = [
   ['Window / Level', 'Right-drag'],
   ['Erase with the brush', 'Shift-drag'],
   ['Maximise a view', 'Double-click'],
+  ['Change the view in a pane', 'Click its name'],
+  ['Swap two panes', 'Drag a name onto another pane'],
+  ['Scroll another view', 'Drag its reference line'],
   ['Select segment 1–9', '1 – 9'],
 ];
 

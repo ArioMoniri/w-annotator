@@ -60,7 +60,7 @@ Left to right. The bar is the window drag region (`data-tauri-drag-region`); eve
 | Slot | Content | Size |
 |---|---|---|
 | Left | **File name** button: `chest_ct_014.nii.gz` + unsaved dot (6px, `--text-2`). Opens the File menu. Mask name follows in `--text-3` after a `·`. Truncate middle, max 320 wide. | 28 high |
-| Centre | **Layout switcher**: 3-option segmented icon control — Grid (2×2), Focus (1 large + 3 stacked), Single. | 28 high, 32 per segment |
+| Centre | **Layout switcher**: 5-option segmented icon control — 2 × 2, 1 large + 3 stacked, 3 side by side, 2 side by side, Single. Each icon is the layout drawn small. Centred on the bar, whatever is to its left and right. `Mod+1` … `Mod+5`, rebindable. | 28 high, 32 per segment |
 | Right | **Avatar stack** (only when in a room) → **Room button** → **Panel toggle** (icon). | 28 high, 8 gap |
 
 Room button: outside a room it is a secondary button labelled `Share`. In a room it becomes a tinted pill `● KDR-482` (green 6px dot = connected, amber = reconnecting) that opens the room popover.
@@ -113,14 +113,25 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 - Order: Axial (top-left), Sagittal (top-right), Coronal (bottom-left), 3D (bottom-right).
 - Active viewport: 1px inset outline `--accent`. Hovered: 1px inset `--border-strong`. Otherwise none.
 - Corner overlays, 8px inset, 11px mono, `--text-2` with a 1px black text shadow, `pointer-events: none`:
-  - top-left: orientation name (`Axial`) — coloured dot matches the crosshair line colour for that plane
+  - top-left: orientation name (`Axial`) — coloured dot matches the reference line colour for that plane. It is a button: it opens the view picker (Axial, Sagittal, Coronal, 3D), and dragging it onto another pane swaps the two
   - top-right: maximise button (24 × 24, appears on viewport hover or focus only)
   - bottom-left: `Slice 84 / 212`
   - edge midpoints: orientation letters `A P R L S I`, `--text-3`
 - **Double-click** a viewport (or press `M`) to maximise; same again, or `Esc`, restores. With an edit tool active, double-click is still maximise — strokes start on pointer move, not on click.
 - Scroll = slice. Mod+scroll = zoom. Middle-drag = pan. Right-drag = window/level. These work regardless of the active tool.
 - The brush cursor is a 1px ring in the active segment colour with a 1px black halo.
-- Focus layout: maximised view takes the left 3/4; the other three stack in the right 1/4.
+- Focus layout: the first pane takes the left 3/4; the other three stack in the right 1/4.
+
+**Layouts.** Five layouts: 2 × 2 (default), 1 large + 3 stacked, 3 side by side, 2 side by side, single. The view order (default Axial, Sagittal, Coronal, 3D) fills the panes in reading order; a layout with fewer panes leaves the last views off screen. Any pane can show any view: picking a view that is on screen elsewhere swaps the two, so a view is never shown twice. Maximise shows one view alone and restores the layout afterwards; picking a layout also leaves maximise. The layout and the order are kept between launches; maximise is not.
+
+- Panes are rectangles in whole pixels, computed in `src/viewer/layout.ts` and set on each pane by script. No pane is sized by CSS grid or flex: webviews resolve those differently (in WebKit the old maximise, a spanning grid cell beside hidden ones, came out as a strip).
+- Changing layout, swapping, maximising and resizing never change what a view shows: same slice, same window, same **millimetres per screen pixel**, same point at the centre. A larger pane shows more around the image, not a bigger image. `Fit` is the way to fill a pane.
+- A view that is off screen is not drawn. It keeps its slice and zoom and follows jumps made meanwhile.
+
+**Reference lines.** Each plane shows two thin lines, one for each of the other planes on screen, in that plane's colour. They leave a 24 px gap around the point where they would cross and stop 28 px short of the pane's edge, clear of the orientation letters. Dragging a line scrolls the plane it stands for. The planes stay orthogonal: there is no rotation handle and no oblique reslice (rotating a plane makes left and right easy to mistake).
+
+- Setting `Show reference lines`: `Always` / `On hover` (default: while the pointer is over the views) / `With crosshair tool only`. The crosshair tool always shows them.
+- With the crosshair, pan, zoom or window tool a line can be dragged. With the ruler or an edit tool the lines are display only, so a stroke that starts on a line is still a stroke.
 
 ### 2.5 Right panel — 264 wide, `--bg-surface`, left border, collapsible (Mod+\\)
 
@@ -469,7 +480,7 @@ Exits are always one step faster than entrances. Travel distances stay at or und
 ### 5.2 Hard rules for the image
 
 - Never animate, fade, scale, blur or tween a viewport canvas. Slice changes, window/level, zoom and pan apply on the frame they are requested.
-- Never resize a canvas continuously. Any layout change resizes each affected canvas exactly once.
+- Never resize a canvas continuously. Any layout change resizes each affected canvas exactly once, in the same frame as its pane, so an image is never shown stretched. While a window is dragged larger or smaller that is once per frame the pane changes; the image itself stays the same size on screen.
 - The scrim behind a modal is the only thing allowed to dim a viewport, and it is a separate layer above it.
 - No loading shimmer over an image. Loading is a 2px determinate bar at the top of the viewport cell plus `Loading… 42%` in the corner label.
 
@@ -533,7 +544,7 @@ Sentence case. No exclamation marks, no "please", no "oops", no "successfully". 
 | File name, nothing open | No image |
 | Unsaved dot tooltip | Unsaved changes |
 | File menu | Open image… · Open mask… · Save mask · Save mask as… · Close |
-| Layout switcher tooltips | Grid · Focus · Single |
+| Layout switcher tooltips | 2 × 2 · 1 large and 3 stacked · 3 side by side · 2 side by side · Single view (each followed by its key) |
 | Room button, not in a room | Share |
 | Room button tooltip | Start or join a room |
 | Room pill tooltip | Room KDR-482 · 3 people |
@@ -572,6 +583,8 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Labels | Axial · Sagittal · Coronal · 3D |
 | Slice | Slice 84 / 212 |
 | Maximise tooltip | Maximise `M` / Restore `M` |
+| View picker | Axial · Sagittal · Coronal · 3D. Label tooltip: Change view, or drag onto another pane to swap |
+| Reference lines setting | Show reference lines — Always · On hover · With crosshair tool only. Help: Lines in each view that mark where the other two views cut it. Drag one to scroll that view. |
 | Loading | Loading… 42% |
 | 3D, no mask | Add a segment to see it in 3D. |
 | 3D, building | Building 3D view… |
