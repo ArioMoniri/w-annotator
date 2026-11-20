@@ -316,7 +316,7 @@ const SaveKeys = ({ f }: { f: number }) => {
   if (o <= 0) return null;
   const lit = f >= from + 6 && f < to;
   return (
-    <div style={{ position: 'absolute', left: 0, right: 0, top: '30%', display: 'flex', justifyContent: 'center', opacity: o }}>
+    <div style={{ position: 'absolute', left: 0, right: 0, top: '24%', display: 'flex', justifyContent: 'center', opacity: o }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '22px 30px 26px', borderRadius: 24, background: 'rgba(14,16,20,0.88)', boxShadow: '0 0 0 1px rgba(255,255,255,0.12), 0 20px 50px rgba(0,0,0,0.5)' }}>
         <Key label="Ctrl" size={84} lit={lit} />
         <span style={{ ...type(500, 44, 84, 0), color: MUTED }}>+</span>

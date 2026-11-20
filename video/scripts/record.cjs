@@ -100,7 +100,9 @@ const profile = () => { try { localStorage.setItem('w-annotator:theme', 'dark');
 async function newPage(br, dsf) {
   const ctx = await br.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: dsf, acceptDownloads: true, colorScheme: 'dark' }); await ctx.addInitScript(profile);
   const p = await ctx.newPage(); p.on('pageerror', e => console.log('PAGEERR', e.message)); await p.goto(APP); await p.waitForFunction(() => '__w' in window);
-  await p.addStyleTag({ content: '[data-tip]::after { display: none !important; }' }); // no tooltips: the recording waits on buttons far longer than a person does
+  // No tooltips: the recording waits on buttons far longer than a person does. And the brush ring is hidden in a view
+  // the pointer is not in: the app leaves it where the pointer left the view, which reads as a second brush.
+  await p.addStyleTag({ content: '[data-tip]::after { display: none !important; } [data-view]:not(:hover) .svg-layer circle { display: none !important; }' });
   return p;
 }
 // The files reach the app through its own drop handler: a drag is entered and dropped on the window with the two
@@ -121,7 +123,7 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
   // Cameras: [zoom, centre x, centre y] in app pixels.
   const FULL = [1, W / 2, H / 2];
   const ZONE = [1.45, 640, 380];   // the drop zone of the empty window
-  const AXIAL = [2.2, 291, 246];   // the tool rail and the axial view
+  const AXIAL = [2.3, 278, 256];   // the tool rail and the axial view, and nothing else
   const FILL = [1.6, 616, 290];    // the Fill button, the axial view and the sagittal view beside it
   const SAVE = [1.65, 892, 558];   // the message and the status at the bottom right
   try {
@@ -216,18 +218,17 @@ const done = (name) => { if (UNTIL === name) throw new Error('STOP'); };
     win.B.x = axc[0] - 30; win.B.y = ax.y + ax.height * 0.84; await B.mouse.move(win.B.x, win.B.y); await B.waitForTimeout(1200);
     log('joined', JSON.stringify(await st(A)), JSON.stringify(await st(B)));
     scene = 'room'; dual = true; win.A.cam = FULL.slice(); win.B.cam = FULL.slice();
-    const AX2 = [2.2, 291, 256];
     await play({ A: [...shot(), ...rest(33)] });
     await play({
-      A: [...cam('A', AX2), ...rest(14), ...mv('A', ...minaFix[0], 16), ...rest(2), ...stroke('A', minaFix, 30), ...rest(4)],
-      B: [...cam('B', AX2), ...rest(4), ...mv('B', ...samFix[0], 16), ...rest(2), ...stroke('B', samFix, 30)],
+      A: [...cam('A', AXIAL), ...rest(14), ...mv('A', ...minaFix[0], 16), ...rest(2), ...stroke('A', minaFix, 30), ...rest(4)],
+      B: [...cam('B', AXIAL), ...rest(4), ...mv('B', ...samFix[0], 16), ...rest(2), ...stroke('B', samFix, 30)],
     });
     await play({ A: [...shot(async () => { await A.waitForTimeout(800); }), ...rest(44)] });
     log('room', JSON.stringify(await st(A)), JSON.stringify(await st(B))); done('room');
 
     // ── 6. save ──
     await ses(A, 'leaveRoom', true); await B.context().close(); B = null; await A.waitForTimeout(600);
-    await A.evaluate(() => window.__w.store.setState({ toasts: [] }));
+    await A.evaluate(() => window.__w.store.setState({ toasts: [], panelOpen: false })); await A.waitForTimeout(1500); // the views take the whole width, so the picture of the save is the image and the status
     win.A.x = 860; win.A.y = 560; await A.mouse.move(win.A.x, win.A.y);
     dual = false; scene = 'save'; win.A.cam = SAVE.slice();
     log('before save', JSON.stringify(await st(A)));
