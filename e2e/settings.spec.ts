@@ -205,6 +205,22 @@ test('Help shows the version and licence, and opens the report dialog', async ({
   await expect(page.getByRole('dialog', { name: 'Report a problem' })).toBeVisible();
 });
 
+test('Help names the sample data, its licence and where it comes from', async ({ page }) => {
+  await launch(page);
+  await page.keyboard.press('Control+,');
+  await page.getByRole('tab', { name: 'Help' }).click();
+  await expect(page.getByText('Sample data: LUNA16 / LIDC-IDRI, CC BY 4.0')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'LUNA16' })).toHaveAttribute('href', 'https://luna16.grand-challenge.org/');
+  await expect(page.getByRole('link', { name: 'LIDC-IDRI' })).toHaveAttribute('href', 'https://www.cancerimagingarchive.net/collection/lidc-idri/');
+  await expect(page.getByRole('link', { name: 'CC BY 4.0' })).toHaveAttribute('href', 'https://creativecommons.org/licenses/by/4.0/');
+  // A link opens in the browser, not in place of the app.
+  await page.context().route('https://creativecommons.org/**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>licence</title>' }));
+  const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', { name: 'CC BY 4.0' }).click()]);
+  await popup.waitForURL('https://creativecommons.org/licenses/by/4.0/');
+  await popup.close();
+  await expect(dialog(page)).toBeVisible();
+});
+
 test('Settings fits a 1024x640 window in both themes', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 640 });
   for (const scheme of ['dark', 'light'] as const) {

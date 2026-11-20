@@ -58,7 +58,7 @@ test('first launch offers the tour, the sample walk reaches the end, and it does
 
   await page.getByRole('button', { name: 'Open a sample to look around' }).click();
   await page.locator('[data-view="axial"] canvas').first().waitFor();
-  await expect(page.locator('.segrow')).toHaveCount(2);
+  await expect(page.locator('.segrow')).toHaveCount(3);
   await walk(page, FULL);
 
   await expect(card(page)).toContainText("You're set.");
