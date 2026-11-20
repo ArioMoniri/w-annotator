@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { gunzipSync } from 'node:zlib';
-import { click, drag, idle, launch, maskVoxels, sleep, store, until } from './driver.mjs';
+import { click, drag, idle, launch, maskVoxels, openInWindow, sleep, store, until } from './driver.mjs';
 import { count, N, readNifti, writeFixtures } from './fixtures.mjs';
 
 const TOOLS = ['crosshair', 'pan', 'zoom', 'window', 'measure', 'brush', 'eraser', 'threshold', 'scissors', 'fill'];
@@ -46,6 +46,9 @@ describe('with an image and a mask from the command line', () => {
   before(async () => {
     app = await launch({ args: [fx.imagePath, fx.maskPath], env: { W_E2E_SAVE_DIR: saveDir } });
     browser = app.browser;
+    // The Edge driver does not pass command-line arguments on to a WebView2 app, so on Windows
+    // the files go in through the window. The self-test covers the command line there.
+    if (process.platform === 'win32') await openInWindow(browser, [fx.imagePath, fx.maskPath]);
     await idle(browser);
   });
   after(async () => {

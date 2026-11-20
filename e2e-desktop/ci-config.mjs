@@ -8,7 +8,8 @@
  * Edge driver reaches the app on Windows: it normally asks for the port through the
  * WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable, which the app's WebView2 does not apply
  * (seen on the CI runners with WebView2 156 and 157), so the build has to ask for it itself.
- * Only test builds get this; the shipped config is untouched.
+ * Use port 0: WebView2 then picks a free port and writes it to the file the driver reads, and
+ * the driver can start the app as usual. Only test builds get this; the shipped config is untouched.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

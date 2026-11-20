@@ -4,7 +4,7 @@
  * no driver for WKWebView, so this suite does not run there (see README.md).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,8 +69,8 @@ export async function launch({ args = [], env = {} } = {}) {
     console.error(`Could not start ${DRIVER}: ${err.message}`);
   });
 
-  // Windows: the Edge driver cannot start the app itself (see ci-config.mjs), so the app is
-  // started here, with its WebView2 debugging port open, and the driver attaches to it.
+  // Windows, optional: with a fixed debugging port (W_WEBVIEW2_DEBUG_PORT above 0) the app is started
+  // here and the driver attaches to it. CI uses port 0 instead, where the driver starts the app itself.
   const debugPort = process.platform === 'win32' && Number(process.env.W_WEBVIEW2_DEBUG_PORT) > 0 ? process.env.W_WEBVIEW2_DEBUG_PORT : undefined;
   let app = null;
   let capabilities = { 'tauri:options': { application: APP, args } };
@@ -143,11 +143,6 @@ export async function launch({ args = [], env = {} } = {}) {
       },
     };
   } catch (err) {
-    if (process.platform === 'win32') {
-      // Where did WebView2 write its debugging port, if anywhere?
-      const found = spawnSync('cmd', ['/c', 'dir', '/s', '/b', `${process.env.LOCALAPPDATA}\\DevToolsActivePort`, `${tmpdir()}\\DevToolsActivePort`], { encoding: 'utf8' }).stdout ?? '';
-      console.error(`DevToolsActivePort files: ${found.trim().split(/\r?\n/).slice(0, 6).join(' ; ') || 'none'}`);
-    }
     await stop();
     throw err;
   }
@@ -203,3 +198,15 @@ export async function click(browser, view, at) {
 }
 
 export { sleep };
+
+/**
+ * Opens files in the app window through the app's own open path, as a drop would.
+ * Used where the driver cannot hand command-line arguments to the app (Windows).
+ */
+export async function openInWindow(browser, paths) {
+  const files = paths.map((path) => ({ name: path.split(/[\\/]/).pop(), data: readFileSync(path).toString('base64') }));
+  await browser.execute(async (files) => {
+    const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    await window.__w.session.openFiles(files.map((f) => ({ name: f.name, bytes: bytes(f.data) })));
+  }, files);
+}
