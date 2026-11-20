@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, modLabel, openPhantom, pixelAt, tintedPixels } from './helpers';
+import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, modLabel, openPhantom, pixelAt, tab, tintedPixels } from './helpers';
 
 const TEXT_1 = 'rgb(231, 233, 236)';
 const WARN = 'rgb(229, 180, 84)';
@@ -69,7 +69,7 @@ test('a fixed key is refused with a note, and Tab leaves the choice', async ({ p
   await page.keyboard.press('1');
   await expect(help(page)).toHaveText("1 is fixed and can't be reassigned. Press other keys, or Esc to cancel.");
   await expect(key(page, 'tool.brush')).toHaveText('Press keys…');
-  await page.keyboard.press('Tab');
+  await tab(page);
   await expect(key(page, 'tool.brush')).toHaveText('B');
   await expect(key(page, 'tool.eraser')).toBeFocused();
 });
@@ -307,7 +307,7 @@ test('a pressed segmented button shows a focus ring', async ({ page }) => {
   await page.keyboard.press('b');
   const circle = page.getByRole('group', { name: 'Brush shape' }).getByRole('button', { name: 'Circle' });
   await page.getByRole('group', { name: 'Brush shape' }).getByRole('button', { name: 'Sphere' }).focus();
-  await page.keyboard.press('Shift+Tab');
+  await tab(page, true);
   await expect(circle).toBeFocused();
   await expect(circle).toHaveAttribute('aria-pressed', 'true');
   expect(await circle.evaluate((el) => getComputedStyle(el).boxShadow)).toContain('inset');

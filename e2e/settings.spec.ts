@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { modLabel, openPhantom } from './helpers';
+import { modLabel, openPhantom, tab } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Settings' });
 /** Opens the app and waits until it is listening for keys. */
@@ -35,7 +35,7 @@ test('Settings opens with the shortcut, moves by arrow keys, traps focus and clo
   await expect(page.getByRole('tab', { name: 'Profile' })).toBeFocused();
 
   for (let i = 0; i < 8; i++) {
-    await page.keyboard.press('Tab');
+    await tab(page);
     expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
   }
   await page.keyboard.press('Escape');
