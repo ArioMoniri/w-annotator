@@ -391,7 +391,7 @@ kbd {
   position: absolute;
   top: calc(100% + 6px);
   left: 50%;
-  transform: translate(-50%, -4px);
+  transform: translateX(-50%);
   background: var(--bg-raised);
   box-shadow: var(--shadow-2);
   border-radius: var(--radius-md);
@@ -402,36 +402,39 @@ kbd {
   pointer-events: none;
   opacity: 0;
   z-index: 70;
-  transition: opacity var(--dur-instant) linear, transform var(--dur-fast) var(--ease-out);
+  /*
+   * Opacity only, and only on the way in. A transform on small text renders soft in
+   * WebKit while it moves, and a tip that fades out is still half there when the pointer
+   * is already on the next button, so it goes at once.
+   */
+  will-change: opacity;
+  transition: none;
+  /* A tip never takes on the look of what it sits in (the viewport labels are outlined). */
+  -webkit-text-stroke: 0 transparent;
+  paint-order: normal;
+  text-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
+  font-variant-numeric: normal;
 }
 
 [data-tip]:hover::after,
 [data-tip]:focus-visible::after {
   opacity: 1;
-  transform: translate(-50%, 0);
-  transition-delay: var(--tip-delay);
+  transition: opacity var(--dur-fast) linear var(--tip-delay);
 }
 
 [data-tip][data-tip-side='right']::after {
   top: 50%;
   left: calc(100% + 8px);
-  transform: translate(-4px, -50%);
-}
-
-[data-tip][data-tip-side='right']:hover::after,
-[data-tip][data-tip-side='right']:focus-visible::after {
-  transform: translate(0, -50%);
+  transform: translateY(-50%);
 }
 
 [data-tip][data-tip-side='left']::after {
   top: 50%;
   left: auto;
   right: calc(100% + 8px);
-  transform: translate(4px, -50%);
-}
-
-[data-tip][data-tip-side='left']:hover::after {
-  transform: translate(0, -50%);
+  transform: translateY(-50%);
 }
 
 [data-tip][data-tip-side='top']::after {
@@ -442,11 +445,12 @@ kbd {
 [data-tip][data-tip-align='end']::after {
   left: auto;
   right: 0;
-  transform: translate(0, -4px);
+  transform: none;
 }
 
-[data-tip][data-tip-align='end']:hover::after {
-  transform: translate(0, 0);
+/* The small buttons over a view: the tip goes below, clear of the button beside it. */
+.overlay.tr [data-tip]::after {
+  top: calc(100% + 8px);
 }
 
 /* ── Tool rail ─────────────────────────────────── */
@@ -1503,7 +1507,21 @@ input[type='range']:focus-visible {
 
 .modal .tabs {
   display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 20px;
+}
+
+/* In the row with the tabs, not on top of them. */
+.modal .tabs .close {
+  position: static;
+  flex: none;
+  margin-right: -8px;
+}
+
+/* A heading never runs under the close button in the corner. */
+.modal > h2 {
+  padding-right: 32px;
 }
 
 .modal .tabs .seg-control {
@@ -1862,12 +1880,7 @@ input[type='range']:focus-visible {
 /* Start-aligned, so a tooltip on a narrow field is not cut by the sideways clip. */
 .strip .options .field[data-tip]::after {
   left: 0;
-  transform: translate(0, -4px);
-}
-
-.strip .options .field[data-tip]:hover::after,
-.strip .options .field[data-tip]:focus-visible::after {
-  transform: translate(0, 0);
+  transform: none;
 }
 
 /* Buttons keep their width; hints are what gives way. */
@@ -2041,6 +2054,17 @@ button.avatar {
 .menu {
   max-height: calc(100vh - 16px);
   overflow-y: auto;
+}
+
+/* In the segments panel a popover is as wide as the rows (its width comes from the row). */
+.segrow > .menu {
+  min-width: 0;
+  max-width: none;
+}
+
+.segrow > .menu.palette {
+  grid-template-columns: repeat(6, 1fr);
+  justify-items: center;
 }
 
 .menu.ask {
@@ -2780,6 +2804,17 @@ button.avatar {
 
 .status .syncgroup {
   white-space: nowrap;
+  flex: none;
+}
+
+/* Too narrow for everything: whole items leave, least important first (StatusBar.tsx). */
+.status[data-drop='1'] [data-drop-order='1'],
+.status[data-drop='2'] :is([data-drop-order='1'], [data-drop-order='2']),
+.status[data-drop='3'] :is([data-drop-order='1'], [data-drop-order='2'], [data-drop-order='3']),
+.status[data-drop='4'] :is([data-drop-order='1'], [data-drop-order='2'], [data-drop-order='3'], [data-drop-order='4']),
+.status[data-drop='5'] :is([data-drop-order='1'], [data-drop-order='2'], [data-drop-order='3'], [data-drop-order='4'], [data-drop-order='5']),
+.status[data-drop='6'] [data-drop-order] {
+  display: none;
 }
 
 .recovery-waiting {

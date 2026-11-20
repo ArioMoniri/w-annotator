@@ -52,7 +52,8 @@ export async function until(read, ok = Boolean, { timeout = 20_000, what = 'the 
  * and `url` is loaded. Returns helpers bound to the session.
  */
 export async function open({ url, app, port = Number(process.env.W_WD_PORT ?? 4581), size = [1280, 800] } = {}) {
-  const env = { ...process.env, WEBKIT_DISABLE_DMABUF_RENDERER: '1', WEBKIT_DISABLE_COMPOSITING_MODE: process.env.WEBKIT_DISABLE_COMPOSITING_MODE ?? '' };
+  // The desktop app only lets a driver in when it is told to (this is what tauri-driver sets).
+  const env = { ...process.env, WEBKIT_DISABLE_DMABUF_RENDERER: '1', TAURI_AUTOMATION: 'true', TAURI_WEBVIEW_AUTOMATION: 'true' };
   if (await portOpen(port)) throw new Error(`Port ${port} is in use; set W_WD_PORT.`);
   const driver = spawn('WebKitWebDriver', [`--port=${port}`], { env, stdio: ['ignore', 'inherit', 'inherit'] });
   const stop = () => driver.kill();

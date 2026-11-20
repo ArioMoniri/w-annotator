@@ -243,7 +243,8 @@ export function Viewports() {
                 aria-label="Show image in 3D"
                 aria-pressed={show3dImage}
                 data-tip={show3dImage ? 'Hide image' : 'Show image'}
-                data-tip-side="left"
+                data-tip-side="bottom"
+                data-tip-align="end"
                 onClick={() => setShow3dImage(!show3dImage)}
               >
                 <Box size={14} />
@@ -253,7 +254,8 @@ export function Viewports() {
               className="iconbtn sm"
               aria-label={maximized === v.id ? 'Restore' : 'Maximise'}
               data-tip={`${maximized === v.id ? 'Restore' : 'Maximise'}  ${key('view.maximise')}`.trimEnd()}
-              data-tip-side="left"
+              data-tip-side="bottom"
+              data-tip-align="end"
               onClick={() => set({ maximized: maximized === v.id ? null : v.id })}
             >
               {maximized === v.id ? <Minimize2 size={14} /> : <Maximize2 size={14} />}

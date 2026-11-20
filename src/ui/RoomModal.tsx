@@ -84,9 +84,7 @@ function RoomDialog() {
 
   return (
     <Modal title={mode === 'start' ? 'Start a room' : 'Join a room'} onClose={close} returnTo={ROOM_PILL}>
-      <button className="iconbtn close" aria-label="Close" onClick={close}>
-        <X size={16} />
-      </button>
+      {/* One row: the tabs take the width that is left beside the close button. */}
       <div className="tabs">
         <div className="seg-control" role="tablist">
           <button role="tab" aria-selected={mode === 'start'} onClick={() => tab('start')}>
@@ -96,6 +94,9 @@ function RoomDialog() {
             Join a room
           </button>
         </div>
+        <button className="iconbtn close" aria-label="Close" onClick={close}>
+          <X size={16} />
+        </button>
       </div>
       <form className="form" onSubmit={submit}>
         <label>

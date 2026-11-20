@@ -1,3 +1,4 @@
+import { placeMenu } from './place';
 import { Ellipsis, Eye, EyeOff, Lock, LockOpen, Plus } from 'lucide-react';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { SegmentInfo } from '../collab/protocol';
@@ -147,11 +148,8 @@ function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew:
     if (next && from) opener.current = from.classList.contains('swatchbtn') ? 'swatch' : 'more';
     if (next && row) {
       const r = row.getBoundingClientRect();
-      setAnchor({
-        position: 'fixed',
-        top: r.bottom - 2,
-        ...(next === 'color' ? { left: r.left + 4 } : { right: window.innerWidth - r.right + 4 }),
-      });
+      // As wide as the row, so no piece of a neighbouring row shows beside it.
+      setAnchor({ position: 'fixed', top: r.bottom - 2, left: r.left, width: r.width });
     }
     setMenuState(next);
   };
@@ -159,12 +157,22 @@ function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew:
   const ref = useDismiss<HTMLDivElement>(menu !== null, close, () =>
     rowRef.current?.querySelector<HTMLElement>(opener.current === 'swatch' ? '.swatchbtn' : '[aria-haspopup]') ?? null,
   );
-  // Keep the whole menu on screen when the row is near the bottom.
+  // Keep every item in reach: between the top bar and the status bar, scrolling inside if it must.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!menu || !el) return;
-    const top = Math.max(8, Math.min(el.offsetTop, window.innerHeight - 8 - el.offsetHeight));
-    if (top !== el.offsetTop) setAnchor((a) => ({ ...a, top }));
+    const row = rowRef.current;
+    if (!menu || !el || !row) return;
+    const fit = () => {
+      const lo = (row.closest('.panel')?.getBoundingClientRect().top ?? 0) + 4;
+      const hi = (document.querySelector('.status')?.getBoundingClientRect().top ?? window.innerHeight) - 4;
+      el.style.maxHeight = '';
+      const next = placeMenu(row.getBoundingClientRect().bottom - 2, el.offsetHeight, lo, hi);
+      el.style.maxHeight = `${next.maxHeight}px`;
+      setAnchor((a) => (a.top === next.top && a.maxHeight === next.maxHeight ? a : { ...a, ...next }));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
   }, [menu, ref]);
   const run = (op: RefineOp) => {
     setMenu(null);
