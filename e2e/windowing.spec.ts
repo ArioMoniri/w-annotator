@@ -431,27 +431,27 @@ test('with the Window / Level tool a two-finger scroll changes the window, and S
   const start = await voi(page);
   const width = (v: Voi) => v.upper - v.lower;
   const level = (v: Voi) => (v.upper + v.lower) / 2;
-  await scroll(vertical(4.5));
+  await scroll(vertical(5));
   expect(await slice()).not.toBe(at);
   expect(await voi(page)).toEqual(start);
 
   await page.keyboard.press('w');
   const here = await slice();
-  await scroll(vertical(4.5));
+  await scroll(vertical(5));
   const brighter = await voi(page);
   expect(await slice()).toBe(here);
-  // 135 pixels at 0.002 of the width each: the level drops by 27% of the width, which stays.
-  expect(level(brighter)).toBeCloseTo(level(start) - 0.27 * width(start), 1);
+  // Whole pixels, as a trackpad sends. 150 pixels at 0.002 of the width each: the level drops by 30% of the width, which stays.
+  expect(level(brighter)).toBeCloseTo(level(start) - 0.3 * width(start), 1);
   expect(width(brighter)).toBeCloseTo(width(start), 2);
-  await scroll(vertical(-4.5));
+  await scroll(vertical(-5));
   expect(close(await voi(page), start)).toBe(true);
 
-  await scroll(Array.from({ length: 30 }, () => ({ deltaX: -4.5, deltaY: 0 })));
+  await scroll(Array.from({ length: 30 }, () => ({ deltaX: -5, deltaY: 0 })));
   const wider = await voi(page);
   expect(width(wider)).toBeGreaterThan(width(start) * 1.5);
   expect(level(wider)).toBeCloseTo(level(start), 2);
 
-  await scroll(vertical(4.5, { shiftKey: true }));
+  await scroll(vertical(5, { shiftKey: true }));
   expect(await slice()).not.toBe(here);
   expect(close(await voi(page), wider)).toBe(true);
 });
