@@ -489,7 +489,11 @@ async fn the_room_allowance_drops_frames_without_closing_anyone() {
 
 #[tokio::test]
 async fn connection_attempts_are_limited_per_address() {
-    let relay = TestRelay::with(|c| c.limits.joins_per_minute = 5).await;
+    let relay = TestRelay::with(|c| {
+        c.limits.joins_per_minute = 5;
+        c.v1 = true;
+    })
+    .await;
     for _ in 0..5 {
         relay.open("JOINS001").await;
     }

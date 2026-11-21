@@ -1805,7 +1805,9 @@ function onRoomEnded(r: RoomCtx, code: number, reason: string): void {
     ? null
     : rejoin && code === 4404
       ? 'This room is not open right now. Ask the host to open it again.'
-      : closeMessage(code, reason, { host: hostName(r), kind: wasIn ? r.kind : null });
+      : wasIn && r.role === 'host' && code === 4410
+        ? 'The room ended while you were disconnected. Start a new room to carry on together.'
+        : closeMessage(code, reason, { host: hostName(r), kind: wasIn ? r.kind : null });
   // The membership is over: nothing to come back to.
   const gone = [4401, 4403, 4410].includes(code);
   teardown(r, { wipe: guest, keep: !gone });

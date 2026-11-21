@@ -410,28 +410,38 @@ Click selects. Double-click the name or press F2 renames. Click the swatch opens
 
 420 wide, `--bg-raised`, `--shadow-3`, radius `--radius-lg`, padding 24. Scrim `--bg-scrim`. Title 15/600; close button top-right; footer buttons right-aligned, 36 high.
 
-One modal, two tabs (segmented control at the top): **Start a room** · **Join a room**. Opened from `Share` it lands on Start; from the empty state's `Join a room` it lands on Join.
+One modal, two tabs (segmented control at the top): **Start a room** · **Join a room**. Opened from `Share` it lands on Start; from the empty state's `Join a room` it lands on Join. The close button sits in the row of the tabs (or of the title, on the second step), never on top of content.
 
 ```
-Start a room                      Join a room
-─────────────────────             ─────────────────────
-Your name                         Your name
-[ Mina                 ]          [ Mina                 ]
-                                  Room code
-Anyone with the code can          [ KDR-482              ]
-view and edit this mask.
-              [Cancel] [Start]                 [Cancel] [Join]
+Start a room                              Join a room
+─────────────────────────────             ─────────────────────────────
+Your name                                 Your name
+[ Mina                         ]          [ Mina                         ]
+(•) Shared copy                           Invite link
+    Everyone gets the image and           [ Paste the invite link        ]
+    the mask and keeps a copy. …
+( ) View through my computer              Rooms you have joined on this device
+    Others see and edit the mask          Mina's room  last opened …  Rejoin  Forget
+    through your computer. …
+                  [Cancel] [Start]                          [Cancel] [Join]
 ```
 
-- Name: max 24 characters, remembered locally, prefilled next time. Focus starts on the first empty field. Enter submits.
-- Room code: 6 characters shown as `XXX-XXX`, case-insensitive, hyphen auto-inserted; pasting a full invite link extracts the code.
+- Name: max 24 characters, the display name from Settings, prefilled and saved back. It is the only thing a room asks of anyone. Focus starts on the first empty field. Enter submits.
+- Kind of room: two radio cards, 1px `--border-control`, radius `--radius-sm`, padding 10 × 12; the chosen one has an `--accent` border on `--bg-surface`. Title 13/500, description 12px `--text-3`. The wording is fixed by `ROOMS.md` B: the second card always shows "This limits what leaves your computer; it can't stop someone photographing or recording their screen." Never "secure", "protected" or "cannot be copied".
+- Invite link: the whole link, including the part after `#`. There are no room codes.
+- Rooms you have joined: shared-copy rooms this device is a member of, with `Rejoin` and `Forget` as text buttons. Shown only when there are any.
+- One 12px line above the footer: not for diagnosis or treatment; de-identify before sharing.
 - Validation is inline under the field in `--danger` 12px, shown on submit, cleared on edit.
 - Submitting: primary button shows a 14px spinner and `Starting…` / `Joining…`; fields are disabled.
-- After Start succeeds, the modal content swaps to: the code in 20px mono, `Copy code` (primary) and `Copy invite link` (secondary), and `Done`.
+- After Start succeeds, the modal content swaps to: title `Room started`, one line saying that each link works for one person and stops working after 24 hours, the link in 12px mono, then `Done`, `Link for another person` (secondary) and `Copy invite link` (primary).
 
-**Room popover** (from the room pill once connected): 280 wide menu surface. Code + copy button; list of people (avatar, name, `You` tag on self; click a person to jump to their view); `Leave room` at the bottom.
+**Room pill**: status dot, `Room`, and `Connecting…` or `Offline` when not connected.
 
-**[assumption]** A person joining with no image open receives the image and mask from the room. If engineering decides everyone must open the image locally first, replace the join copy with `Open the same image, then join.` and disable `Join a room` on the empty state.
+**Room popover** (from the room pill once connected): 300 wide menu surface, or the width of the segments panel when it is open. The kind of room as its title; when offline, one line and `Reconnect now`; for the host `New invite link` and the unused links (`Link 1 · expires in 24 h`, `Copy`, `Switch off`); the list of people (avatar, name, `You` tag on self, `Host` tag, click a person to jump to their view; for the host a `Remove` text button per person and, in a view-through-host room, how many slices each has seen); at the bottom `Leave room`, and for the host `Delete room` (shared copy) or `End room` (view through host). Remove, Delete and End ask first, in a confirm dialog that says what the other person keeps.
+
+**Room bar** (same place and look as the recovery bar, above the views): for a guest of a view-through-host room, "Viewing through Mina's computer. Nothing is saved on this device." for as long as they are in it; after a merge that left differences, the count of slices and voxels with `Use mine` (primary) and `Keep the room's` (secondary).
+
+**Blank view**: while a guest of a view-through-host room cannot reach the host, an opaque black layer covers the views with one line, "Waiting for Mina…". It is a layer above the views; the image itself is never animated or altered.
 
 ### 4.7 Avatar stack
 

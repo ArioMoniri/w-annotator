@@ -11,9 +11,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { gunzipSync } from 'node:zlib';
 import { click, drag, idle, launch, maskVoxels, openInWindow, sleep, store, until, viewSize } from './driver.mjs';
 import { count, N, readNifti, writeFixtures } from './fixtures.mjs';
+import { KIND, assemble, joinRoom } from './roombot.mjs';
 
 const TOOLS = ['crosshair', 'pan', 'zoom', 'window', 'measure', 'brush', 'eraser', 'threshold', 'scissors', 'fill'];
 
@@ -284,7 +284,8 @@ describe('with an image and a mask from the command line', () => {
     const linkBox = await browser.$('[data-testid="room-link"]');
     await linkBox.waitForExist({ timeout: 15_000 });
     const link = (await linkBox.getText()).trim();
-    const parts = /^ws:\/\/(\d+\.\d+\.\d+\.\d+):(\d+)\/r\/([A-Z0-9]{6})$/.exec(link);
+    // The link is for a browser to show "open the app"; the secret after # never reaches a server.
+    const parts = /^http:\/\/(\d+\.\d+\.\d+\.\d+):(\d+)\/j\/([A-Z0-9]{12})#[A-Za-z0-9_-]{22}$/.exec(link);
     assert.ok(parts, `unexpected invite link ${link}`);
     const [, host, port] = parts;
     const note = await (await browser.$('[data-testid="room-note"]')).getText();
@@ -292,49 +293,53 @@ describe('with an image and a mask from the command line', () => {
     if (host === '127.0.0.1') assert.match(note, /only works on this computer/);
     else assert.match(note, /same network or VPN/);
     assert.equal(await store(browser, (s) => s.room.hosting && s.room.status), 'online');
+    assert.equal(await store(browser, (s) => s.room.kind), 'shared');
     assert.equal(await (await fetch(`http://${host}:${port}/health`)).text(), 'ok');
+    // The old protocol is refused, so an app from before tells its user to update.
+    assert.equal((await fetch(`http://${host}:${port}/r/ABCDEF`)).status, 426);
     await (await browser.$('button=Done')).click();
 
-    // A second person, played by a plain WebSocket client in this process.
-    const texts = [];
-    const frames = [];
-    const ws = new WebSocket(`${link}?name=Bot`);
-    ws.binaryType = 'arraybuffer';
-    ws.addEventListener('message', (ev) => (typeof ev.data === 'string' ? texts.push(JSON.parse(ev.data)) : frames.push(new Uint8Array(ev.data))));
-    const got = (t) => texts.find((m) => m.t === t);
-    const welcome = await until(() => got('welcome'), Boolean, { what: 'the welcome message' });
-    assert.equal(welcome.peers.length, 1);
-    assert.equal(welcome.peers[0].name, 'Mina');
-    const hostId = welcome.peers[0].id;
+    // A second person, played by a protocol v2 client in this process.
+    const ws = await joinRoom(link, 'Bot');
+    assert.equal(ws.welcome.room.type, 'shared');
+    assert.equal(ws.welcome.self.role, 'editor');
+    assert.equal(ws.welcome.roster.length, 2);
+    const hostId = ws.welcome.roster.find((m) => m.role === 'host').id;
+    // The relay is told keys and roles, never names.
+    assert.ok(!JSON.stringify(ws.texts).includes('Mina'));
 
     const avatar = await browser.$('.avatars .avatar');
     await avatar.waitForExist({ timeout: 10_000 });
     assert.equal(await avatar.getText(), 'B');
     assert.equal(await avatar.getAttribute('title'), 'Bot');
+    // The host's name arrives inside an encrypted frame.
+    const hi = await until(() => ws.frames.find((f) => f.kind === KIND.presence && f.meta.t === 'hi'), Boolean, { what: "the host's name" });
+    assert.equal(hi.meta.name, 'Mina');
+    assert.equal(hi.from, hostId);
 
-    ws.send(JSON.stringify({ t: 'need-snapshot', to: hostId, imageToo: true }));
-    const snapshot = await until(() => got('snapshot'), Boolean, { what: 'the snapshot announcement' });
-    assert.equal(snapshot.from, hostId);
-    assert.equal(snapshot.to, welcome.id);
-    assert.deepEqual(snapshot.mask.dims, [N, N, N]);
-    assert.deepEqual(snapshot.image.dims, [N, N, N]);
-    assert.equal(snapshot.segments.length, 2);
-    assert.equal(snapshot.total, snapshot.image.bytes + snapshot.mask.bytes);
-    // Frames: u32 sender, u8 kind (2 = snapshot), payload.
-    const received = () => frames.filter((f) => f[4] === 2).reduce((n, f) => n + f.length - 5, 0);
-    await until(received, (n) => n >= snapshot.total, { what: 'the snapshot data' });
-    assert.equal(received(), snapshot.total);
-    const payload = Buffer.concat(frames.filter((f) => f[4] === 2).map((f) => f.subarray(5)));
-    assert.equal(new DataView(frames[0].buffer).getUint32(0, true), hostId);
-    const mask = gunzipSync(payload.subarray(snapshot.image.bytes));
+    // Ask the host for the image and the mask, as someone joining does.
+    ws.send(KIND.syncRequest, { rid: 7, image: true, fp: null }, undefined, { to: hostId });
+    const got = (t) => ws.frames.find((f) => f.kind === KIND.syncSlab && f.meta.rid === 7 && f.meta.t === t);
+    const begin = await until(() => got('begin'), Boolean, { what: 'the start of the transfer' });
+    assert.equal(begin.from, hostId);
+    assert.deepEqual(begin.meta.dims, [N, N, N]);
+    assert.deepEqual(begin.meta.image.dims, [N, N, N]);
+    assert.equal(begin.meta.segments.length, 2);
+    // Nothing that names the file or the patient travels with it.
+    assert.deepEqual(Object.keys(begin.meta.image).sort(), ['dims', 'direction', 'dtype', 'origin', 'spacing']);
+    await until(() => got('end'), Boolean, { what: 'the end of the transfer' });
+    const mask = assemble(ws.frames, KIND.syncSlab, 7);
     assert.equal(mask.length, N * N * N);
     assert.equal(count(mask), await maskVoxels(browser));
-    assert.equal(gunzipSync(payload.subarray(0, snapshot.image.bytes)).length, N * N * N * 2);
+    assert.equal(assemble(ws.frames, KIND.imageSlab, 7).length, N * N * N * 2);
 
-    // A stroke in the app reaches the guest as a patch frame (kind 1).
+    // A stroke in the app reaches the guest as a patch frame with its place in the room's order.
+    const before = ws.frames.length;
     await pick('brush');
     await drag(browser, 'axial', [-60, 40], [-20, 70]);
-    await until(() => frames.some((f) => f[4] === 1), Boolean, { what: 'the stroke to reach the guest' });
+    const patch = await until(() => ws.frames.slice(before).find((f) => f.kind === KIND.patch), Boolean, { what: 'the stroke to reach the guest' });
+    assert.equal(patch.from, hostId);
+    assert.ok(patch.seq >= 1);
 
     ws.close();
     await until(() => browser.$$('.avatars .avatar').length, (n) => n === 0, { what: 'the avatar to disappear' });

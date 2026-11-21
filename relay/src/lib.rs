@@ -43,7 +43,7 @@ pub use v1::{
 };
 
 /// How a relay is set up. `Default` is the standalone relay.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RelayConfig {
     /// Whether protocol v1 (`/r/<CODE>`) is served. Off unless asked for: it
     /// then answers HTTP 426 so an old app tells its user to update.
@@ -52,17 +52,6 @@ pub struct RelayConfig {
     pub timing: Timing,
     /// Fault-injection hooks, for tests only. `None` in every real relay.
     pub faults: Option<Faults>,
-}
-
-impl Default for RelayConfig {
-    fn default() -> Self {
-        RelayConfig {
-            v1: false,
-            limits: Limits::default(),
-            timing: Timing::default(),
-            faults: None,
-        }
-    }
 }
 
 impl RelayConfig {

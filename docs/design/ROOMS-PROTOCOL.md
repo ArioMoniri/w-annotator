@@ -2,7 +2,7 @@
 
 What a client sends to and gets from the relay (`relay/`), precisely enough to build a client without reading the Rust. The design and its reasons are in `ROOMS.md`; this file is the contract. Every rule here has a test in `relay/tests/v2_*.rs`, and those tests build their messages from this text, not from the relay's code.
 
-Status: relay side of phase 1 (tasks 1.0, 1.1, 1.2, 1.3, relay half of 1.5, 1.8). The relay never decrypts or inspects a payload; encryption (1.10) is the client's layer on top.
+Status: phase 1, relay and app. The relay never decrypts or inspects a payload; what is inside one is the app's layer, written down in §18.
 
 ## 1. Conventions
 
@@ -25,7 +25,7 @@ Status: relay side of phase 1 (tasks 1.0, 1.1, 1.2, 1.3, relay half of 1.5, 1.8)
 | same, relay at its connection limit | HTTP 503 |
 | `GET /j/<ID>` | A static page: "Open W Annotator, choose Join a room and paste this link." The same for every id; 404 if `<ID>` is not a valid room id |
 | `GET /health` | `ok` |
-| `GET /r/<CODE>?name=` | Protocol v1, unchanged (§15) |
+| `GET /r/<CODE>?name=` | HTTP 426, unless the relay serves protocol v1 (§15) |
 
 A browser cannot read the status of a failed WebSocket upgrade. Treat a connection that fails before `hello` as "cannot reach the room server; try again in a minute".
 
@@ -431,7 +431,7 @@ The relay sends WebSocket pings: every 20 s to ordinary connections, every 5 s t
 
 ## 15. Protocol v1 next to v2
 
-The same relay still serves v1 at `/r/<CODE>?name=<name>` exactly as before (`relay/README.md`). A v1 room and a v2 room are different rooms even if their ids look the same; nothing crosses over. A relay started with `--no-v1` answers `/r/…` with HTTP 426 and the body `Update W Annotator to join this room`.
+The app speaks v2 only. A relay answers `/r/…` with HTTP 426 and the body `Update W Annotator to join this room`. Started with `--v1` it also serves v1 at `/r/<CODE>?name=<name>` as before (`relay/README.md`); a v1 room and a v2 room are then different rooms even if their ids look the same, and nothing crosses over.
 
 ## 16. Test vectors
 
@@ -472,3 +472,54 @@ Header bytes for `version 2, kind 1, flags 0x0102, from 0x0A0B0C0D, to 7, seq 0x
 - **Choose a snapshot source, pace slabs or resume transfers.** Kinds 3, 4 and 9 are delivered to the member named in `to`; the rest is the client's protocol inside the payload (`ROOMS.md` C6, task 1.6).
 - **Rate-limit slices by content.** It counts slice requests per guest; "viewed 212 of 300 slices" is the host app's count.
 - **Let editors invite** ("can invite", task 2.5) or **rotate keys** (task 2.3). `epoch` is always 1 in phase 1.
+
+## 18. Inside a payload (the app's layer)
+
+Everything here is invisible to the relay. It is what `src/collab/` sends; a second client must do the same to share a room with the app. `e2e-desktop/roombot.mjs` is such a client.
+
+### 18.1 Encryption
+
+- A room has one 32-byte **room key**, made by the host. In `invite-add`, `wrappedKey` is base64 of `nonce ‖ AES-256-GCM(wrap key, room key)` with the 12-byte nonce in front and the associated data `w-rooms/2 room key`; the wrap key is the one of §9.1.
+- Every frame payload is `nonce (12 random bytes) ‖ AES-256-GCM ciphertext and tag`, keyed with the room key, with the associated data `w-rooms/2 <ROOMID> <epoch> <kind>` (decimal numbers, single spaces). A frame that does not open is ignored, but an ordered one still takes its place in the order.
+- The plaintext is `u32 n` (little-endian), then `n` bytes of UTF-8 JSON (an object, called *meta* below), then raw bytes (*body*).
+
+### 18.2 Edits (kinds 1 and 2)
+
+| Kind | meta | body |
+|---|---|---|
+| 1 patch | `{"c": <cid>}` | `u32` run count, then `u32 start, u32 length` per run, then the new label values of all runs back to back. At most 1 MiB; a larger edit is sent as several patches |
+| 2 seg-op | `{"c": <cid>, "op": "set", "seg": {"index": 1–255, "name", "color": "#rrggbb", "locked"}}` or `{"c", "op": "del", "index"}` | — |
+| 2 seg-op, view-through-host, host only | `{"c", "op": "window"}`: the host changed its window; guests fetch their planes again | — |
+
+`c` is the same number as the header's `seq` on the way in. A client recognises its own edit in a replay by `from` = itself and `c`. In a view-through-host room the host re-sends a guest's edit as its own ordered frame with `"o": [<guest id>, <guest cid>]` added, which tells that guest its edit has its place.
+
+A client applies ordered edits in sequence, then puts its own not yet numbered edits back on top (§5.3).
+
+### 18.3 Presence (kind 5)
+
+`{"t": "hi", "name": "<at most 24 characters>"}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second.
+
+### 18.4 Joining and coming back in a shared-copy room (kinds 9, 3, 4)
+
+```
+asker  → member   9  {"rid", "image": true|false, "fp": "<fingerprint of the open image>"|null}
+member → asker    3  {"rid", "t": "begin", "head", "dims": [x,y,z], "slabs", "segments": [...],
+                      "image": {"dims","spacing","origin","direction","dtype"} | null}
+member → asker    4  {"rid", "z0", "part", "parts"} + part of gzip(image slices z0 … z0+15)     (only when asked for)
+member → asker    3  {"rid", "t": "slab", "z0", "part", "parts"} + part of gzip(mask slices z0 … z0+15)
+member → asker    3  {"rid", "t": "end"}
+```
+
+Instead of `begin` a member may answer `{"rid","t":"no"}` (not ready; ask someone else) or `{"rid","t":"different"}` (the asker's image is not the room's). The mask is the room's confirmed state at sequence number `head`; the asker applies ordered frames after `head` on top. No file name, path or tag is sent, and the asker names the image `Room image`.
+
+### 18.5 View through the host (kinds 6 and 7)
+
+```
+guest → host   6  {"t": "describe"}
+host  → guest  7  {"t": "room", "dims", "spacing", "origin", "direction", "segments": [...], "head"}
+guest → host   6  {"axis": 0|1|2, "index": <plane along that axis>}
+host  → guest  7  {"t": "slice", "axis", "index"} + gzip(8-bit picture of the plane ‖ its labels)
+```
+
+The picture is the plane mapped through the host's current window to 0–255 and clipped. Plane order: axis 2 is `x` within `y`; axis 1 is `x` within `z`; axis 0 is `y` within `z`. The host answers at most 30 requests at once and 600 a minute per guest, and sends nothing a guest did not ask for.
+
