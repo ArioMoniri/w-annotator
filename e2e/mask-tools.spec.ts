@@ -540,3 +540,65 @@ for (const size of [
     await fits('preview');
   });
 }
+
+test('in a room a cut reaches the other person, and a fill preview does not until it is applied', async ({ browser }) => {
+  const host = await (await browser.newContext()).newPage();
+  const guest = await (await browser.newContext()).newPage();
+  await openPhantom(host);
+  await host.getByRole('button', { name: 'Share' }).click();
+  await host.getByPlaceholder('How others will see you').fill('Mina');
+  await host.getByRole('button', { name: 'Start', exact: true }).click();
+  const link = (await host.getByTestId('room-link').textContent())!.trim();
+  await host.keyboard.press('Escape');
+  await guest.goto('/');
+  await guest.getByRole('button', { name: 'Join a room', exact: true }).click();
+  await guest.getByPlaceholder('How others will see you').fill('Ario');
+  await guest.getByPlaceholder('Paste the invite link').fill(link);
+  await guest.getByRole('button', { name: 'Join', exact: true }).click();
+  await guest.locator('[data-view="axial"] canvas').first().waitFor({ timeout: 30_000 });
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  await expect.poll(() => maskVoxels(guest)).toBe(await maskVoxels(host));
+
+  // The host cuts segment 1 off the middle slice with a loop, then crops it through the stack.
+  const one = await maskVoxels(host, 1);
+  await host.keyboard.press('s');
+  await choose(host, 'Scissors shape', 'Freehand');
+  await trace(host, 'axial', AROUND_1);
+  const cut = await maskVoxels(host, 1);
+  expect(cut).toBeLessThan(one);
+  await expect.poll(() => maskVoxels(guest, 1)).toBe(cut);
+  expect(await dump(guest)).toBe(await dump(host));
+  await choose(host, 'Scissors action', 'Erase outside');
+  await choose(host, 'Scissors depth', 'All slices');
+  await trace(host, 'axial', [[28.5, 16.5, 24], [36.5, 27.5, 24]]);
+  const cropped = await maskVoxels(host, 1);
+  expect(cropped).toBeLessThan(cut);
+  await expect.poll(() => maskVoxels(guest, 1)).toBe(cropped);
+  expect(await dump(guest)).toBe(await dump(host));
+
+  // The guest's undo has nothing of the host's edits in it.
+  expect(await store<boolean>(guest, 's.canUndo')).toBe(false);
+
+  // The guest paints two slices and looks at the fill between them. The host sees the strokes and no more.
+  await guest.keyboard.press('b');
+  await drag(guest, 'axial', [-20, 90], [20, 90]);
+  for (let i = 0; i < 4; i++) await guest.keyboard.press('ArrowDown');
+  await drag(guest, 'axial', [-20, 90], [20, 90]);
+  const strokes = await maskVoxels(guest, 1);
+  expect(strokes).toBeGreaterThan(cropped);
+  await expect.poll(() => maskVoxels(host, 1)).toBe(strokes);
+  const painted = await dump(guest);
+  expect(await dump(host)).toBe(painted);
+  await guest.keyboard.press('i');
+  await expect(guest.locator('.strip [role="status"]')).toBeVisible();
+  await guest.waitForTimeout(1500);
+  expect(await dump(guest)).toBe(painted);
+  expect(await dump(host)).toBe(painted);
+  await expect(host.locator('.strip [role="status"]')).toHaveCount(0);
+
+  await guest.keyboard.press('Enter');
+  const filled = await maskVoxels(guest, 1);
+  expect(filled).toBeGreaterThan(strokes);
+  await expect.poll(() => maskVoxels(host, 1)).toBe(filled);
+  expect(await dump(host)).toBe(await dump(guest));
+});

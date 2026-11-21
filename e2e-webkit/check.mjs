@@ -88,7 +88,8 @@ try {
     ['brush', () => drag(b, 'axial', [-60, -60], [60, -30])],
     ['eraser', () => drag(b, 'axial', [-60, 0], [60, 0])],
     ['threshold', () => drag(b, 'coronal', [-50, 40], [50, 40])],
-    ['scissors', () => drag(b, 'axial', [-30, -30], [30, 30])],
+    // The scissors erase the active segment only, so the rectangle goes over the brush stroke made above.
+    ['scissors', () => drag(b, 'axial', [-30, -75], [30, -25])],
     ['fill', () => click(b, 'sagittal', [10, 10])],
   ]) {
     await check(`${id} changes the mask`, async () => {
