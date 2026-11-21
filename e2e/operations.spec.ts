@@ -291,7 +291,7 @@ for (const size of [
 
     await openMenu(page, 'Segment 2');
     const menu = page.getByRole('menu');
-    await expect(menu.getByRole('menuitem')).toHaveCount(14);
+    await expect(menu.getByRole('menuitem')).toHaveCount(15);
     const box = (await menu.boundingBox())!;
     expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.y + box.height).toBeLessThanOrEqual(size.height);

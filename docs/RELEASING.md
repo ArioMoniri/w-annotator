@@ -48,6 +48,8 @@ The Windows installer is not code-signed. It works, but SmartScreen shows a warn
 
 ## Cutting a release
 
+The usual way is to run the workflow by hand with **Publish** ticked; the steps are in [`docs/COLLABORATING.md`](COLLABORATING.md#releases-and-auto-update). Pushing a tag, as below, does the same but leaves the release as a draft for you to publish.
+
 1. Set the same version in three places: `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`. Run `cargo check` so `Cargo.lock` follows.
 2. Commit and merge to `main`, with CI green.
 3. Tag and push:

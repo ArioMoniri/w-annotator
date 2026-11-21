@@ -28,7 +28,7 @@ Chromium is preinstalled for Playwright. Never run `playwright install`.
 ```
 src/         web app (React + TypeScript)
 src-tauri/   Rust side of the Tauri app
-server/      room relay
+relay/       room relay
 e2e/         Playwright tests and fixtures
 e2e-webkit/  checks in WebKitGTK, the engine nearest the macOS app (`docs/process/TESTING-WEBKIT.md`)
 public/      files shipped as they are; `sample/` is the scan the welcome tour opens
@@ -47,7 +47,7 @@ Placeholder; update it as the code takes shape.
 5. **Keep the UI simple and calm.** The image comes first. Do not add controls, dialogs or settings the goal does not ask for. Follow `docs/design/DESIGN.md`.
 6. **Brief, human copy.** Short, plain, sentence case. No jargon, exclamation marks or emoji. Errors say what happened and what to do.
 7. **Protect the image.** Never alter orientation, laterality, spacing or voxel values for convenience. Never animate the medical image.
-8. **Privacy.** Rooms send display name and mask edits only. No telemetry. Never use real patient data in tests.
+8. **Privacy.** A room sends display names and mask edits, encrypted between the apps; a shared-copy room also sends the image and mask to the people invited, and a view-through-host room sends them pictures of slices, never the files. Nothing else leaves the machine. No telemetry. Never use real patient data in tests.
 9. **Stay in scope.** Build what `docs/process/GOAL.md` asks for. Record decisions in `docs/process/DECISIONS.md`.
 10. **Cross-platform.** Everything works on macOS, Windows and Linux. If you could not check a platform, say "not verified".
 
@@ -55,6 +55,7 @@ Placeholder; update it as the code takes shape.
 
 | Doc | What it is |
 | --- | --- |
+| `docs/COLLABORATING.md` | How to add a feature, what not to break, CI, releases and auto-update |
 | `docs/process/GOAL.md` | Current goal and acceptance criteria |
 | `docs/process/LOOP.md` | The iteration loop, its current state and log |
 | `docs/process/TDD.md` | Test-first rules and what must be unit-tested |

@@ -99,11 +99,16 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Pan | Hint: `Drag to move the image.` |
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
 | Window / Level | Preset select (Soft tissue, Lung, Bone, Brain, Abdomen — CT only) · `W` number · `L` number · `Reset` |
-| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only` (default Everything; with Empty only a stroke never takes voxels from another segment). Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. |
+| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. · `Fill between slices` button. |
+| Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1,204 voxels between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, or saving cancels with a toast. Scrolling, zoom and window work as usual. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
-| Threshold brush | Range dual slider + two numbers (image units) · Size slider + number |
-| Scissors | Shape `Freehand / Rectangle / Circle` · Action `Erase inside / Erase outside / Fill inside` |
-| Fill | Scope `This slice / Whole volume` |
+| Threshold brush | Range dual slider + two numbers (image units) · Size slider + number · Paint over select (`Everything`, `Empty only`, `Only <segment>` for each other segment) |
+| Scissors | Shape `Rectangle / Circle / Freehand / Sphere` · Action `Erase inside / Erase outside / Fill inside` (no Erase outside for Sphere) · Depth `This slice / All slices` (not for Sphere) · Paint over select, only with Fill inside. Freehand: drag a loop, release to close it; where it crosses itself the even-odd rule decides. The outline being drawn is a dashed white line with a dark edge, in a layer over the view. Esc while dragging drops it. Erasing changes the active segment only. A cut through all slices answers with a toast and Undo. |
+| Fill | Action `Fill area / Remove island / Keep island` · Paint over select, only with Fill area · hint for the action. An island is a piece of the active segment joined through voxel faces, in 3D. |
+
+Where the strip is tight (compact level 2 and up) segmented buttons show a short label and keep the full one as their accessible name: `Rect`, `Free`, `Erase in`, `Erase out`, `Fill`, `Slice`, `All`, `Remove`, `Keep`. The chip names the paint over limit for tools that add voxels: `Tumour, inside Liver` or `Tumour, empty only`.
+
+Alt-click on a slice view, with any tool, makes the segment under the cursor the active one. Its row scrolls into view and is tinted once (`--accent-soft`, 600 ms, as a new row). Hidden segments are not picked; nothing is painted.
 
 Right edge of the strip, always: active segment chip (swatch + name), so the user always knows what they are painting. Click focuses the segment list.
 
@@ -126,7 +131,8 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 **Layouts.** Five layouts: 2 × 2 (default), 1 large + 3 stacked, 3 side by side, 2 side by side, single. The view order (default Axial, Sagittal, Coronal, 3D) fills the panes in reading order; a layout with fewer panes leaves the last views off screen. Any pane can show any view: picking a view that is on screen elsewhere swaps the two, so a view is never shown twice. Maximise shows one view alone and restores the layout afterwards; picking a layout also leaves maximise. The layout and the order are kept between launches; maximise is not.
 
 - Panes are rectangles in whole pixels, computed in `src/viewer/layout.ts` and set on each pane by script. No pane is sized by CSS grid or flex: webviews resolve those differently (in WebKit the old maximise, a spanning grid cell beside hidden ones, came out as a strip).
-- Changing layout, swapping, maximising and resizing never change what a view shows: same slice, same window, same **millimetres per screen pixel**, same point at the centre. A larger pane shows more around the image, not a bigger image. `Fit` is the way to fill a pane.
+- Changing layout, swapping and resizing never change what a view shows: same slice, same window, same **millimetres per screen pixel**, same point at the centre. A larger pane shows more around the image, not a bigger image. `Fit` is the way to fill a pane.
+- Maximise is the exception, because a bigger image is what it is for. The image grows by as much as an image fitted to the pane would: a fitted image stays fitted, a zoomed one stays as far zoomed in. Slice, window and the point at the centre stay. Restoring shrinks it by the same amount, so a view that was not touched while maximised comes back exactly as it was. While a view is maximised, resizing the window or the panel keeps millimetres per pixel as everywhere else.
 - A view that is off screen is not drawn. It keeps its slice and zoom and follows jumps made meanwhile.
 
 **Reference lines.** Each plane shows two thin lines, one for each of the other planes on screen, in that plane's colour. They leave a 24 px gap around the point where they would cross and stop 28 px short of the pane's edge, clear of the orientation letters. Dragging a line scrolls the plane it stands for. The planes stay orthogonal: there is no rotation handle and no oblique reslice (rotating a plane makes left and right easy to mistake).
@@ -153,7 +159,7 @@ Above Segments sits **Files**, a section that folds to its 36 px heading: one 28
 
 - Header: title `Segments` (13/600) and an `Add segment` icon button.
 - List scrolls; footer is pinned and holds the two mask-wide display settings: Opacity (0–100 %, default 60) and `Outline only`.
-- Row context menu (right-click or `⋯` on hover): Rename, Change colour, Show only this, Go to segment · group `Refine`: Grow…, Shrink…, Smooth…, Fill holes, Keep largest island, Remove small islands… · Combine…, Measurements · Clear, Delete. Items ending in `…` swap the menu for a small popover with the segment name, one number field (mm, or mm³ for islands; the last value is remembered), `Cancel` and `Apply`. Combine shows a segment picker and `Add`.
+- Row context menu (right-click or `⋯` on hover): Rename, Change colour, Show only this, Go to segment · group `Refine`: Grow…, Shrink…, Smooth…, Fill holes, Keep largest island, Remove small islands…, Split into separate segments · Combine…, Measurements · Clear, Delete. Items ending in `…` swap the menu for a small popover with the segment name, one number field (mm, or mm³ for islands; the last value is remembered), `Cancel` and `Apply`. Combine shows a segment picker and `Add`.
 - Each row shows the segment's volume at the right in 11px mono `--text-2` (`12.4 mL`; `320 mm³` under 0.5 mL; nothing when empty). It updates shortly after edits stop and gives way to the row actions on hover and focus.
 - Measurements sheet (wide modal): table of Segment, Volume, Voxels, Mean ± SD, Min, Max for every segment, a one-line note, `Copy as CSV` and `Done`. Intensities carry no unit.
 - Empty: `No segments yet.` + text button `Add segment`.
@@ -577,14 +583,16 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Pan | Drag to move the image. |
 | Zoom | Drag up or down to zoom. · Fit |
 | Window / Level | Preset · Soft tissue · Lung · Bone · Brain · Abdomen · Custom · W · L · Reset |
-| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only |
-| Paint over tooltip | Empty only keeps other segments as they are. |
+| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices (short: Fill gaps) |
+| Paint over tooltip | Empty only keeps other segments as they are. (select: … Only paints inside one segment.) · list tooltip: Paint only inside one segment |
+| Fill preview | Preview: 1,204 voxels between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
 | Eraser | Size · px · Shape · Circle · Sphere · Active segment only |
 | Threshold brush | Range · to · Size · px |
 | Threshold brush tooltip | Paints only where the image value is inside the range. |
-| Scissors | Shape · Freehand · Rectangle · Circle · Action · Erase inside · Erase outside · Fill inside |
-| Fill | Scope · This slice · Whole volume |
-| Fill hint | Click an enclosed area to fill it. |
+| Scissors | Shape · Rectangle · Circle · Freehand · Sphere · Action · Erase inside · Erase outside · Fill inside · Depth · This slice · All slices · Paint over |
+| Depth tooltip | All slices cuts through the whole stack of this view. |
+| Fill | Action · Fill area · Remove island · Keep island · Paint over |
+| Fill hints | Click an enclosed area to fill it on this slice. / Click a separate piece of the segment to remove it. / Click the piece of the segment to keep. The rest is removed. |
 | Size tooltip | Brush size `[` `]` |
 | Active segment chip tooltip | Painting on Liver |
 | No segment chip | No segment |
@@ -597,6 +605,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Slice | Slice 84 / 212 |
 | Maximise tooltip | Maximise `M` / Restore `M` |
 | View picker | Axial · Sagittal · Coronal · 3D. Label tooltip: Change view, or drag onto another pane to swap |
+| View menu, slice views | Below the four views, after a divider: checkable item `Smooth pixels` (on by default, remembered, applies to all three slice views). Off draws each voxel as a flat block. Tooltip: Off shows each voxel as a flat block. The image values are the same either way. |
 | Reference lines setting | Show reference lines — Always · On hover · With crosshair tool only. Help: Lines in each view that mark where the other two views cut it. Drag one to scroll that view. |
 | Loading | Loading… 42% |
 | 3D, no mask | Add a segment to see it in 3D. |
@@ -615,7 +624,8 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Empty | No segments yet. · Add segment |
 | Eye tooltip | Hide / Show |
 | Lock tooltip | Lock / Unlock |
-| Row menu | Rename · Change colour · Show only this · Go to segment · Refine · Grow… · Shrink… · Smooth… · Fill holes · Keep largest island · Remove small islands… · Combine… · Measurements · Clear · Delete |
+| Row menu | Rename · Change colour · Show only this · Go to segment · Refine · Grow… · Shrink… · Smooth… · Fill holes · Keep largest island · Remove small islands… · Split into separate segments · Combine… · Measurements · Clear · Delete |
+| Split, many islands (confirm) | Split Liver into 21 segments? · Liver has 8 islands. Each becomes a segment of its own. / Liver has 240 islands. The 21 largest become segments of their own; the rest stay in Liver. · Split · Cancel. Asked when more than 5 new segments would be made; never more than 20. New segments are named `Liver 2`, `Liver 3`, … |
 | Refine popovers | Grow by · Shrink by · Smooth by · mm · Remove islands under · mm³ · Cancel · Apply |
 | Combine popover | Add · Its voxels become part of Liver. · Cancel · Add |
 | Measurements | Measurements · Segment · Volume · Voxels · Mean ± SD · Min · Max · Mean, SD, min and max are the image values inside each segment. · Copy as CSV · Done |
@@ -681,6 +691,11 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Fill holes | Filled 1,204 voxels in Liver · Undo / No holes in Liver. |
 | Islands | Removed 310 voxels outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 voxels in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
 | Combine | Added Tumour to Liver, 1,204 voxels · Undo |
+| Scissors, all slices | Erased 1,204 voxels of Liver on all axial slices · Undo / Filled 1,204 voxels of Liver on all axial slices · Undo |
+| Clicked island | Removed an island of Liver, 320 mm³ · Undo / Removed 1.2 mL of Liver outside this island · Undo / Liver is already one island. / Click a part of Liver. |
+| Split | Split Liver into 3 segments. · Undo / Split Liver into 21 segments. The 12 smallest islands stay in Liver. · Undo / Liver is already one island. |
+| Fill between slices | Filled 1,204 voxels between axial slices · Undo / Fill preview cancelled. / There was nothing left to fill. / Paint Liver on two axial slices with a gap between them, then fill. |
+| Paint over limit | Nothing was painted: Paint over is set to Only Liver. / Nothing was painted: Paint over is set to Empty only. (once per choice) / Paint over is back to Everything. (its segment was deleted or became the active one) |
 | Operation changed nothing | Liver did not change. |
 | Go to an empty segment | Liver is empty. |
 | Measurements copied | Measurements copied |

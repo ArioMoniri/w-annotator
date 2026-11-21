@@ -3263,4 +3263,135 @@ button.avatar {
   background: #000;
   color: #c9ced6;
   font-size: 13px;
+
+/* ── Mask tools: outline scissors, paint over, fill preview, picking ── */
+
+/* The outline being drawn. A layer of its own over the view; the image under it is not redrawn. */
+.cell .outline-draw {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.outline-draw path {
+  fill: none;
+  stroke-linejoin: round;
+}
+
+.outline-draw .under {
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 3;
+}
+
+.outline-draw .over {
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+
+/* "Only <segment>" sits in the Paint over control as its third choice. */
+.seg-control select.inside {
+  height: 24px;
+  width: 104px;
+  padding: 0 4px 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.seg-control select.inside:hover {
+  color: var(--text-1);
+}
+
+.seg-control select.inside[data-on='true'] {
+  background: var(--bg-active);
+  color: var(--text-1);
+}
+
+.seg-control select.inside:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+select.select.paintover {
+  width: 128px;
+  text-overflow: ellipsis;
+}
+
+.seg-control button .short {
+  display: none;
+}
+
+.strip[data-compact='2'] .seg-control button .long,
+.strip[data-compact='3'] .seg-control button .long {
+  display: none;
+}
+
+.strip[data-compact='2'] .seg-control button .short,
+.strip[data-compact='3'] .seg-control button .short {
+  display: inline;
+}
+
+.strip[data-compact='2'] .seg-control select.inside,
+.strip[data-compact='3'] .seg-control select.inside {
+  width: 76px;
+}
+
+.strip[data-compact='2'] select.select.paintover,
+.strip[data-compact='3'] select.select.paintover {
+  width: 104px;
+}
+
+/* The preview line says what Apply will do, so it stays when other hints give way. */
+.strip[data-compact] .hint.keep {
+  display: inline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* The row of a segment picked from the image shows where it is in the list, once. */
+.segrow.picked::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  pointer-events: none;
+  animation: row-hold 600ms var(--ease-in) forwards;
+}
+
+.viewlabel .menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.viewlabel .menu .tick {
+  display: inline-block;
+  width: 8px;
+  text-align: center;
+}
+
+.viewlabel .menu [role='menuitemcheckbox'][aria-checked='true'] {
+  background: none;
+}
+
+.viewlabel .menu [role='menuitemcheckbox']:hover {
+  background: var(--bg-hover);
+}
+
+/* A tip on a field at the far end of the strip opens towards the start, so it adds no width. */
+.strip .options .field[data-tip][data-tip-align='end']::after {
+  left: auto;
+  right: 0;
 }

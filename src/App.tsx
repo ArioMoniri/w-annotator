@@ -117,6 +117,11 @@ function useHotkeys() {
       }
       if (!s.image || s.settings) return;
       if (e.key >= '1' && e.key <= '9' && combo.length === 1) return session.selectSegment(Number(e.key));
+      // A fill preview waits for a yes or a no before anything else.
+      if (s.preview && (combo === 'enter' || combo === 'escape')) {
+        e.preventDefault();
+        return combo === 'enter' ? session.applyFillPreview() : session.cancelFillPreview();
+      }
       if (e.key === 'Escape') {
         if (s.maximized) return set({ maximized: null });
         if (EDIT_TOOLS.includes(s.tool)) return session.setTool('crosshair');

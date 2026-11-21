@@ -116,7 +116,10 @@ test('fill between slices joins two painted slices', async ({ page }) => {
   await drag(page, 'axial', [-20, 0], [20, 0]);
   const two = await maskVoxels(page, 1);
   expect(two).toBeGreaterThan(one);
+  // The fill is shown first; nothing is written until it is applied.
   await page.getByRole('button', { name: 'Fill between slices' }).click();
+  expect(await maskVoxels(page, 1)).toBe(two);
+  await page.getByRole('button', { name: 'Apply' }).click();
   const filled = await maskVoxels(page, 1);
   expect(filled).toBeGreaterThan(two * 1.5);
   await page.keyboard.press('Control+z');

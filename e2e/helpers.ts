@@ -177,11 +177,20 @@ export async function jumpToVoxel(page: Page, ijk: [number, number, number]): Pr
 export const modLabel = (key: string): string => (process.platform === 'darwin' ? `⌘ ${key}` : `Ctrl+${key}`);
 
 /**
- * Presses Tab the way that reaches every control. WebKit on macOS, like Safari and the desktop
- * app's webview there, only stops at text fields with plain Tab unless "Keyboard navigation" is
- * on in System Settings; Option+Tab stops at buttons too, so that is what a keyboard user presses.
+ * Presses plain Tab inside a dialog, on every system. The app moves focus itself there, so it
+ * reaches every control whatever the webview does with Tab.
  */
 export async function tab(page: Page, back = false): Promise<void> {
+  await page.keyboard.press(`${back ? 'Shift+' : ''}Tab`);
+}
+
+/**
+ * Presses Tab outside a dialog, where the webview moves focus. WebKit on macOS, like Safari and
+ * the desktop app's webview there, only stops at text fields with plain Tab unless "Keyboard
+ * navigation" is on in System Settings; Option+Tab stops at buttons too, so that is what a
+ * keyboard user presses.
+ */
+export async function tabOnPage(page: Page, back = false): Promise<void> {
   const mac = process.platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit';
   await page.keyboard.press(`${mac ? 'Alt+' : ''}${back ? 'Shift+' : ''}Tab`);
 }

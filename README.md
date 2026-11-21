@@ -33,10 +33,14 @@ W Annotator shows a volume in axial, sagittal and coronal views with a 3D view o
 
 <p align="center"><sub>A chest CT with a lung mask: two people in one mask, fill between slices, refining a segment, the four views, and the two themes.</sub></p>
 
-- Editing tools: brush and eraser (circle or sphere, size in mm), threshold brush, scissors and fill. The brush can paint over everything or only empty voxels.
-- Fill between slices: paint every few slices and the app fills the gaps.
+- Editing tools: brush and eraser (circle or sphere, size in mm), threshold brush, scissors and fill. Painting can go over everything, only empty voxels, or only inside one segment.
+- Scissors: rectangle, circle, freehand loop or sphere; erase inside, erase outside or fill inside; on this slice or through all slices.
+- Fill tool: fill an enclosed area, or click a stray piece of a segment to remove it, or the real one to keep it.
+- Alt-click the image to select the segment under the cursor.
+- Fill between slices: paint every few slices, look at the preview of the gaps being filled, then apply it.
+- Smooth pixels on or off for the slice views, to see exactly which voxels a mask covers.
 - Segments: add, rename, recolour, hide, lock, clear and delete. Each row shows the volume in mL.
-- Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, and combine with another segment.
+- Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, split islands into separate segments, and combine with another segment.
 - Viewing: crosshair, pan, zoom, a ruler, window/level with CT presets, mask opacity and an outline-only view.
 - Layouts: 2×2, one large view with three beside it, three across, two across or a single view. Any pane can show any view, and lines link the planes.
 - Files: a list of the open image and up to four masks. One mask is edited; the others show as outlines for comparison.
@@ -96,7 +100,7 @@ With the server field left empty, the desktop app hosts the room itself. That wo
 | `Ctrl+O` | Open image | `Ctrl+Shift+O` | Open mask |
 | `Ctrl+S` | Save mask | `?` | All shortcuts |
 
-On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans and right-drag changes window/level. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
+On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans, right-drag changes window/level and `Alt`-click (`Option`-click on macOS) selects the segment under the cursor. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
 
 ## Build from source
 

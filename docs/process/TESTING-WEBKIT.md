@@ -47,6 +47,7 @@ The script prints one line per check and exits with 1 if any failed. It takes ab
 
 - First launch: the welcome tour opens the sample and every step points at something.
 - Every edit tool (brush, eraser, threshold brush, scissors, fill) changes the mask; undo and redo; every navigation tool can be picked and dragged.
+- A freehand scissors loop erases and undoes; Alt-click selects the segment under the cursor; the Fill tool removes a clicked island; fill between slices previews and applies on Enter; Smooth pixels switches.
 - Each of the four views fills the view area when enlarged; a double-click enlarges; painting works enlarged and after going back.
 - A click on the 3D view with an edit tool says where to paint.
 - A key whose key-up never arrived does not stop the brush.

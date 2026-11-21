@@ -19,19 +19,24 @@ import { History } from './mask/history';
 import { brushRadius, cleanBrushSize, minBrushSize } from './mask/brush';
 import { MaskSet, TOO_MANY_MASKS, compareColor, shortName } from './mask/collection';
 import { assignRoles, labelLook } from './files/roles';
-import { interpolateSlices, sliceAxisFor } from './mask/interpolate';
+import { sliceAxisFor } from './mask/interpolate';
 import {
   combine,
+  countIslands,
   fillHoles,
+  formatVolume,
   grow,
+  islandAt,
   keepLargestIsland,
   removeSmallIslands,
   segmentStats,
   shrink,
   smooth,
+  splitIslands,
   statsCsv,
   type SegmentStats,
 } from './mask/ops';
+import { cleanPaintOver, eraseRule, strokeRule, writableValues, type PaintOver } from './mask/paintOver';
 import {
   applyPatch,
   applyPatchWhereUnchanged,
@@ -39,10 +44,13 @@ import {
   diffMask,
   encodePatch,
   patchSlices,
-  restoreOverwritten,
+  restoreWhere,
   splitPatch,
   type Patch,
 } from './mask/patch';
+import { segmentAt } from './mask/pick';
+import { FillPreview } from './mask/preview';
+import { cut, sliceRange, viewMap, type Cut, type Point } from './mask/scissors';
 import { RoomClient, type JoinMode, type TextMessage } from './collab/client';
 import { makeRoomKey, unwrapRoomKey, wrapRoomKey } from './collab/crypto';
 import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane, type Axis } from './collab/hostview';
@@ -75,7 +83,7 @@ import { PartAssembler, TokenBucket, slabRanges, splitParts } from './collab/tra
 import { conflictPatch, mergeMasks, mergeSummary, type Conflicts } from './mask/merge';
 import { fingerprint } from './mask/recovery';
 import * as engine from './viewer/engine';
-import { indexToWorld } from './viewer/geometry';
+import { indexToWorld, voxelAt } from './viewer/geometry';
 import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, useStore, type Peer, type RoomState, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
@@ -311,6 +319,7 @@ async function loadImage(vol: VolumeData, path?: string): Promise<void> {
   const looksLikeCt = range[0] <= -500 && range[1] > 300;
   const auto = autoWindow(renderable);
   const voi = looksLikeCt ? { lower: -160, upper: 240 } : auto;
+  cancelFillPreview();
   image = renderable;
   // What was kept of a room belonged to the image before this one.
   kept = null;
@@ -456,6 +465,7 @@ function isUntouched(): boolean {
 function park(): void {
   const entry = masks.active;
   if (!entry || !mask) return;
+  cancelFillPreview();
   flushEdits();
   history.commit();
   const s = get();
@@ -584,6 +594,7 @@ export function closeMask(id: string): void {
 /** Lets go of the image and everything opened on it, without asking. */
 function dropImage(): void {
   if (!image) return;
+  cancelFillPreview();
   leaveRoom(true);
   // Leaving as a guest of a view-through-host room has already let go of everything.
   if (!image) return;
@@ -642,6 +653,7 @@ export function setTool(tool: ToolId): void {
     toast('info', 'Add a segment to start editing.');
     return;
   }
+  if (tool !== s.tool) cancelFillPreview(PREVIEW_CANCELLED);
   set({ tool });
   applyTool();
 }
@@ -667,7 +679,13 @@ function applyTool(): void {
   const s = get();
   engine.setBrushSize(currentBrushRadius());
   engine.setThreshold(s.threshold);
-  engine.setTool(s.tool, { brushShape: s.brushShape, scissorsShape: s.scissorsShape, scissorsAction: s.scissorsAction });
+  engine.setTool(s.tool, {
+    brushShape: s.brushShape,
+    scissorsShape: s.scissorsShape,
+    scissorsAction: s.scissorsAction,
+    scissorsDepth: s.scissorsDepth,
+    fillAction: s.fillAction,
+  });
 }
 
 export function setBrushSize(mm: number): void {
@@ -676,9 +694,11 @@ export function setBrushSize(mm: number): void {
 }
 
 export function setToolOption(
-  patch: Partial<Pick<ReturnType<typeof get>, 'brushShape' | 'scissorsShape' | 'scissorsAction' | 'threshold'>>,
+  patch: Partial<Pick<ReturnType<typeof get>, 'brushShape' | 'scissorsShape' | 'scissorsAction' | 'scissorsDepth' | 'fillAction' | 'threshold'>>,
 ): void {
   set(patch);
+  // A sphere has no outside to erase on a slice; it goes back to erasing inside.
+  if (get().scissorsShape === 'sphere' && get().scissorsAction === 'outside') set({ scissorsAction: 'erase' });
   applyTool();
 }
 
@@ -703,6 +723,7 @@ export function attachEditTracking(): () => void {
         recordEdit(undefined, true);
         history.commit();
         syncHistoryFlags();
+        endStroke();
       }
     }, 30);
   };
@@ -718,6 +739,15 @@ export function attachEditTracking(): () => void {
 }
 
 let dirtySlices: Set<number> | 'all' | null = null;
+/** What the stroke in hand has done so far: voxels put back by the paint over limit, and voxels it did change. */
+const stroke = { limited: false, wrote: false };
+
+/** A stroke that the paint over limit left nothing of says why. */
+function endStroke(): void {
+  if (stroke.limited && !stroke.wrote) limitHint();
+  stroke.limited = false;
+  stroke.wrote = false;
+}
 
 function recordEdit(slices: number[] | undefined, flush = false): void {
   if (!mask || !shadow) return;
@@ -744,6 +774,7 @@ function scheduleFlush(): void {
     if (!pointerDown) {
       history.commit();
       syncHistoryFlags();
+      endStroke();
     }
   });
 }
@@ -755,13 +786,21 @@ function flushEdits(): void {
   const data = mask.data as Uint8Array;
   let patch = diffMask(shadow, data, sliceSize(), which);
   if (!patch) return;
-  if (get().paintOver === 'empty' && restoreOverwritten(data, patch) > 0) {
-    // The stroke ran over a neighbour: those voxels are back, so diff again and repaint.
+  const s = get();
+  const limit = strokeRule(s.paintOver);
+  // Scissors erase the segment being edited and leave its neighbours.
+  const erase = s.tool === 'scissors' && s.scissorsAction === 'erase' ? eraseRule(s.activeSegment) : null;
+  const takeBack = limit && erase ? (b: number, a: number) => limit(b, a) || erase(b, a) : (limit ?? erase);
+  if (takeBack && restoreWhere(data, patch, takeBack) > 0) {
+    // The stroke ran over voxels it may not take: those are back, so diff again and repaint.
     const touched = patchSlices(patch, sliceSize());
     patch = diffMask(shadow, data, sliceSize(), touched);
     engine.refreshMask(touched);
+    if (limit) stroke.limited = true;
     if (!patch) return;
   }
+  stroke.wrote = true;
+  cancelFillPreview(PREVIEW_CANCELLED);
   applyPatch(shadow, patch, 'after');
   history.add(patch);
   roomSend({ k: 'patch', patch });
@@ -931,6 +970,7 @@ export function addSegment(): void {
 
 export function selectSegment(index: number): void {
   if (!get().segments.some((x) => x.index === index)) return;
+  if (index !== get().activeSegment) cancelFillPreview(PREVIEW_CANCELLED);
   set({ activeSegment: index });
   pushSegments();
 }
@@ -969,32 +1009,211 @@ export function deleteSegment(index: number): void {
   toast('info', `${seg.name} deleted`, n > 0 ? { label: 'Undo', run: undo } : undefined);
 }
 
-/** Fill the gaps between painted slices of the active segment, in the plane of the active view. */
-export function fillBetweenSlices(): void {
+/** The active segment if it can be edited now; otherwise says why not and returns null. */
+function activeEditable(): SegmentInfo | null {
   const s = get();
   const seg = s.segments.find((x) => x.index === s.activeSegment);
   if (!mask || !seg) {
     toast('info', 'Add a segment to start editing.');
-    return;
+    return null;
   }
   if (isGuestView()) {
     toast('info', WHOLE_MASK_OFF);
-    return;
+    return null;
   }
   if (seg.locked || !seg.visible || s.maskHidden) {
     toast(
       'info',
       seg.locked ? `${seg.name} is locked. Unlock it to edit.` : s.maskHidden ? 'The mask is hidden. Show it to edit.' : `${seg.name} is hidden. Show it to edit.`,
     );
-    return;
+    return null;
   }
+  return seg;
+}
+
+/* ───────────────────────── fill between slices ───────────────────────── */
+
+const fillPreview = new FillPreview();
+/** What the preview is drawn from. It has the mask's grid and is never the mask. */
+let previewVol: VolumeData | null = null;
+const PREVIEW_CANCELLED = 'Fill preview cancelled.';
+
+/**
+ * Shows what filling the gaps between painted slices of the active segment would add, in
+ * the plane of the active view. Nothing is written to the mask until `applyFillPreview`.
+ */
+export function fillBetweenSlices(): void {
+  const s = get();
+  const seg = activeEditable();
+  if (!mask || !seg) return;
+  flushEdits();
+  cancelFillPreview();
   const view = s.activeView === 'volume3d' ? 'axial' : s.activeView;
   const axis = sliceAxisFor(mask.direction, view);
+  // Gaps are filled where they are empty, or inside the one segment painting is limited to.
+  const writable = writableValues(typeof s.paintOver === 'number' ? s.paintOver : 'empty', s.segments);
+  const shown: VolumeData = { ...mask, name: 'preview', labels: undefined, data: new Uint8Array(mask.data.length) };
+  const count = fillPreview.start(mask.data as Uint8Array, mask.dims, { label: seg.index, axis, writable }, shown.data as Uint8Array);
+  if (count === 0) {
+    toast('info', `Paint ${seg.name} on two ${view} slices with a gap between them, then fill.`);
+    return;
+  }
+  previewVol = shown;
+  engine.showPreview(shown, seg.color);
+  set({ preview: { count, view, segment: seg.index } });
+}
+
+function endPreview(): void {
+  previewVol = null;
+  engine.hidePreview();
+  set({ preview: null });
+}
+
+/** Does the fill that is being previewed, as one undo step. It is worked out again from the mask as it is now. */
+export function applyFillPreview(): void {
+  const p = get().preview;
+  if (!p || !mask || !previewVol) return;
+  if (!activeEditable()) return cancelFillPreview();
+  const shown = previewVol.data as Uint8Array;
+  const { dims } = mask;
   const n = editMask((d) => {
-    interpolateSlices(d, mask!.dims, seg.index, axis);
+    fillPreview.apply(d, dims, shown);
   });
-  if (n > 0) toast('info', `Filled ${n.toLocaleString('en-US')} voxels between ${view} slices`, { label: 'Undo', run: undo });
-  else toast('info', `Paint ${seg.name} on two ${view} slices with a gap between them, then fill.`);
+  endPreview();
+  if (n > 0) toast('info', `Filled ${n.toLocaleString('en-US')} voxels between ${p.view} slices`, { label: 'Undo', run: undo });
+  else toast('info', 'There was nothing left to fill.');
+}
+
+/** Drops the preview. The mask was never touched. */
+export function cancelFillPreview(note?: string): void {
+  if (!previewVol) return;
+  fillPreview.cancel(previewVol.data as Uint8Array);
+  endPreview();
+  if (note) toast('info', note);
+}
+
+/* ───────────────────────── outline scissors, islands, picking ───────────────────────── */
+
+/**
+ * Cuts with an outline drawn on a slice view, in the view's pixels: erases the active
+ * segment inside or outside it, or fills inside it, on the slice on screen or on every slice.
+ */
+export async function cutOutline(view: ViewId, outline: Point[]): Promise<void> {
+  const s = get();
+  if (view === 'volume3d' || outline.length < 3) return;
+  const seg = activeEditable();
+  const frame = engine.viewFrame(view);
+  if (!mask || !seg || !frame) return;
+  const all = s.scissorsDepth === 'all';
+  const fill = s.scissorsAction === 'fill';
+  const { dims } = mask;
+  const c: Cut = {
+    map: viewMap(mask, frame),
+    outline,
+    depth: all ? null : sliceRange(mask, frame, sliceAxisFor(mask.direction, view)),
+    action: fill ? 'fill' : s.scissorsAction === 'outside' ? 'eraseOutside' : 'erase',
+    label: seg.index,
+    writable: writableValues(s.paintOver, s.segments),
+  };
+  const n = await runOperation(fill ? `Filling ${seg.name}…` : `Erasing ${seg.name}…`, (d) => {
+    cut(d, dims, c);
+  });
+  // A cut through the stack changes slices that are not on screen, so it says what it did.
+  if (n > 0 && all) toast('info', `${fill ? 'Filled' : 'Erased'} ${voxels(n)} of ${seg.name} on all ${view} slices`, { label: 'Undo', run: undo });
+  else if (n === 0 && fill) limitHint();
+}
+
+/** Makes the segment under a point of a slice view the active one. False when there is none to pick. */
+export function pickSegmentAt(view: ViewId, x: number, y: number): boolean {
+  const s = get();
+  if (!mask || view === 'volume3d') return false;
+  flushEdits();
+  const w = engine.canvasToWorld(view, x, y);
+  const index = w ? segmentAt(mask, w, s.segments, s.maskHidden) : 0;
+  if (index === 0) return false;
+  selectSegment(index);
+  set({ pickedSegment: index });
+  setTimeout(() => get().pickedSegment === index && set({ pickedSegment: null }), NEW_ROW_MS);
+  return true;
+}
+
+/** Fill tool, "Remove island" and "Keep island": acts on the island of the active segment under a point of a slice view. */
+export async function editIslandAt(view: ViewId, x: number, y: number): Promise<void> {
+  const action = get().fillAction;
+  if (action === 'fill' || view === 'volume3d') return;
+  const seg = activeEditable();
+  if (!mask || !seg) return;
+  flushEdits();
+  const w = engine.canvasToWorld(view, x, y);
+  const ijk = w && voxelAt(mask, w);
+  const { dims, spacing } = mask;
+  if (!ijk || mask.data[ijk[0] + (ijk[1] + ijk[2] * dims[1]) * dims[0]] !== seg.index) {
+    toast('info', `Click a part of ${seg.name}.`);
+    return;
+  }
+  const n = await runOperation(`Looking for islands in ${seg.name}…`, (d) => {
+    islandAt(d, dims, seg.index, ijk, action);
+  });
+  const size = formatVolume((n * spacing[0] * spacing[1] * spacing[2]) / 1000);
+  if (n > 0) {
+    toast('info', action === 'remove' ? `Removed an island of ${seg.name}, ${size}` : `Removed ${size} of ${seg.name} outside this island`, { label: 'Undo', run: undo });
+  } else if (n === 0) toast('info', `${seg.name} is already one island.`);
+}
+
+/** The most new segments one split makes. */
+const SPLIT_MAX = 20;
+/** A split that makes more new segments than this asks first. */
+const SPLIT_ASK = 5;
+
+/** Gives every island of a segment, after the largest, a segment of its own. */
+export function splitSegment(index: number): void {
+  const seg = editableSegment(index);
+  if (!seg || !mask) return;
+  flushEdits();
+  const { dims } = mask;
+  const islands = countIslands(mask.data as Uint8Array, dims, index);
+  if (islands < 2) {
+    toast('info', islands === 0 ? `${seg.name} is empty.` : `${seg.name} is already one island.`);
+    return;
+  }
+  const used = new Set(get().segments.map((x) => x.index));
+  const free: number[] = [];
+  for (let v = 1; v <= 255 && free.length < Math.min(islands - 1, SPLIT_MAX); v++) if (!used.has(v)) free.push(v);
+  if (free.length === 0) {
+    toast('error', 'A mask can hold up to 255 segments.');
+    return;
+  }
+  const go = async () => {
+    let made: number[] = [];
+    let left = 0;
+    const n = await runOperation(`Splitting ${seg.name}…`, (d) => {
+      ({ labels: made, left } = splitIslands(d, dims, index, free));
+    });
+    if (n <= 0) return;
+    const added: SegmentInfo[] = made.map((label, i) => ({
+      index: label,
+      name: `${seg.name} ${i + 2}`,
+      color: SEGMENT_COLORS[(label - 1) % SEGMENT_COLORS.length],
+      visible: true,
+      locked: false,
+    }));
+    updateSegments([...get().segments.filter((x) => !made.includes(x.index)), ...added].sort((a, b) => a.index - b.index));
+    const rest = left > 0 ? ` The ${left === 1 ? 'smallest island stays' : `${left} smallest islands stay`} in ${seg.name}.` : '';
+    toast('info', `Split ${seg.name} into ${made.length + 1} segments.${rest}`, { label: 'Undo', run: undo });
+  };
+  const more = islands - 1 - free.length;
+  if (free.length <= SPLIT_ASK && more === 0) return void go();
+  set({
+    confirm: {
+      title: `Split ${seg.name} into ${free.length + 1} segments?`,
+      body:
+        more > 0
+          ? `${seg.name} has ${islands.toLocaleString('en-US')} islands. The ${free.length + 1} largest become segments of their own; the rest stay in ${seg.name}.`
+          : `${seg.name} has ${islands} islands. Each becomes a segment of its own.`,
+      confirm: 'Split',
+      run: () => void go(),
+    },
+  });
 }
 
 /* ───────────────────────── whole-segment operations ───────────────────────── */
@@ -1166,9 +1385,30 @@ export async function copyMeasurements(): Promise<void> {
   toast(ok ? 'success' : 'error', ok ? 'Measurements copied' : "Couldn't copy. Allow clipboard access and try again.");
 }
 
-export function setPaintOver(paintOver: 'all' | 'empty'): void {
-  set({ paintOver });
+export function setPaintOver(paintOver: PaintOver): void {
+  const s = get();
+  limitHinted = false;
+  set({ paintOver: cleanPaintOver(paintOver, s.segments, s.activeSegment) });
 }
+
+let limitHinted = false;
+
+/** Said once per choice, when a stroke painted nothing because of the paint over limit. */
+function limitHint(): void {
+  const s = get();
+  if (limitHinted || s.paintOver === 'all') return;
+  limitHinted = true;
+  const inside = s.segments.find((x) => x.index === s.paintOver);
+  toast('info', inside ? `Nothing was painted: Paint over is set to Only ${inside.name}.` : 'Nothing was painted: Paint over is set to Empty only.');
+}
+
+// Painting inside a segment needs that segment, and it cannot be the one being painted.
+useStore.subscribe((now, before) => {
+  if (typeof now.paintOver !== 'number' || (now.segments === before.segments && now.activeSegment === before.activeSegment)) return;
+  if (cleanPaintOver(now.paintOver, now.segments, now.activeSegment) === now.paintOver) return;
+  set({ paintOver: 'all' });
+  toast('info', 'Paint over is back to Everything.');
+});
 
 export function setOpacity(opacity: number): void {
   set({ opacity });
@@ -1247,6 +1487,7 @@ export async function saveMask(): Promise<void> {
     toast('info', SAVE_OFF);
     return;
   }
+  cancelFillPreview(PREVIEW_CANCELLED);
   flushEdits();
   const suggested = defaultMaskName();
   try {

@@ -169,11 +169,10 @@ export function applyPatchWhereUnchanged(buf: Uint8Array, patch: Patch, side: 'b
 }
 
 /**
- * "Paint over: Empty only". Puts back, in `cur`, every voxel that the patch
- * changed from one segment to another, so painting never takes voxels from a
- * neighbour. Erasing is left alone. Returns how many voxels were put back.
+ * Takes back part of a patch: puts back, in `cur`, every voxel whose change
+ * `undo(before, after)` picks. Returns how many voxels were put back.
  */
-export function restoreOverwritten(cur: Uint8Array, patch: Patch): number {
+export function restoreWhere(cur: Uint8Array, patch: Patch, undo: (before: number, after: number) => boolean): number {
   let restored = 0;
   let o = 0;
   for (let r = 0; r < patch.starts.length; r++) {
@@ -181,7 +180,7 @@ export function restoreOverwritten(cur: Uint8Array, patch: Patch): number {
     const len = patch.lengths[r];
     for (let i = 0; i < len; i++, o++) {
       const before = patch.before[o];
-      if (before !== 0 && patch.after[o] !== 0) {
+      if (before !== patch.after[o] && undo(before, patch.after[o])) {
         cur[start + i] = before;
         restored++;
       }
@@ -233,4 +232,13 @@ export function splitPatch(patch: Patch, maxBytes: number): Patch[] {
   }
   close();
   return out;
+}
+
+/**
+ * "Paint over: Empty only". Puts back, in `cur`, every voxel that the patch
+ * changed from one segment to another, so painting never takes voxels from a
+ * neighbour. Erasing is left alone. Returns how many voxels were put back.
+ */
+export function restoreOverwritten(cur: Uint8Array, patch: Patch): number {
+  return restoreWhere(cur, patch, (before, after) => before !== 0 && after !== 0);
 }

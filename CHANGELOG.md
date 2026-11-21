@@ -12,6 +12,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The host can remove a person, switch off an unused invite link, and end or delete the room.
 - After offline work in a shared-copy room, changes to different voxels are both kept. Where both sides changed the same voxels the room's version stays and yours is kept until you choose *Use mine* or *Keep the room's*.
 - Rooms you have joined are listed under *Join a room*, so you can come back to a shared-copy room without a new link.
+- Freehand scissors: drag a loop around a region and release to erase or fill inside it. Where a loop crosses itself, what it goes around once is inside.
+- Scissors "Erase outside", and a depth choice: this slice or all slices of the view. A cut through all slices says how many voxels it changed and offers Undo.
+- Alt-click on a slice view selects the segment under the cursor, with any tool.
+- Paint over "Only <segment>": painting stays inside one segment. The choice is also in the threshold brush, the scissors (fill) and the Fill tool, and it applies to Fill between slices.
+- Fill tool actions "Remove island" and "Keep island": click a piece of the segment to remove it, or to keep it and remove the rest. Islands are followed through the whole volume.
+- Fill between slices now shows a preview first. Apply (Enter) writes it as one undo step; Cancel (Esc) leaves the mask as it was. A preview is never sent to a room.
+- "Smooth pixels" in the menu on a view's name. Off draws each voxel as a flat block. The image values are not changed.
+- "Split into separate segments" in a segment's menu: each island becomes a segment of its own, at most 20 at a time, asking first when there are many.
 
 ### Changed
 
@@ -19,11 +27,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - What a room sends is encrypted between the apps. The room server no longer sees names, voxels or segment names.
 - Edits in a room follow one order set by the room server, so two people painting over each other always end with the same mask. A lost connection is retried for as long as it takes, with a *Reconnect now* button.
 - The room server (`relay/`) serves the old room protocol only when started with `--v1`. An app from before this version is told to update.
+- The scissors erase the active segment only. Other segments inside the shape are left as they are.
 
 ### Fixed
 
 - Rejoining or reconnecting to a room no longer replaces your mask with the room's without asking.
 - Edits made while a room was reconnecting were dropped.
+- The brush ring no longer stays in a view after the pointer has left it.
+- Maximising a view now enlarges its image to fill the larger pane, and restoring puts it back as it was.
+- Tab and Shift+Tab now reach every control in a dialog, including buttons, switches and sliders, on macOS too, and stay inside the dialog.
 
 ## [0.1.1] - 2026-11-20
 

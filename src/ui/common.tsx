@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { formatCombo, useShortcuts, type ActionId } from '../state/shortcuts';
+import { trapTab } from './focus';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl';
@@ -91,26 +92,7 @@ export function Modal(props: {
         e.stopPropagation();
         live.current.onClose();
       }
-      if (e.key === 'Tab' && ref.current) {
-        const items = Array.from(
-          ref.current.querySelectorAll<HTMLElement>('button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), summary'),
-        );
-        if (items.length === 0) return;
-        const first = items[0];
-        const last = items[items.length - 1];
-        if (!ref.current.contains(document.activeElement)) {
-          e.preventDefault();
-          first.focus();
-          return;
-        }
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      if (ref.current) trapTab(e, ref.current);
     };
     window.addEventListener('keydown', key, true);
     return () => {
@@ -207,7 +189,8 @@ export function NumberField(props: {
 
 export function Choice<T extends string>(props: {
   value: T;
-  options: { value: T; label: string }[];
+  /** `short` is shown in place of `label` where space is tight; the button keeps `label` as its name. */
+  options: { value: T; label: string; short?: string }[];
   label: string;
   /** Id of a visible label, used in place of `label` when there is one. */
   labelledBy?: string;
@@ -216,8 +199,15 @@ export function Choice<T extends string>(props: {
   return (
     <div className="seg-control" role="group" aria-label={props.labelledBy ? undefined : props.label} aria-labelledby={props.labelledBy}>
       {props.options.map((o) => (
-        <button key={o.value} aria-pressed={o.value === props.value} onClick={() => props.onChange(o.value)}>
-          {o.label}
+        <button key={o.value} aria-pressed={o.value === props.value} aria-label={o.short ? o.label : undefined} onClick={() => props.onChange(o.value)}>
+          {o.short ? (
+            <>
+              <span className="long">{o.label}</span>
+              <span className="short">{o.short}</span>
+            </>
+          ) : (
+            o.label
+          )}
         </button>
       ))}
     </div>

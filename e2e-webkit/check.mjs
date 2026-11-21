@@ -91,7 +91,8 @@ try {
     ['brush', () => drag(b, 'axial', [-60, -60], [60, -30])],
     ['eraser', () => drag(b, 'axial', [-60, 0], [60, 0])],
     ['threshold', () => drag(b, 'coronal', [-50, 40], [50, 40])],
-    ['scissors', () => drag(b, 'axial', [-30, -30], [30, 30])],
+    // The scissors erase the active segment only, so the rectangle goes over the brush stroke made above.
+    ['scissors', () => drag(b, 'axial', [-30, -75], [30, -25])],
     ['fill', () => click(b, 'sagittal', [10, 10])],
   ]) {
     await check(`${id} changes the mask`, async () => {
@@ -113,6 +114,115 @@ try {
     await clickOn(b, 'button[aria-label="Redo"]');
     expect((await maskVoxels(b)) === now, 'redo did not bring the edit back');
     expect(undone !== now || (await state(b, (s) => s.canUndo)), 'undo did nothing');
+  });
+
+  /* ── outline scissors, picking, islands, the fill preview and smooth pixels ── */
+  /** Presses at the first point, drags through the rest and releases; offsets from the view's centre. */
+  const trace = async (view, points) => {
+    const r = await rect(b, `[data-view="${view}"]`);
+    const at = (p) => ({ x: r.x + r.width / 2 + p[0], y: r.y + r.height / 2 + p[1] });
+    const actions = [{ type: 'move', ...at(points[0]) }, { type: 'down' }, { type: 'pause', duration: 50 }];
+    for (const p of points.slice(1)) actions.push({ type: 'move', ...at(p), duration: 40 });
+    actions.push({ type: 'pause', duration: 50 }, { type: 'up' });
+    await b.pointer(actions);
+    await sleep(500);
+  };
+  const ALT = '';
+  const ENTER = '';
+  const voxelsOf = (label) => maskVoxels(b, label);
+
+  await check('a freehand loop erases what it goes around, and undo brings it back', async () => {
+    await tool('brush');
+    await drag(b, 'axial', [-20, 100], [20, 100]);
+    const active = await state(b, (s) => s.activeSegment);
+    const painted = await voxelsOf(active);
+    await tool('scissors');
+    await b.exec(() => window.__w.session.setToolOption({ scissorsShape: 'freehand', scissorsAction: 'erase', scissorsDepth: 'slice' }));
+    await trace('axial', [[-50, 78], [0, 72], [50, 78], [54, 100], [50, 124], [0, 128], [-50, 124], [-54, 100]]);
+    expect(!(await rect(b, '.outline-draw')), 'the outline is still drawn after the release');
+    const cut = await voxelsOf(active);
+    expect(cut < painted, `the loop erased nothing (${painted} voxels before and after)`);
+    await shot('03b freehand scissors');
+    await clickOn(b, 'button[aria-label="Undo"]');
+    expect((await voxelsOf(active)) === painted, 'undo did not bring the voxels back');
+    await b.exec(() => window.__w.session.setToolOption({ scissorsShape: 'rectangle' }));
+  });
+
+  await check('Alt-click selects the segment under the cursor and paints nothing', async () => {
+    const first = await state(b, (s) => s.activeSegment);
+    await b.exec(() => window.__w.session.addSegment());
+    const added = await state(b, (s) => s.activeSegment);
+    expect(added !== first, 'no segment was added');
+    const before = await maskVoxels(b);
+    const r = await rect(b, '[data-view="axial"]');
+    await b.call('POST', '/actions', {
+      actions: [
+        { type: 'key', id: 'kbd', actions: [{ type: 'keyDown', value: ALT }, { type: 'pause' }, { type: 'pause' }, { type: 'pause' }, { type: 'keyUp', value: ALT }] },
+        {
+          type: 'pointer',
+          id: 'mouse',
+          parameters: { pointerType: 'mouse' },
+          actions: [
+            { type: 'pause' },
+            { type: 'pointerMove', x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2 + 100), origin: 'viewport', duration: 0 },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pointerUp', button: 0 },
+            { type: 'pause' },
+          ],
+        },
+      ],
+    });
+    await sleep(400);
+    expect((await state(b, (s) => s.activeSegment)) === first, 'the segment under the cursor was not selected');
+    expect((await maskVoxels(b)) === before, 'the click changed the mask');
+    await b.exec((added) => window.__w.session.selectSegment(added), added);
+  });
+
+  await check('the Fill tool removes the island that is clicked', async () => {
+    const seg = await state(b, (s) => s.activeSegment);
+    await tool('brush');
+    await drag(b, 'axial', [-110, -100], [-90, -100]);
+    const one = await voxelsOf(seg);
+    await drag(b, 'axial', [90, -100], [110, -100]);
+    const two = await voxelsOf(seg);
+    expect(one > 0 && two > one, `two strokes did not paint two pieces (${one}, ${two})`);
+    await tool('fill');
+    await b.exec(() => window.__w.session.setToolOption({ fillAction: 'remove' }));
+    await click(b, 'axial', [100, -100]);
+    expect((await voxelsOf(seg)) === one, `the clicked piece is still there (${await voxelsOf(seg)} voxels, expected ${one})`);
+    await b.exec(() => window.__w.session.setToolOption({ fillAction: 'fill' }));
+  });
+
+  await check('fill between slices shows a preview and writes on Enter', async () => {
+    const seg = await state(b, (s) => s.activeSegment);
+    await tool('brush');
+    await b.exec(() => window.__w.engine.scrollSlices('axial', 4));
+    await sleep(300);
+    await drag(b, 'axial', [-110, -100], [-90, -100]);
+    const painted = await voxelsOf(seg);
+    await clickOn(b, '[data-tour="interpolate"]');
+    await until(() => state(b, (s) => !!s.preview), Boolean, { what: 'the fill preview' });
+    await sleep(400);
+    await shot('03c fill preview');
+    expect((await voxelsOf(seg)) === painted, 'the preview changed the mask');
+    expect(await rect(b, '.strip .btn.primary'), 'the strip has no Apply button');
+    await b.keys(ENTER);
+    await sleep(400);
+    expect(!(await state(b, (s) => !!s.preview)), 'the preview is still there after Enter');
+    expect((await voxelsOf(seg)) > painted, 'Enter did not fill the gap');
+    await b.exec((seg) => window.__w.session.deleteSegment(seg), seg);
+  });
+
+  await check('Smooth pixels can be switched from a view menu', async () => {
+    expect((await b.exec(() => window.__w.engine.getSmoothPixels('axial'))) === true, 'pixels are not smooth to begin with');
+    await clickOn(b, '[data-view="axial"] .viewlabel > button');
+    await clickOn(b, '[data-view="axial"] [role="menuitemcheckbox"]');
+    await sleep(300);
+    expect((await b.exec(() => window.__w.engine.getSmoothPixels('coronal'))) === false, 'the slice views are still smoothed');
+    await shot('03d flat pixels');
+    await b.exec(() => window.__w.settings.setSetting('smoothPixels', true));
+    await sleep(200);
+    expect((await b.exec(() => window.__w.engine.getSmoothPixels('axial'))) === true, 'smoothing did not come back');
   });
 
   /* ── the navigation tools ── */
@@ -275,6 +385,42 @@ try {
       await setState(off);
       await sleep(200);
       expect(hits.length === 0, `it covers ${hits.join(', ')}`);
+    });
+  }
+
+  /* ── Tab in dialogs ── */
+  // The app moves focus itself, so plain Tab reaches every control whatever the webview does with it.
+  for (const [name, on, off] of [
+    ['room dialog', { roomModal: 'start' }, { roomModal: null }],
+    ['settings, appearance', { settings: 'appearance' }, { settings: null }],
+    ['settings, help', { settings: 'help' }, { settings: null }],
+    ['report dialog', { report: 'bug' }, { report: null }],
+  ]) {
+    await check(`${name}: Tab stops at every control, in order, and stays inside`, async () => {
+      await setState(on);
+      await sleep(350);
+      const count = await b.exec(() => {
+        const root = document.querySelector('[role="dialog"]');
+        window.__stops = [...root.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex]')].filter(
+          // In view: a control inside a closed disclosure is not, though it may still have a box.
+          (el) => !el.disabled && !(el.getAttribute('tabindex') ?? '').startsWith('-') && el.getClientRects().length > 0 && el.checkVisibility({ visibilityProperty: true }),
+        );
+        return window.__stops.length;
+      });
+      const at = () => b.exec(() => window.__stops.indexOf(document.activeElement));
+      const start = await at();
+      const seen = [];
+      for (let i = 0; i < count; i++) {
+        await b.keys('');
+        seen.push(await at());
+      }
+      await setState(off);
+      await sleep(200);
+      expect(start >= 0, 'focus did not start on a control of the dialog');
+      expect(
+        seen.every((v, i) => v === (start + i + 1) % count),
+        `from ${start}, Tab went to ${seen.join(', ')} of ${count}`,
+      );
     });
   }
 

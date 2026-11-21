@@ -14,8 +14,11 @@ import * as csTools from '@cornerstonejs/tools';
 import type { VolumeData } from '../io/types';
 import type { SegmentInfo } from '../collab/protocol';
 import type { ToolId, ViewId } from '../state/store';
+import { cutsWithOutline, type ScissorsAction, type ScissorsDepth, type ScissorsShape, type ViewFrame } from '../mask/scissors';
+import { PREVIEW_DARK, PREVIEW_LIGHT } from '../mask/preview';
 import { hexToRgb } from './geometry';
 import { zoomAbout } from './gestures';
+import { paneGrowth } from './layout';
 import { LINE_CENTRE_GAP, LinkedLinesTool } from './linkedLines';
 
 const {
@@ -71,6 +74,8 @@ let maskLoaded = false;
 const drawnSize = new Map<string, { w: number; h: number }>();
 /** The views on screen now. */
 const onScreen = new Set<string>();
+/** How many times the image of a maximised view was enlarged, so that leaving maximise puts it back. */
+const enlarged = new Map<string, number>();
 
 /** When the lines marking the other two planes are drawn. */
 export type LinesSetting = 'always' | 'hover' | 'crosshair';
@@ -156,6 +161,7 @@ export function mountViewports(els: ViewportElements): void {
   mounted = els;
   drawnSize.clear();
   onScreen.clear();
+  enlarged.clear();
   lines.mode = 'Disabled';
   engine = new RenderingEngine(ENGINE_ID);
   const { ViewportType, OrientationAxis } = Enums;
@@ -195,6 +201,7 @@ export function unmountViewports(): void {
   ToolGroupManager.destroyToolGroup(VOLUME3D_GROUP);
   segmentation.removeAllSegmentations();
   forgetComparisons();
+  forgetPreview();
   removeVolume(MASK_VOLUME_ID);
   removeVolume(IMAGE_VOLUME_ID);
   engine.destroy();
@@ -249,9 +256,14 @@ function setupToolGroups(): void {
 
 export interface ToolOptions {
   brushShape: 'circle' | 'sphere';
-  scissorsShape: 'rectangle' | 'circle' | 'sphere';
-  scissorsAction: 'erase' | 'fill';
+  scissorsShape: ScissorsShape;
+  scissorsAction: ScissorsAction;
+  scissorsDepth: ScissorsDepth;
+  fillAction: 'fill' | 'remove' | 'keep';
 }
+
+/** No viewer tool: the press is handled by the app (src/ui/maskPointer.ts). */
+const APP_TOOL = '';
 
 function toolNameFor(tool: ToolId, o: ToolOptions): string {
   switch (tool) {
@@ -272,13 +284,14 @@ function toolNameFor(tool: ToolId, o: ToolOptions): string {
     case 'threshold':
       return o.brushShape === 'sphere' ? BRUSH.thresholdSphere : BRUSH.threshold;
     case 'scissors':
+      if (cutsWithOutline(o.scissorsShape, o.scissorsAction, o.scissorsDepth)) return APP_TOOL;
       return o.scissorsShape === 'circle'
         ? CircleScissorsTool.toolName
         : o.scissorsShape === 'sphere'
           ? SphereScissorsTool.toolName
           : RectangleScissorsTool.toolName;
     case 'fill':
-      return PaintFillTool.toolName;
+      return o.fillAction === 'fill' ? PaintFillTool.toolName : APP_TOOL;
   }
 }
 
@@ -385,6 +398,25 @@ export function setBrushSize(mm: number): void {
   }
 }
 
+/**
+ * Takes the brush ring off the views. Cornerstone draws the ring where the pointer last moved
+ * over a view and is not told when the pointer leaves, so without this the ring stays behind.
+ * The next move over a view draws it again.
+ */
+export function hideBrushRing(): void {
+  const group = ToolGroupManager.getToolGroup(ORTHO_GROUP);
+  if (!group) return;
+  let hidden = false;
+  for (const name of Object.values(BRUSH)) {
+    // The tool keeps the ring it draws in this field, and draws nothing without it.
+    const tool = group.getToolInstance(name) as unknown as { _hoverData?: unknown } | undefined;
+    if (!tool?._hoverData) continue;
+    tool._hoverData = undefined;
+    hidden = true;
+  }
+  if (hidden) csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
+}
+
 export function setThreshold(range: [number, number]): void {
   const group = ToolGroupManager.getToolGroup(ORTHO_GROUP);
   if (!group) return;
@@ -449,6 +481,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   const e = eng();
   segmentation.removeAllSegmentations();
   forgetComparisons();
+  forgetPreview();
   removeVolume(MASK_VOLUME_ID);
   removeVolume(IMAGE_VOLUME_ID);
   maskLoaded = false;
@@ -460,6 +493,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   await setVolumesForViewports(e, [{ volumeId: IMAGE_VOLUME_ID }], [VOLUME3D_ID]);
   (e.getViewport(VOLUME3D_ID) as Types.IVolumeViewport).setProperties({ preset: 'CT-Bone' });
   imageLoaded = true;
+  enlarged.clear();
   for (const id of ALL_IDS) {
     const vp = e.getViewport(id) as Types.IVolumeViewport;
     if (id !== VOLUME3D_ID) vp.resetCamera();
@@ -469,6 +503,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
     else drawnSize.delete(id);
   }
   setVoi(voi.lower, voi.upper);
+  if (!smoothPixels) setSmoothPixels(false);
   e.render();
 }
 
@@ -476,6 +511,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
 export function showMask(vol: VolumeData): void {
   segmentation.removeAllSegmentations();
   forgetComparisons();
+  forgetPreview();
   removeVolume(MASK_VOLUME_ID);
   geometry.set(MASK_VOLUME_ID, vol);
   // Tie the mask to the image so the threshold brush reads image values, not mask values.
@@ -570,6 +606,153 @@ export function showComparisons(list: Comparison[]): void {
     }
   }
   repaintMask();
+}
+
+/* ───────────────────────── fill preview ───────────────────────── */
+
+const PREVIEW_VOLUME_ID = 'w-preview';
+const PREVIEW_SEGMENTATION_ID = 'preview';
+let previewShown = false;
+
+/** Stripes of one colour at two strengths, with no outline, so a preview never looks like part of the mask. */
+const PREVIEW_STYLE = {
+  renderFill: true,
+  renderFillInactive: true,
+  fillAlpha: 0.8,
+  fillAlphaInactive: 0.8,
+  renderOutline: false,
+  renderOutlineInactive: false,
+};
+
+/**
+ * Shows a proposal over the slice views, from a buffer that is not the mask: values
+ * PREVIEW_DARK and PREVIEW_LIGHT are drawn in `color`. The tools never write to it.
+ */
+export function showPreview(vol: VolumeData, color: string): void {
+  if (!maskLoaded || !engine) return;
+  hidePreview();
+  keepSlicesWhileAdding();
+  geometry.set(PREVIEW_VOLUME_ID, vol);
+  volumeLoader.createLocalLabelmapVolume(
+    { ...localVolume(vol), referencedVolumeId: IMAGE_VOLUME_ID, referencedImageIds: cache.getVolume(IMAGE_VOLUME_ID)?.imageIds },
+    PREVIEW_VOLUME_ID,
+  );
+  segmentation.addSegmentations([
+    { segmentationId: PREVIEW_SEGMENTATION_ID, representation: { type: LABELMAP, data: { volumeId: PREVIEW_VOLUME_ID } } },
+  ]);
+  const [r, g, b] = hexToRgb(color);
+  const lut = Array.from({ length: 256 }, () => [0, 0, 0, 0]) as Types.ColorLUT;
+  lut[PREVIEW_DARK] = [r, g, b, 255];
+  lut[PREVIEW_LIGHT] = [r, g, b, 96];
+  const map: Record<string, { segmentationId: string; config: { colorLUTOrIndex: Types.ColorLUT } }[]> = {};
+  for (const id of ORTHO_IDS) map[id] = [{ segmentationId: PREVIEW_SEGMENTATION_ID, config: { colorLUTOrIndex: lut } }];
+  segmentation.addLabelmapRepresentationToViewportMap(map);
+  segmentation.segmentationStyle.setStyle({ type: LABELMAP, segmentationId: PREVIEW_SEGMENTATION_ID }, PREVIEW_STYLE);
+  previewShown = true;
+  // The tools keep painting on the mask being edited.
+  for (const id of ALL_IDS) {
+    try {
+      segmentation.activeSegmentation.setActiveSegmentation(id, SEGMENTATION_ID);
+    } catch {
+      /* representation not ready on this viewport yet */
+    }
+  }
+  for (const id of ORTHO_IDS) {
+    segmentation.triggerSegmentationEvents.triggerSegmentationRepresentationModified(id, PREVIEW_SEGMENTATION_ID, LABELMAP);
+  }
+  segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(PREVIEW_SEGMENTATION_ID);
+  repaintMask();
+}
+
+/**
+ * Adding a labelmap makes the viewer reset each slice view's camera and put it straight
+ * back. The reference lines answer a reset by sending every view to its middle slice,
+ * which would lose the user's place, so they sit out the resets this one addition causes.
+ */
+function keepSlicesWhileAdding(): void {
+  const e = engine;
+  if (!e) return;
+  const waiting = new Set<string>(ORTHO_IDS);
+  const offs: (() => void)[] = [];
+  const done = () => {
+    clearTimeout(timer);
+    offs.forEach((off) => off());
+    LinkedLinesTool.followResets = true;
+  };
+  // Long enough for the largest labelmap to reach the views; the resets normally end it sooner.
+  const timer = setTimeout(done, 5000);
+  LinkedLinesTool.followResets = false;
+  for (const id of ORTHO_IDS) {
+    const el = orthoViewport(id).element;
+    const onReset = () => {
+      waiting.delete(id);
+      // After the lines have had their turn with this event.
+      if (waiting.size === 0) setTimeout(done, 0);
+    };
+    el.addEventListener(Enums.Events.CAMERA_RESET, onReset);
+    offs.push(() => el.removeEventListener(Enums.Events.CAMERA_RESET, onReset));
+  }
+}
+
+/** After every segmentation was removed at once: the preview went with them. */
+function forgetPreview(): void {
+  if (previewShown) removeVolume(PREVIEW_VOLUME_ID);
+  previewShown = false;
+}
+
+export function hidePreview(): void {
+  if (!previewShown) return;
+  previewShown = false;
+  try {
+    segmentation.removeSegmentation(PREVIEW_SEGMENTATION_ID);
+  } catch {
+    /* already gone */
+  }
+  removeVolume(PREVIEW_VOLUME_ID);
+  repaintMask();
+}
+
+/* ───────────────────────── how the image is drawn ───────────────────────── */
+
+let smoothPixels = true;
+
+/**
+ * Smooth: the slice views blend between voxels. Off: every voxel is drawn as a flat
+ * block, so its edge is where the data's edge is. Drawing only; no value changes.
+ */
+export function setSmoothPixels(smooth: boolean): void {
+  smoothPixels = smooth;
+  if (!engine || !imageLoaded) return;
+  const type = smooth ? Enums.InterpolationType.LINEAR : Enums.InterpolationType.NEAREST;
+  for (const id of ORTHO_IDS) {
+    const vp = orthoViewport(id);
+    vp.setProperties({ interpolationType: type }, IMAGE_VOLUME_ID);
+    vp.render();
+  }
+}
+
+/** Whether a slice view is blending between voxels now. */
+export function getSmoothPixels(id: string = 'axial'): boolean | null {
+  if (!engine || !imageLoaded) return null;
+  return orthoViewport(id).getProperties(IMAGE_VOLUME_ID)?.interpolationType !== Enums.InterpolationType.NEAREST;
+}
+
+/** A slice view as it is on screen, for mapping what is drawn on it onto voxels. */
+export function viewFrame(id: string): ViewFrame | null {
+  if (!engine || !imageLoaded) return null;
+  const vp = orthoViewport(id);
+  const cam = vp.getCamera();
+  const origin = vp.canvasToWorld([0, 0]);
+  const x = vp.canvasToWorld([1, 0]);
+  const y = vp.canvasToWorld([0, 1]);
+  if (!cam.viewPlaneNormal || !cam.focalPoint) return null;
+  return {
+    origin: [origin[0], origin[1], origin[2]],
+    right: [x[0] - origin[0], x[1] - origin[1], x[2] - origin[2]],
+    down: [y[0] - origin[0], y[1] - origin[1], y[2] - origin[2]],
+    normal: [...cam.viewPlaneNormal],
+    focal: [...cam.focalPoint],
+  };
 }
 
 /** How bright the image is drawn when dimmed. The voxel values and the window are untouched. */
@@ -905,8 +1088,11 @@ function renderNow(): void {
  * pixel and the point at its centre. Cornerstone alone keeps the camera's parallel scale,
  * which is half the view's height in millimetres, so a taller view would magnify the image.
  * A view that is not on screen is skipped and costs nothing; it is picked up here when it returns.
+ *
+ * The one exception is `maximised`, the view the user asked to see alone: its image grows
+ * with its pane, and shrinks back by as much when the view is no longer the maximised one.
  */
-export function resizeViewports(): void {
+export function resizeViewports(maximised: string | null = null): void {
   if (!engine) return;
   // A frame that is still waiting makes Cornerstone skip the resize, so draw it first.
   renderNow();
@@ -922,9 +1108,20 @@ export function resizeViewports(): void {
     }
     if (!size) continue;
     const last = drawnSize.get(id);
+    const grown = enlarged.get(id);
+    if (id !== maximised) enlarged.delete(id);
     if (last && last.w === size.w && last.h === size.h) continue;
     const scale = imageLoaded ? vp.getCamera().parallelScale : undefined;
-    changed.push({ vp, id, size, mmPerPx: last && scale ? (2 * scale) / last.h : null });
+    let mmPerPx = last && scale ? (2 * scale) / last.h : null;
+    if (mmPerPx !== null && last) {
+      if (id !== maximised && grown) mmPerPx *= grown;
+      if (id === maximised && !grown) {
+        const growth = paneGrowth(last, size, imageExtent(vp));
+        enlarged.set(id, growth);
+        mmPerPx /= growth;
+      }
+    }
+    changed.push({ vp, id, size, mmPerPx });
   }
   if (changed.length) {
     engine.resize(false, true);
@@ -938,6 +1135,18 @@ export function resizeViewports(): void {
   }
   if (visibility && imageLoaded) csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
   renderNow();
+}
+
+/** Width and height, in millimetres, of what a view holds, as its camera sees it. */
+function imageExtent(vp: Types.IVolumeViewport): { w: number; h: number } {
+  const b = vp.getBounds();
+  const { viewUp: up, viewPlaneNormal: n } = vp.getCamera();
+  if (!b || !up || !n) return { w: 0, h: 0 };
+  const right = [up[1] * n[2] - up[2] * n[1], up[2] * n[0] - up[0] * n[2], up[0] * n[1] - up[1] * n[0]];
+  // The box around the image, measured along the camera's right and up.
+  const size = [b[1] - b[0], b[3] - b[2], b[5] - b[4]];
+  const along = (axis: ArrayLike<number>) => Math.abs(axis[0]) * size[0] + Math.abs(axis[1]) * size[1] + Math.abs(axis[2]) * size[2];
+  return { w: along(right), h: along(up) };
 }
 
 /** Fits a view that is on screen for the first time since the image was opened, without losing its slice. */
