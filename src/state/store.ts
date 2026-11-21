@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SegmentInfo } from '../collab/protocol';
+import type { Role, RoomKind, SegmentInfo } from '../collab/protocol';
 import type { SegmentStats } from '../mask/ops';
 import type { MaskRow } from '../mask/collection';
 import type { PaintOver } from '../mask/paintOver';
@@ -47,16 +47,31 @@ export interface Peer {
   id: number;
   name: string;
   color: string;
+  role: Role;
   cursor?: { vp: ViewId; w: [number, number, number]; r?: number };
+  /** View through host, on the host's side: how many planes this guest has been sent. */
+  seen?: number;
 }
 
 export interface RoomState {
-  status: 'connecting' | 'online' | 'reconnecting';
-  code: string;
-  link: string;
+  status: 'connecting' | 'online' | 'offline';
+  id: string;
+  kind: RoomKind;
+  role: Role;
   selfId: number;
   name: string;
+  /** The room runs on this computer. */
   hosting: boolean;
+  /** The host's name, when the host is someone else and has said it. */
+  hostName: string | null;
+  /** The host is not connected. */
+  hostAway: boolean;
+  /** View through host, guest side: why the views are blanked, or null. */
+  veil: string | null;
+  /** After a merge: how much of my work differs from the room and was put aside. */
+  review: { slices: number; voxels: number } | null;
+  /** A short line about what the room is waiting for, or null. */
+  note: string | null;
 }
 
 export interface ConfirmRequest {

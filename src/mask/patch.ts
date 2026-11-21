@@ -190,6 +190,51 @@ export function restoreWhere(cur: Uint8Array, patch: Patch, undo: (before: numbe
 }
 
 /**
+ * Cuts a patch into pieces whose encoded size is at most `maxBytes` each, so a large
+ * edit fits the messages a room allows. Applied in order, the pieces equal the patch.
+ */
+export function splitPatch(patch: Patch, maxBytes: number): Patch[] {
+  if (4 + patch.starts.length * 8 + patch.after.length <= maxBytes) return [patch];
+  const out: Patch[] = [];
+  let starts: number[] = [];
+  let lengths: number[] = [];
+  let from = 0;
+  let o = 0;
+  let size = 4;
+  const hasBefore = patch.before.length === patch.after.length;
+  const close = () => {
+    if (starts.length === 0) return;
+    out.push({
+      starts: Uint32Array.from(starts),
+      lengths: Uint32Array.from(lengths),
+      before: hasBefore ? patch.before.slice(from, o) : new Uint8Array(0),
+      after: patch.after.slice(from, o),
+    });
+    starts = [];
+    lengths = [];
+    from = o;
+    size = 4;
+  };
+  for (let r = 0; r < patch.starts.length; r++) {
+    let start = patch.starts[r];
+    let left = patch.lengths[r];
+    while (left > 0) {
+      // A run costs 8 bytes plus one per voxel; start a new piece when not even one voxel fits.
+      if (size + 9 > maxBytes) close();
+      const take = Math.min(left, maxBytes - size - 8);
+      starts.push(start);
+      lengths.push(take);
+      size += 8 + take;
+      o += take;
+      start += take;
+      left -= take;
+    }
+  }
+  close();
+  return out;
+}
+
+/**
  * "Paint over: Empty only". Puts back, in `cur`, every voxel that the patch
  * changed from one segment to another, so painting never takes voxels from a
  * neighbour. Erasing is left alone. Returns how many voxels were put back.

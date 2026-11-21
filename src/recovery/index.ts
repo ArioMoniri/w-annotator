@@ -66,7 +66,8 @@ function snapshot(): RecoverySnapshot | null {
   const s = get();
   const mask = session.getMask();
   const key = imageKey();
-  if (!mask || !key || !s.dirty) return null;
+  // A guest of a view-through-host room keeps nothing on this device.
+  if (!mask || !key || !s.dirty || session.isGuestView()) return null;
   const started = performance.now();
   const copy = (mask.data as Uint8Array).slice();
   lastTiming.copy = performance.now() - started;

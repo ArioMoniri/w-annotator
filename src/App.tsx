@@ -12,6 +12,7 @@ import { ReportDialog } from './ui/ReportDialog';
 import { noteImagePaths, startRecovery } from './recovery';
 import { OptionsStrip } from './ui/OptionsStrip';
 import { RecoveryBar } from './ui/RecoveryBar';
+import { RoomBar } from './ui/RoomBar';
 import { Busy, ConfirmDialog, Toasts, UpdateBanner } from './ui/Overlays';
 import { MeasurementsSheet } from './ui/Measurements';
 import { RoomModal } from './ui/RoomModal';
@@ -240,6 +241,7 @@ export function App() {
         <>
           <ToolRail />
           <OptionsStrip />
+          <RoomBar />
           <RecoveryBar />
           <Viewports />
           {panelOpen && <SegmentsPanel />}

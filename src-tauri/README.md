@@ -186,11 +186,11 @@ const image = await invoke<ArrayBuffer>('recovery_image', { key });
 const { port, addresses } = await invoke<{ port: number; addresses: string[] }>('host_room', {
   port: 8787, // optional, default 8787
 });
-// Others join with: ws://<addresses[i]>:<port>/r/<ROOM>?name=<name>
-// The host itself uses ws://127.0.0.1:<port>/r/<ROOM>?name=<name>
+// Invite links are http://<addresses[0]>:<port>/j/<ROOM>#<secret>
+// The host itself uses ws://127.0.0.1:<port>/v2/rooms/<ROOM>
 ```
 
-The web side always connects the host over `127.0.0.1`, so a firewall or network setting cannot keep the host out of its own room; the invite link carries `addresses[0]`. When `addresses` is empty the link falls back to `127.0.0.1` and the dialog says it only works on this computer (`../src/collab/hosting.ts`).
+The web side always connects the host over `127.0.0.1`, so a firewall or network setting cannot keep the host out of its own room; the invite link carries `addresses[0]`. When `addresses` is empty the link falls back to `127.0.0.1` and the dialog says it only works on this computer (`../src/collab/hosting.ts`). The embedded relay speaks rooms protocol v2 only (`../docs/design/ROOMS-PROTOCOL.md`) and keeps its rooms in memory, so a room hosted here ends when the app closes.
 
 Starts the relay on `0.0.0.0`. If the port is taken, a free one is used, so always read `port` from the result. `addresses` holds this machine's IPv4 addresses on the network (no loopback), private ranges first; it can be empty when offline. Calling it again while hosting returns the running relay and ignores `port`. The relay protocol is in `../relay/README.md`.
 
@@ -211,7 +211,7 @@ Two environment variables, read when the app is launched, let automated tests re
 | `W_E2E_SAVE_DIR=<folder>` | `pick_save_path` shows no dialog and returns `<folder>/<defaultName>` (only the file name of `defaultName` is used, so the path cannot leave the folder; `mask.nii.gz` if there is none). The folder must exist. |
 | `W_SELFTEST=<file>` | After the files from the command line have opened, the app runs a short scripted check in its own window, writes the result to `<file>` as JSON and quits. |
 
-The self-test expects an image and a mask with at least two segments on the command line. Its steps: the files opened; a mouse stroke with the brush added voxels; a room hosted by the app was joined, and left, by a second WebSocket connection made from the window to the invite link; the mask was saved (so set `W_E2E_SAVE_DIR` too). The result looks like this:
+The self-test expects an image and a mask with at least two segments on the command line. Its steps: the files opened; a mouse stroke with the brush added voxels; a room hosted by the app was joined with its invite link, and left, by a second client made in the window; the mask was saved (so set `W_E2E_SAVE_DIR` too). The result looks like this:
 
 ```json
 {

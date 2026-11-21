@@ -1,6 +1,6 @@
 # Rooms, next version — design
 
-Panel: backend (realtime, Rust), full-stack (React/Tauri), security/privacy (medical data). Status: proposal, nothing built.
+Panel: backend (realtime, Rust), full-stack (React/Tauri), security/privacy (medical data). Status: phase 1 built, relay and app, with the cuts listed under "Decisions made during implementation" at the end.
 Requirements: **R1a** shared-copy room, **R1b** view-through-host room, **R2** host deletes room / removes people, **R3** links expire, **R4** autosave interplay. **S** = safety or correctness regardless of requirement.
 
 ## A. Gap analysis (today's code)
@@ -289,7 +289,7 @@ Relay side of phase 1 (1.0, 1.1, 1.2, 1.3, relay half of 1.5, 1.8). The owner an
 
 | # | Topic | Decision | Why |
 |---|---|---|---|
-| 1 | `/r/…` → 426 (C8) | **Not yet.** v1 stays on by default so today's app keeps working against the same relay; `--no-v1` (`RelayConfig.v1 = false`) gives the 426 | The v2 client does not exist yet. Turn v1 off in the release that ships it |
+| 1 | `/r/…` → 426 (C8) | **Done with the app's v2 client:** v1 is off unless the relay is started with `--v1` (`RelayConfig.v1 = true`) | The app no longer speaks v1 |
 | 2 | Member id | First 4 bytes of SHA-256(public key), little-endian `u32`. A key whose id is 0 or collides inside the room is refused; the client makes another | The header has 32 bits for `from`/`to`; a hash keeps the id stable across reconnects and relay restarts without relay state |
 | 3 | Sign-in | Ed25519 signature over `w-rooms/2 <op> <ROOM> <nonce>`, the nonce fresh per connection in `hello` | No replay across connections, rooms or operations |
 | 4 | Invite proof | HMAC-SHA256 with `authKey` over room, nonce and the redeemer's key. `redeem` also carries a signature by the new key | Proof is bound to the key and the connection |
@@ -315,5 +315,24 @@ Relay side of phase 1 (1.0, 1.1, 1.2, 1.3, relay half of 1.5, 1.8). The owner an
 | 24 | Fault hooks | A `Faults` handle in `RelayConfig`, not a cargo feature and not an HTTP endpoint | Works in integration tests without feature flags; nothing reachable from the network. Playwright-side helpers come with the v2 client |
 | 25 | Modules | `v1`, `proto`, `auth`, `invites`, `limits`, `rooms`, `conn`, `faults`. No `storage` or `admin` yet | Those are phase 2 |
 | 26 | Not built here | `/metrics`, admin delete, key rotation, storage; TypeScript client | Phase 2, or the client engineer's work |
+
+### App side of phase 1
+
+What the app does, task by task. Where it differs from the text above, this table wins; the reasons are in `docs/process/DECISIONS.md` (2026-11-21).
+
+| Task | Built | Not built, or built differently |
+|---|---|---|
+| 1.0 | Playwright helpers that cut and restore one page's connection (`e2e/helpers.ts`, `cuttable`) | They work in the browser, not through the relay's fault hooks, so they close a connection cleanly; a broken connection of the host is covered by the relay's own tests |
+| 1.1 | `src/collab/protocol.ts`: header, links, close-code texts; the v1 client is gone | — |
+| 1.2 | `identity.ts` (per-room Ed25519 key, member id), `client.ts` (sign-in, endless jittered reconnect, re-open after a relay restart) | Role `viewer` and "can invite" have no control in the app. No X25519 key |
+| 1.3 | Invite links made, listed and switched off by the host; single use, 24 h | No expiry or use-count options, no label |
+| 1.4 | Kind of room at creation; people list with Remove; Delete room / End room; "Rooms you have joined" | No role change. The people list is in the room menu, not a separate panel. Remove has no "also revoke unused links" |
+| 1.5 | `oplog.ts`: relay order, ack, rebase of unconfirmed edits, gap replay; per-segment ops; the whole-mask digest is gone | Segments are keyed by label value, not a random id; no renumbering on a same-value add; no per-slice checksum safety net |
+| 1.6 | `transfer.ts`: 16-slice slabs, parts of at most 1 MiB, paced; host first, next member after 5 s; 2 GB limit | Same-image check by the autosave fingerprint; a cut transfer starts again instead of resuming |
+| 1.7 | Offline work, endless reconnect with "Reconnect now", three-way merge (`src/mask/merge.ts`), summary, "Use mine" / "Keep the room's" | Conflicts are decided all at once, with no per-slice panel and no outline; no 7-day pre-merge copy; segment conflicts are last-writer-wins |
+| 1.9 | `hostview.ts`: host answers plane requests with 8-bit windowed planes and labels, counts planes per guest, rate-limits; guest holds no file, cannot save, gets no recovery copy, is blanked while the host is unreachable and wiped when the room ends | Lossless gzip instead of WebP in a worker; no cache cap; 3D view not disabled; the host's window, re-fetched when it changes; a guest is shown no measurements |
+| 1.10 | `crypto.ts`: AES-256-GCM, room key wrapped in the invite, names inside encrypted frames | One room key for both kinds; no pairwise keys |
+| 1.11 | No recovery copy for a view-through-host guest; Settings shows autosave as off in that room | The shared-copy recovery copy does not carry the room id and base, so after an app restart a return is merged two-way |
+| 1.12 | The embedded relay speaks v2 with the embedded limits; links carry the LAN address | **Not verified** on macOS, Windows or Linux desktop builds: `ws://` from the webview, address picker, binding one address, firewall text and a CSP are not done |
 
 Open risk: anyone who can reach a relay can create rooms up to its cap, and an abandoned room lives 30 days. Until phase 2 adds an admin token, keep a relay private or keep `--max-rooms` low (`relay/README.md`).

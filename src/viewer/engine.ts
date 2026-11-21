@@ -889,6 +889,35 @@ export function refreshMask(slices?: number[]): void {
   segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(SEGMENTATION_ID, slices);
 }
 
+/**
+ * Tell the renderer that image voxels were written, for a guest of a view-through-host
+ * room whose picture arrives a plane at a time. `slices` are stored (k) slices.
+ */
+export function refreshImage(slices?: number[]): void {
+  if (!engine || !imageLoaded) return;
+  const vol = cache.getVolume(IMAGE_VOLUME_ID) as
+    | (Types.IImageVolume & { markFrameModified?: (i: number) => void; voxelManager?: { invalidateCache?: () => void } })
+    | undefined;
+  if (!vol) return;
+  const which = slices ?? Array.from({ length: vol.dimensions[2] }, (_, k) => k);
+  for (const k of which) vol.markFrameModified?.(k);
+  vol.voxelManager?.invalidateCache?.();
+  vol.imageData?.modified();
+  for (const id of ORTHO_IDS) orthoViewport(id).render();
+}
+
+/** A point on the plane a slice view shows, and the plane's normal, in world coordinates. */
+export function viewPlane(id: string): { point: number[]; normal: number[] } | null {
+  if (!engine || !imageLoaded) return null;
+  try {
+    const camera = orthoViewport(id).getCamera();
+    if (!camera.focalPoint || !camera.viewPlaneNormal) return null;
+    return { point: [...camera.focalPoint], normal: [...camera.viewPlaneNormal] };
+  } catch {
+    return null;
+  }
+}
+
 export function onMaskEdited(handler: (slices: number[] | undefined) => void): () => void {
   const listener = (evt: Event) => {
     const detail = (evt as CustomEvent).detail as { segmentationId?: string; modifiedSlicesToUse?: number[] };

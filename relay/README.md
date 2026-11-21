@@ -5,7 +5,7 @@ Room relay for W Annotator. It lets the people in a room reach each other, decid
 It speaks two protocols on one port:
 
 - **v2** at `/v2/rooms/<ID>`: rooms with a host, member keys, roles, invite links, ordered edits and the view-through-host rules. The wire format is `docs/design/ROOMS-PROTOCOL.md`; the design is `docs/design/ROOMS.md`.
-- **v1** at `/r/<CODE>?name=<name>`: the original relay, unchanged, for apps that have not moved yet. See the end of this file.
+- **v1** at `/r/<CODE>?name=<name>`: the original relay, for apps from before rooms had kinds and expiring links. Off unless started with `--v1`; otherwise `/r/…` answers HTTP 426 so an old app tells its user to update. See the end of this file.
 
 ## Run it
 
@@ -20,7 +20,7 @@ It speaks two protocols on one port:
 | `--host <ADDR>` | `0.0.0.0` | Address to bind |
 | `--max-rooms <N>` | 1024 | v2 rooms held at once |
 | `--joins-per-minute <N>` | 30 | Connection attempts to `/v2/` per IP address per minute |
-| `--no-v1` | off | Answer `/r/…` with HTTP 426 so old apps tell their user to update |
+| `--v1` | off | Also serve protocol v1 at `/r/…`. Without it, `/r/…` answers HTTP 426 so old apps tell their user to update |
 
 ## Behind TLS
 
@@ -111,7 +111,7 @@ Nothing in the embedded relay needs a disk.
 
 `RelayConfig { faults: Some(Faults::new()), .. }` gives a test handle that can drop, delay or reorder one member's frames, cut or silence a connection, pause a room, move the clock and wipe the relay as a restart would. The binary and the desktop app never set it, and none of it is reachable from the network. `relay/tests/common/mod.rs` has helpers for any number of real WebSocket clients.
 
-## Protocol v1 (old apps)
+## Protocol v1 (old apps, only with `--v1`)
 
 - **Connect:** `ws(s)://host/r/<ROOM>?name=<name>`; room is 4–16 letters or digits, case-insensitive, at most 16 peers (the 17th is closed with code 4001).
 - **Text frames:** JSON objects. The server sets `"from"` to the sender id; a numeric `"to"` sends to that peer only, otherwise to everyone else.

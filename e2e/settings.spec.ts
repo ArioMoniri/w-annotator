@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { modLabel, openPhantom, tab } from './helpers';
+import { anotherLink, modLabel, openPhantom, tab } from './helpers';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Settings' });
 /** Opens the app and waits until it is listening for keys. */
@@ -168,7 +168,7 @@ test('the name is saved as it is typed and the room dialog uses it and writes ba
   await page.getByPlaceholder('How others will see you').fill('Mina O');
   await page.getByPlaceholder('Paste the invite link').fill('ZZZ-999');
   await page.getByRole('button', { name: 'Join', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('No room with that code');
+  await expect(page.getByRole('alert')).toContainText('Paste the whole invite link');
   await page.keyboard.press('Escape');
 
   await page.keyboard.press('Control+,');
@@ -211,7 +211,8 @@ test('a name change in Settings reaches the other person in the room at once', a
   await late.goto('/');
   await late.getByRole('button', { name: 'Join a room', exact: true }).click();
   await late.getByPlaceholder('How others will see you').fill('Kim');
-  await late.getByPlaceholder('Paste the invite link').fill(link);
+  // A link is for one person, so the host makes another.
+  await late.getByPlaceholder('Paste the invite link').fill(await anotherLink(host));
   await late.getByRole('button', { name: 'Join', exact: true }).click();
   await late.locator('[data-view="axial"] canvas').first().waitFor({ timeout: 30_000 });
   await expect(late.locator('.avatar[title="Zed Brook"]')).toHaveCount(1);

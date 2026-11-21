@@ -58,14 +58,30 @@ Drop files onto the window, use *Open with* from the system file manager (an ima
 
 ## Working together
 
-A room lets several people edit one mask at the same time. Nobody needs an account, only a display name.
+A room lets several people edit one mask at the same time. Nobody needs an account, only a display name (kept in Settings).
 
-1. Open an image, press **Share** and start a room.
-2. Send the invite link to the others.
-3. They paste it under *Join a room* and type a name.
-4. Someone who joins with nothing open receives the image and the mask.
+1. Open an image, press **Share** and choose the kind of room.
+2. Send each person an invite link. A link works for one person and stops working after 24 hours; make another from the room menu.
+3. They paste it under *Join a room*.
 
-With the server field left empty, the desktop app hosts the room itself. That works for people on the same network or VPN. To work over the internet, run the relay in [`relay/`](relay/README.md) (a small Rust server, with a Dockerfile) and enter its address when starting the room. The relay forwards messages and stores nothing.
+There are two kinds of room, chosen when it is started:
+
+| | Shared copy | View through my computer |
+|---|---|---|
+| What others receive | The image and the mask. They keep a copy. | 8-bit pictures of the slices they look at, and the labels on them. Never the files. |
+| Without the host | They keep working. Offline work is merged when they come back; where both sides changed the same voxels the room's version stays and theirs waits for *Use mine* or *Keep the room's*. | The room ends when the host leaves. Guests are disconnected and what was in memory is cleared. |
+| Saving | Everyone can save. | Only the host. Guests cannot save and no recovery copy is written. |
+
+The host can remove a person, switch off a link that has not been used, and end or delete the room. Removing someone from a shared-copy room does not delete the copy they already have.
+
+Things to know before sharing:
+
+- View through my computer limits what leaves the host's computer. It cannot stop someone photographing or recording their screen, and a guest who visits every slice has seen an 8-bit version of the whole image.
+- Voxel data can identify a person by itself (a face in a head scan, text burned into the pixels). De-identify an image before sharing it. The app never sends file names or DICOM tags, but it cannot check pixels.
+- What a room sends is encrypted between the apps with a key carried in the invite link. Whoever runs the room server sees addresses, times, sizes and who is in which room, not names, voxels or segment names.
+- W Annotator is not for diagnosis or treatment.
+
+With the server field left empty, the desktop app hosts the room itself. That works for people on the same network or VPN, and the room stops when the host closes the app. To work over the internet, or to keep a shared-copy room open while the host is away, run the relay in [`relay/`](relay/README.md) (a small Rust server, with a Dockerfile) and enter its address when starting the room. The relay forwards messages, keeps who is in a room in memory and stores nothing on disk. The design is in [`docs/design/ROOMS.md`](docs/design/ROOMS.md).
 
 ## Shortcuts
 

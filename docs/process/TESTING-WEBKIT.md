@@ -37,6 +37,7 @@ The script prints one line per check and exits with 1 if any failed. It takes ab
 | `W_URL` | Page to open in MiniBrowser | `http://localhost:1420/` |
 | `W_APP` | Path of the built app; when set, the app is driven instead of MiniBrowser | unset |
 | `W_SHOTS` | Folder for a screenshot of each state visited, and of each failure | unset |
+| `W_RELAY` | Room server for the web build, e.g. `ws://localhost:8787` (`cargo run -p w-relay`). When set, or when `W_APP` is set, a room is started and a second client joins it | unset |
 | `W_WD_PORT` | Port for `WebKitWebDriver` | `4581` |
 | `W_MINIBROWSER` | Path of MiniBrowser | looked up in the usual places |
 

@@ -45,7 +45,7 @@ A change is done when every line below is true and you have the evidence. If a l
 ## Product rules
 
 - [ ] No AI features: no model inference, auto-segmentation, assistants, or copy that suggests them.
-- [ ] Nothing leaves the machine except display name and mask edits in a room, and update checks to GitHub Releases. No telemetry.
+- [ ] Nothing leaves the machine except what a room sends (display name and mask edits; the image in a shared-copy room; 8-bit slice pictures in a view-through-host room; never file names, paths or DICOM tags) and update checks to GitHub Releases. No telemetry.
 
 ## Cross-platform
 
