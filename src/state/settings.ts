@@ -37,6 +37,8 @@ export interface Settings {
   viewOrder: string;
   /** A ReferenceLines value. */
   referenceLines: string;
+  /** Slice views blend between voxels. Off shows each voxel as a flat block. Drawing only. */
+  smoothPixels: boolean;
 }
 
 /** Settings that are one of a few words, and the words allowed. */
@@ -63,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   layout: 'grid',
   viewOrder: formatOrder(DEFAULT_ORDER),
   referenceLines: 'hover',
+  smoothPixels: true,
 };
 
 const KEY = 'w-annotator:settings';

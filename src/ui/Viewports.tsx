@@ -1,12 +1,13 @@
 import { Box, ChevronDown, Maximize2, Minimize2 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { attachEditTracking, getImage, getMask, setShow3dImage, setVoi, shareCursor } from '../session';
-import { parseReferenceLines, useSettings } from '../state/settings';
+import { parseReferenceLines, setSetting, useSettings } from '../state/settings';
 import { EDIT_TOOLS, activeSegmentInfo, set, toast, useStore, type ViewId } from '../state/store';
 import { showViewInPlaceOf, toggleMaximise } from '../state/views';
 import * as engine from '../viewer/engine';
 import { useDismiss, useKeyHint } from './common';
 import { attachViewportGestures } from './gestureInput';
+import { attachMaskPointer } from './maskPointer';
 import { voxelAt } from '../viewer/geometry';
 import { parseLayout, parseOrder, placeViews } from '../viewer/layout';
 
@@ -79,6 +80,7 @@ function ViewLabel({ view }: { view: ViewId }) {
   const drag = useRef<{ x: number; y: number; moved: boolean; over: HTMLElement | null } | null>(null);
   const label = VIEWS.find((v) => v.id === view)!.label;
   const color = engine.VIEW_COLORS[view];
+  const smoothPixels = useSettings((s) => s.smoothPixels);
 
   const paneUnder = (e: React.PointerEvent): HTMLElement | null => {
     const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.cell') ?? null;
@@ -151,6 +153,25 @@ function ViewLabel({ view }: { view: ViewId }) {
               </span>
             </button>
           ))}
+          {view !== 'volume3d' && (
+            <>
+              <hr />
+              <button
+                className="item"
+                role="menuitemcheckbox"
+                aria-checked={smoothPixels}
+                title="Off shows each voxel as a flat block. The image values are the same either way."
+                onClick={() => setSetting('smoothPixels', !smoothPixels)}
+              >
+                <span className="name">
+                  <span className="tick" aria-hidden>
+                    {smoothPixels ? '✓' : ''}
+                  </span>
+                  Smooth pixels
+                </span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -165,6 +186,7 @@ export function Viewports() {
   const layout = parseLayout(useSettings((s) => s.layout));
   const viewOrder = useSettings((s) => s.viewOrder);
   const referenceLines = parseReferenceLines(useSettings((s) => s.referenceLines));
+  const smoothPixels = useSettings((s) => s.smoothPixels);
   // Read by place(), which also runs from the resize observer, outside React's render.
   const arrangement = useRef({ layout, viewOrder, maximized });
   arrangement.current = { layout, viewOrder, maximized };
@@ -216,7 +238,8 @@ export function Viewports() {
   const lastRefusal = useRef(0);
   const pressed = useRef<[number, number]>([0, 0]);
   const refuse = (id: ViewId, e: React.MouseEvent) => {
-    if (!blocked || id === 'volume3d' || e.button !== 0 || !activeSeg) return;
+    // Alt-click picks a segment; that is allowed on a locked or hidden one.
+    if (!blocked || id === 'volume3d' || e.button !== 0 || e.altKey || !activeSeg) return;
     if ((e.target as HTMLElement).closest('button')) return;
     e.stopPropagation();
     e.preventDefault();
@@ -249,6 +272,7 @@ export function Viewports() {
       });
     };
     for (const v of VIEWS) offs.push(attachViewportGestures(els[v.id].parentElement!, v.id));
+    for (const v of VIEWS) offs.push(attachMaskPointer(els[v.id].parentElement!, v.id));
     for (const id of engine.ORTHO_IDS) {
       const el = els[id];
       const onCamera = () => refresh();
@@ -299,6 +323,10 @@ export function Viewports() {
   useEffect(() => {
     engine.setReferenceLines(referenceLines);
   }, [referenceLines]);
+
+  useEffect(() => {
+    engine.setSmoothPixels(smoothPixels);
+  }, [smoothPixels]);
 
   const single = !maximized && layout === 'single';
 

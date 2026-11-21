@@ -189,7 +189,8 @@ export function NumberField(props: {
 
 export function Choice<T extends string>(props: {
   value: T;
-  options: { value: T; label: string }[];
+  /** `short` is shown in place of `label` where space is tight; the button keeps `label` as its name. */
+  options: { value: T; label: string; short?: string }[];
   label: string;
   /** Id of a visible label, used in place of `label` when there is one. */
   labelledBy?: string;
@@ -198,8 +199,15 @@ export function Choice<T extends string>(props: {
   return (
     <div className="seg-control" role="group" aria-label={props.labelledBy ? undefined : props.label} aria-labelledby={props.labelledBy}>
       {props.options.map((o) => (
-        <button key={o.value} aria-pressed={o.value === props.value} onClick={() => props.onChange(o.value)}>
-          {o.label}
+        <button key={o.value} aria-pressed={o.value === props.value} aria-label={o.short ? o.label : undefined} onClick={() => props.onChange(o.value)}>
+          {o.short ? (
+            <>
+              <span className="long">{o.label}</span>
+              <span className="short">{o.short}</span>
+            </>
+          ) : (
+            o.label
+          )}
         </button>
       ))}
     </div>

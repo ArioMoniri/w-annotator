@@ -477,6 +477,64 @@ export function removeSmallIslands(mask: Uint8Array, dims: Dims, spacing: Spacin
   return paintRuns(mask, dims, box, runs, (root) => sizes[root] * voxel < minMm3, label, 0);
 }
 
+/** How many islands the segment is made of. Islands joined only at an edge or corner are separate. */
+export function countIslands(mask: Uint8Array, dims: Dims, label: number): number {
+  if (!validLabel(label)) return 0;
+  const box = boundsOf(mask, dims, label);
+  if (!box) return 0;
+  const runs = findRuns(mask, dims, box, label, true);
+  let n = 0;
+  for (let i = 0; i < runs.count; i++) if (runs.root[i] === i) n++;
+  return n;
+}
+
+/**
+ * Acts on the island of the segment that holds voxel `seed`: `remove` takes that
+ * island away, `keep` takes away every other island of the segment. Nothing
+ * happens when the voxel is not part of the segment.
+ */
+export function islandAt(mask: Uint8Array, dims: Dims, label: number, seed: ArrayLike<number>, action: 'remove' | 'keep'): number {
+  if (!validLabel(label)) return 0;
+  const [x, y, z] = [seed[0], seed[1], seed[2]];
+  if (x < 0 || y < 0 || z < 0 || x >= dims[0] || y >= dims[1] || z >= dims[2]) return 0;
+  if (mask[x + (y + z * dims[1]) * dims[0]] !== label) return 0;
+  const box = boundsOf(mask, dims, label);
+  if (!box) return 0;
+  const runs = findRuns(mask, dims, box, label, true);
+  const row = y - box.y0 + (z - box.z0) * (box.y1 - box.y0 + 1);
+  let clicked = -1;
+  for (let r = runs.rowFirst[row]; r < runs.rowFirst[row + 1]; r++) {
+    if (x - box.x0 >= runs.start[r] && x - box.x0 < runs.end[r]) clicked = runs.root[r];
+  }
+  if (clicked < 0) return 0;
+  return paintRuns(mask, dims, box, runs, (root) => (root === clicked) === (action === 'remove'), label, 0);
+}
+
+/**
+ * Gives each island of the segment except the largest a label of its own, taken
+ * in order from `labels`, largest island first. Islands left over when the
+ * labels run out stay in the segment; `left` says how many.
+ */
+export function splitIslands(mask: Uint8Array, dims: Dims, label: number, labels: number[]): { changed: number; labels: number[]; left: number } {
+  const none = { changed: 0, labels: [], left: 0 };
+  if (!validLabel(label)) return none;
+  const box = boundsOf(mask, dims, label);
+  if (!box) return none;
+  const runs = findRuns(mask, dims, box, label, true);
+  const sizes = islandSizes(runs);
+  const roots: number[] = [];
+  for (let i = 0; i < runs.count; i++) if (runs.root[i] === i) roots.push(i);
+  // Largest first; islands of the same size keep the order they are met in.
+  roots.sort((a, b) => sizes[b] - sizes[a] || a - b);
+  const rest = roots.slice(1);
+  const used = labels.filter((v) => validLabel(v) && v !== label).slice(0, rest.length);
+  const to = new Map<number, number>();
+  used.forEach((value, n) => to.set(rest[n], value));
+  let changed = 0;
+  for (const [root, value] of to) changed += paintRuns(mask, dims, box, runs, (r) => r === root, label, value);
+  return { changed, labels: used, left: rest.length - used.length };
+}
+
 /**
  * Fills cavities: space that is fully enclosed by the segment in 3D and has
  * no path to the edge of the volume. Another segment inside a cavity is kept.

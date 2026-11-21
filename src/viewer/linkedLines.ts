@@ -18,9 +18,18 @@ type DrawingHelper = Parameters<RenderAnnotation>[1];
  */
 export class LinkedLinesTool extends CrosshairsTool {
   static toolName = 'LinkedLines';
+  /**
+   * Cornerstone's crosshairs answer any camera reset by resetting every view, which sends
+   * them all to their middle slice. Set to false while a reset is not the user's doing.
+   */
+  static followResets = true;
 
   constructor(...args: ConstructorParameters<typeof CrosshairsTool>) {
     super(...args);
+    const reset = this.onResetCamera;
+    this.onResetCamera = (evt) => {
+      if (LinkedLinesTool.followResets) reset(evt);
+    };
     const draw = this.renderAnnotation;
     this.renderAnnotation = (enabledElement, svgDrawingHelper) => {
       const drawn = draw(enabledElement, svgDrawingHelper);
