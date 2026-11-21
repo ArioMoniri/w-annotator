@@ -207,7 +207,7 @@ test('Alt-click is in the list of mouse shortcuts', async ({ page }) => {
   await openPhantom(page);
   await page.keyboard.press('?');
   await expect(page.getByRole('dialog', { name: 'Settings' })).toContainText('Select the segment under the cursor');
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toContainText('Alt-click');
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toContainText(`${process.platform === 'darwin' ? '⌥' : 'Alt'}-click`);
 });
 
 test('paint over "Only" keeps a stroke inside the chosen segment', async ({ page }) => {
