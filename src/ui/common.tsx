@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { formatCombo, useShortcuts, type ActionId } from '../state/shortcuts';
+import { trapTab } from './focus';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl';
@@ -91,26 +92,7 @@ export function Modal(props: {
         e.stopPropagation();
         live.current.onClose();
       }
-      if (e.key === 'Tab' && ref.current) {
-        const items = Array.from(
-          ref.current.querySelectorAll<HTMLElement>('button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), summary'),
-        );
-        if (items.length === 0) return;
-        const first = items[0];
-        const last = items[items.length - 1];
-        if (!ref.current.contains(document.activeElement)) {
-          e.preventDefault();
-          first.focus();
-          return;
-        }
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      if (ref.current) trapTab(e, ref.current);
     };
     window.addEventListener('keydown', key, true);
     return () => {

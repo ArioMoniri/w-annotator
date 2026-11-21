@@ -275,6 +275,42 @@ try {
     });
   }
 
+  /* ── Tab in dialogs ── */
+  // The app moves focus itself, so plain Tab reaches every control whatever the webview does with it.
+  for (const [name, on, off] of [
+    ['room dialog', { roomModal: 'start' }, { roomModal: null }],
+    ['settings, appearance', { settings: 'appearance' }, { settings: null }],
+    ['settings, help', { settings: 'help' }, { settings: null }],
+    ['report dialog', { report: 'bug' }, { report: null }],
+  ]) {
+    await check(`${name}: Tab stops at every control, in order, and stays inside`, async () => {
+      await setState(on);
+      await sleep(350);
+      const count = await b.exec(() => {
+        const root = document.querySelector('[role="dialog"]');
+        window.__stops = [...root.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex]')].filter(
+          // In view: a control inside a closed disclosure is not, though it may still have a box.
+          (el) => !el.disabled && !(el.getAttribute('tabindex') ?? '').startsWith('-') && el.getClientRects().length > 0 && el.checkVisibility({ visibilityProperty: true }),
+        );
+        return window.__stops.length;
+      });
+      const at = () => b.exec(() => window.__stops.indexOf(document.activeElement));
+      const start = await at();
+      const seen = [];
+      for (let i = 0; i < count; i++) {
+        await b.keys('');
+        seen.push(await at());
+      }
+      await setState(off);
+      await sleep(200);
+      expect(start >= 0, 'focus did not start on a control of the dialog');
+      expect(
+        seen.every((v, i) => v === (start + i + 1) % count),
+        `from ${start}, Tab went to ${seen.join(', ')} of ${count}`,
+      );
+    });
+  }
+
   /* ── segment menu and its popovers ── */
   await check('the segment menu is as wide as the row and every item is in reach', async () => {
     await hover(b, '.segrow');
