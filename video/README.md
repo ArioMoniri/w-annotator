@@ -1,6 +1,6 @@
 # Launch video and README slideshow
 
-The source of the 30-second tour at [`docs/assets/launch.mp4`](../docs/assets/launch.mp4), of its looping preview `docs/assets/launch.webp`, and of the slideshow `docs/assets/features.webp`.
+The source of the 36-second tour at [`docs/assets/launch.mp4`](../docs/assets/launch.mp4), of its looping preview `docs/assets/launch.webp`, and of the slideshow `docs/assets/features.webp`.
 
 The video is real footage of the app, recorded by a script and composed with [Remotion](https://www.remotion.dev/). The slideshow is made of screenshots of the app taken by a second script. This folder has its own `package.json`; nothing here is a dependency of the app.
 
@@ -18,14 +18,16 @@ Each scene shows one thing, and its caption says what that is.
 | --- | --- | --- |
 | `open` | Open an image and its mask — MHA, NIfTI, NRRD or DICOM | `chest_ct.mha` and `lungs.nii.gz` are dropped on the empty window; the four views appear |
 | `paint` | Paint to correct the mask | the brush is picked and a bite missing from the right lung is painted in |
-| `erase` | Shift-drag erases | a spill outside the lung is removed |
-| `fill` | Paint a few slices, fill the rest | a new segment is painted on slices 71, 81 and 91; *Fill between slices* joins them, seen in the sagittal view |
+| `cut` | Cut with a freehand loop | the scissors are picked and a loop is drawn round a stray piece of the mask, which goes |
+| `fill` | Paint a few slices, preview the fill, apply | a new segment is painted on slices 71, 81 and 91; *Fill between slices* shows the striped preview in the sagittal view and *Apply* writes it |
+| `window` | Pick a window: lung, abdomen, bone… | the window read-out in the status bar is opened twice, for Abdomen and for Bone |
+| `kinds` | Share a copy, or let others view through your computer | *Share* is opened: the two kinds of room, then *Start* and the invite link |
 | `room` | Work on the same mask at the same time | two windows, Mina's and Sam's; each fills a gap in a different lung and both see both strokes |
 | `save` | Save it back as .nii.gz, .mha, .nrrd or DICOM SEG | Ctrl+S; the status goes from "Unsaved changes" to "Saved" |
 
-Three things in the picture are not the app's own pixels, and each stands for something that cannot be photographed. The two file chips are the files being dragged: the files really go through the app's drop handler, but a drag from the operating system has no picture in a browser. The slice number under the caption repeats the number the axial view shows. The keys (Shift, Ctrl+S) show what is pressed.
+Three things in the picture are not the app's own pixels, and each stands for something that cannot be photographed. The two file chips are the files being dragged: the files really go through the app's drop handler, but a drag from the operating system has no picture in a browser. The slice number under the caption repeats the number the axial view shows. The keys (Ctrl+S) show what is pressed.
 
-The script also prepares what the corrections correct. Off camera, with the app's own eraser and brush, it takes a bite out of the right lung and paints a spill outside it before the `paint` scene, and takes one gap out of each lung before the `room` scene. It names the three segments, gives the new one a blue colour, closes the Files list and, for the last scene, the right panel, starts the room and joins it from the second window through the app's own functions, since none of that is what a scene is about. One thing is hidden: the brush ring in a view the pointer has left, which the app leaves in place.
+The script also prepares what the corrections correct. Off camera, with the app's own eraser and brush, it takes a bite out of the right lung and paints a stray piece beside it before the `paint` scene, and takes one gap out of each lung before the `room` scene. It names the three segments, gives the new one a blue colour, sets the scissors to freehand, closes the Files list and, where a scene does not need it, the right panel, and joins the room from the second window through the app's own function, since none of that is what a scene is about. For the `window` scene the axial view is maximised and placed so that the slice and the menu fill the frame; afterwards the views and the lung window are put back. In the `kinds` scene the dialog with the invite link is on screen for a second only: the link is a local address and not the point. Where what the app shows changes between two scenes, the picture cuts.
 
 The window is drawn as a title bar with the footage in a separate box below it, so the bar never covers the app. At rest the whole app is visible, scaled to fit. When the action is in a small part of the app, the footage is enlarged inside that box until that part fills it, so that what matters is large enough to read. The background is a slow gradient with a little grain.
 
@@ -37,7 +39,7 @@ The cursor, the zoom towards the action and the window on a background follow th
 cd video
 npm install
 npm run render      # renders out/launch-full.mp4, then ffmpeg writes ../docs/assets/launch.mp4 (1920x1080, 30 fps, H.264, no audio)
-npm run preview     # writes ../docs/assets/launch.webp, an 11-second cut of that file (needs ffmpeg and Python with Pillow)
+npm run preview     # writes ../docs/assets/launch.webp, a 13-second cut of that file (needs ffmpeg and Python with Pillow)
 npm run studio      # opens the Remotion editor
 ```
 
@@ -61,7 +63,7 @@ APP=http://localhost:4173/ DATA=/path/to/folder node video/scripts/slides-shoot.
 node video/scripts/slides-build.cjs      # writes ../docs/assets/features.webp (needs ffmpeg)
 ```
 
-`slides-shoot.cjs` takes the screenshots on the same scan: two people in a room, a segment before and after *Fill between slices*, the amount form of a refine operation, and the four views in the dark and the light theme. `slides-build.cjs` lays each one out at 960 x 600 with the caption in a bar under the picture, and joins them with a short fade through the background. Nothing is drawn on top of the screenshots except the two small labels on the before-and-after slide.
+`slides-shoot.cjs` takes the screenshots on the same scan: two people in a room, a segment before and after *Fill between slices*, one slice in the lung and the abdomen window, the amount form of a refine operation, and the four views in the dark and the light theme. `slides-build.cjs` lays each one out at 960 x 600 with the caption in a bar under the picture, and joins them with a short fade through the background. Nothing is drawn on top of the screenshots except the two small labels on each side-by-side slide.
 
 ## Font
 

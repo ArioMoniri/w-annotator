@@ -1,6 +1,6 @@
 // usage: node video/scripts/slides-build.cjs   (after slides-shoot.cjs; needs ffmpeg)
 // Lays out the README slideshow from the screenshots in video/out/slides and writes docs/assets/features.webp:
-// 960 x 600, five slides of 2.8 s, a short fade through the background between them.
+// 960 x 600, six slides of 2.8 s, a short fade through the background between them.
 // Each slide is the picture (960 x 540) with a caption bar under it, so no text sits on the image.
 const { chromium } = require('playwright'); const fs = require('fs'); const path = require('path'); const { execFileSync } = require('child_process');
 const root = path.resolve(__dirname, '..'); const SRC = process.env.SRC || root + '/out/slides'; const TMP = SRC + '/frames';
@@ -14,7 +14,8 @@ const img = (name) => 'file://' + SRC + '/' + name + '.png';
 // pair = the same close-up before and after.
 const SLIDES = [
   { caption: 'Work on the same mask at the same time', kind: 'full', a: 'room' },
-  { caption: 'Paint a few slices, fill the rest', kind: 'pair', a: 'fill-before-coronal', b: 'fill-after-coronal', labels: ['Painted on three slices', 'Filled between them'] },
+  { caption: 'Paint a few slices, preview the fill, apply', kind: 'pair', a: 'fill-before-coronal', b: 'fill-after-coronal', labels: ['Painted on three slices', 'Filled between them'] },
+  { caption: 'Pick a window: lung, abdomen, bone…', kind: 'pair', a: 'window-lung', b: 'window-abdomen', labels: ['Lung', 'Abdomen'] },
   { caption: 'Grow, shrink, smooth, measure', kind: 'crop', a: 'refine-form', rect: [406, 0, 746, 419.6] },
   { caption: 'MHA, NIfTI, NRRD, DICOM — any image, any mask', kind: 'full', a: 'views-dark' },
   { caption: 'Light or dark', kind: 'split', a: 'views-dark', b: 'views-light' },
