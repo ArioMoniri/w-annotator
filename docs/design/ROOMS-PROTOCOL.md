@@ -521,5 +521,5 @@ guest → host   6  {"axis": 0|1|2, "index": <plane along that axis>}
 host  → guest  7  {"t": "slice", "axis", "index"} + gzip(8-bit picture of the plane ‖ its labels)
 ```
 
-The picture is the plane mapped through the host's current window to 0–255 and clipped. Plane order: axis 2 is `x` within `y`; axis 1 is `x` within `z`; axis 0 is `y` within `z`. The host answers at most 30 requests at once and 600 a minute per guest, and sends nothing a guest did not ask for.
+The picture is the plane mapped through the host's current window to 0–255 and clipped. Plane order: axis 2 is `x` within `y`; axis 1 is `x` within `z`; axis 0 is `y` within `z`. The host answers at most 30 requests at once and 600 a minute per guest, and sends nothing a guest did not ask for. The app asks for the plane each view shows and the one on each side: a view is drawn from a thin slab around its plane, and a missing neighbour would darken it.
 

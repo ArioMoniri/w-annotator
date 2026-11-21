@@ -10,6 +10,7 @@ import {
   maskDump,
   maskVoxels,
   openPhantom,
+  pixelAt,
   reconnectNow,
   sliceDump,
   startRoom,
@@ -382,7 +383,15 @@ test('a view-through-host guest sees and edits without receiving the files', asy
   const kind = await guest.evaluate(() => (window as never as { __w: { session: { getImage(): { data: object } } } }).__w.session.getImage().data.constructor.name);
   expect(kind).toBe('Uint8Array');
   expect(await imageValue(host, [24, 24, 24])).toBeGreaterThan(255);
-  // A voxel inside the phantom but on none of the three planes shown has not been sent.
+  // What the guest sees is what the host sees: the same grey at the same place, with the host's window.
+  const spot: [number, number, number] = [28, 36, 24];
+  await expect
+    .poll(async () => Math.abs((await pixelAt(guest, 'axial', spot))[0] - (await pixelAt(host, 'axial', spot))[0]), { timeout: 10_000 })
+    .toBeLessThanOrEqual(6);
+  expect((await pixelAt(host, 'axial', spot))[0]).toBeGreaterThan(60);
+  // Volumes and other measurements would be of the few planes the guest holds, so none are shown.
+  expect(await guest.evaluate(() => Object.keys((window as never as { __w: { store: { getState(): { stats: object } } } }).__w.store.getState().stats).length)).toBe(0);
+  // A voxel inside the phantom, away from the planes shown and the ones next to them, has not been sent.
   expect(await imageValue(guest, [30, 30, 30])).toBe(0);
   expect(await imageValue(host, [30, 30, 30])).toBeGreaterThan(0);
   // Scrolling there asks the host for that plane.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, writePlane } from './hostview';
+import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane } from './hostview';
 
 const dims: [number, number, number] = [2, 3, 4];
 /** Voxel value = 100·k + 10·j + i, so a plane can be read off by eye. */
@@ -70,13 +70,35 @@ describe('slice messages', () => {
   });
 });
 
+describe('withNeighbours', () => {
+  it('adds the plane on each side, inside the volume', () => {
+    expect(withNeighbours([7], 40)).toEqual([7, 6, 8]);
+    expect(withNeighbours([23, 24], 40)).toEqual([23, 24, 22, 25]);
+    expect(withNeighbours([0], 40)).toEqual([0, 1]);
+    expect(withNeighbours([39], 40)).toEqual([39, 38]);
+    expect(withNeighbours([], 40)).toEqual([]);
+  });
+});
+
 describe('indicesForPlane', () => {
   const geom = { dims: [64, 64, 40] as [number, number, number], spacing: [1, 1, 2] as [number, number, number], origin: [10, 20, 30] as [number, number, number], direction: [1, 0, 0, 0, 1, 0, 0, 0, 1] };
 
   it('is one index when the view is aligned with the volume', () => {
     expect(indicesForPlane(geom, 2, [0, 0, 30 + 2 * 7], [0, 0, 1])).toEqual([7]);
     expect(indicesForPlane(geom, 0, [10 + 12, 0, 0], [1, 0, 0])).toEqual([12]);
-    expect(indicesForPlane(geom, 1, [0, 20 + 33.4, 0], [0, -1, 0])).toEqual([33]);
+    expect(indicesForPlane(geom, 1, [0, 20 + 33, 0], [0, -1, 0])).toEqual([33]);
+  });
+
+  it('is the plane on each side when the view sits between two', () => {
+    // A view is drawn by blending the two planes it lies between, so both are needed:
+    // with only one, the picture would come out at part of its brightness.
+    expect(indicesForPlane(geom, 2, [0, 0, 30 + 2 * 23.5], [0, 0, 1])).toEqual([23, 24]);
+    expect(indicesForPlane(geom, 1, [0, 20 + 33.4, 0], [0, -1, 0])).toEqual([33, 34]);
+    // Rounding noise around a whole number is still one plane.
+    expect(indicesForPlane(geom, 2, [0, 0, 30 + 2 * 7.0000001], [0, 0, 1])).toEqual([7]);
+    // At the edge of the volume there is only one side.
+    expect(indicesForPlane(geom, 2, [0, 0, 30 + 2 * 39.4], [0, 0, 1])).toEqual([39]);
+    expect(indicesForPlane(geom, 2, [0, 0, 30 - 2 * 0.4], [0, 0, 1])).toEqual([0]);
   });
 
   it('follows a flipped axis', () => {
@@ -94,7 +116,7 @@ describe('indicesForPlane', () => {
     const n: [number, number, number] = [0, -0.1, 1];
     const got = indicesForPlane(geom, 2, [10, 20, 30 + 2 * 10], n);
     expect(got[0]).toBe(10);
-    expect(got[got.length - 1]).toBe(13);
+    expect(got[got.length - 1]).toBe(14);
     const steep = indicesForPlane(geom, 2, [10, 20 + 32, 30 + 2 * 20], [0, -2, 1], 8);
     expect(steep.length).toBe(8);
     expect(steep).toContain(20);

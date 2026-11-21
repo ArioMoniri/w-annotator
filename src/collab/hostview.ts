@@ -89,9 +89,21 @@ export interface Grid {
 }
 
 /**
+ * The planes a guest asks for to draw `indices`: those, then the one on each side. A view is
+ * drawn from a thin slab around its plane, so without its neighbours a plane comes out a
+ * little darker than on the host; and the neighbours are where the next scroll step goes.
+ */
+export function withNeighbours(indices: number[], count: number): number[] {
+  if (indices.length === 0) return [];
+  const before = indices[0] - 1;
+  const after = indices[indices.length - 1] + 1;
+  return [...indices, ...(before >= 0 ? [before] : []), ...(after < count ? [after] : [])];
+}
+
+/**
  * Which planes across `axis` a view shows, given a point on the view's plane and its
- * normal. One index when the view is aligned with the volume; a short run when it is
- * tilted, at most `limit` around the point.
+ * normal. One index when the view lies on a plane of the volume, two when it lies
+ * between two; a short run when it is tilted, at most `limit` around the point.
  */
 export function indicesForPlane(grid: Grid, axis: Axis, point: number[], normal: number[], limit = 16): number[] {
   const col = (a: number) => grid.direction.slice(a * 3, a * 3 + 3);
@@ -104,8 +116,10 @@ export function indicesForPlane(grid: Grid, axis: Axis, point: number[], normal:
   const [b, d] = [0, 1, 2].filter((a) => a !== axis);
   const at = (vb: number, vd: number) => (rhs - c[b] * vb - c[d] * vd) / c[axis];
   const corners = [at(0, 0), at(grid.dims[b] - 1, 0), at(0, grid.dims[d] - 1), at(grid.dims[b] - 1, grid.dims[d] - 1)];
-  let first = Math.max(0, Math.round(Math.min(...corners)));
-  let last = Math.min(grid.dims[axis] - 1, Math.round(Math.max(...corners)));
+  // A view between two planes is drawn by blending them, so it needs the one on each side.
+  const NEAR = 1e-4;
+  let first = Math.max(0, Math.floor(Math.min(...corners) + NEAR));
+  let last = Math.min(grid.dims[axis] - 1, Math.ceil(Math.max(...corners) - NEAR));
   if (first > last) return [];
   if (last - first + 1 > limit) {
     const here = Math.round(at(dot(rel, col(b)) / grid.spacing[b], dot(rel, col(d)) / grid.spacing[d]));

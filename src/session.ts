@@ -45,7 +45,7 @@ import {
 } from './mask/patch';
 import { RoomClient, type JoinMode, type TextMessage } from './collab/client';
 import { makeRoomKey, unwrapRoomKey, wrapRoomKey } from './collab/crypto';
-import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, writePlane, type Axis } from './collab/hostview';
+import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane, type Axis } from './collab/hostview';
 import { inviteKeys, makeInviteSecret, makeSeed, memberId, publicKey } from './collab/identity';
 import { OpLog } from './collab/oplog';
 import {
@@ -1117,7 +1117,9 @@ function scheduleStats(delay = 250): void {
 export function refreshStats(): SegmentStats[] {
   if (statsTimer) clearTimeout(statsTimer);
   statsTimer = null;
-  if (!mask) {
+  // A guest of a view-through-host room holds only the planes they have looked at:
+  // a volume measured from those would be wrong, so none is shown.
+  if (!mask || isGuestView()) {
     set({ stats: {} });
     return [];
   }
@@ -1133,6 +1135,10 @@ export function refreshStats(): SegmentStats[] {
 export function goToSegment(index: number): void {
   const seg = get().segments.find((x) => x.index === index);
   if (!mask || !seg) return;
+  if (isGuestView()) {
+    toast('info', WHOLE_MASK_OFF);
+    return;
+  }
   flushEdits();
   const found = refreshStats().find((s) => s.label === index);
   if (!found) {
@@ -1143,6 +1149,10 @@ export function goToSegment(index: number): void {
 }
 
 export function openMeasurements(): void {
+  if (isGuestView()) {
+    toast('info', WHOLE_MASK_OFF);
+    return;
+  }
   flushEdits();
   refreshStats();
   set({ measurementsOpen: true });
@@ -2479,7 +2489,7 @@ function wantSlices(r: RoomCtx): void {
     const plane = engine.viewPlane(view);
     if (!plane) continue;
     const axis = sliceAxisFor(image.direction, view);
-    for (const index of indicesForPlane(image, axis, plane.point, plane.normal)) {
+    for (const index of withNeighbours(indicesForPlane(image, axis, plane.point, plane.normal), image.dims[axis])) {
       const key = sliceKey(axis, index);
       // Asked and not answered within three seconds: ask again.
       if (r.have.has(key) || now - (r.asked.get(key) ?? -Infinity) < 3000) continue;
