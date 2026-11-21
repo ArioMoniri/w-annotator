@@ -274,8 +274,15 @@ export function Viewports() {
     const ro = new ResizeObserver(() => place());
     ro.observe(gridRef.current!);
     window.addEventListener('blur', engine.forgetHeldKey);
+    // A stroke let go outside the views leaves no ring behind. Deferred, so Cornerstone handles the release first.
+    const onRelease = () =>
+      setTimeout(() => {
+        if (!gridRef.current?.querySelector('.cell:hover')) engine.hideBrushRing();
+      });
+    window.addEventListener('mouseup', onRelease);
 
     return () => {
+      window.removeEventListener('mouseup', onRelease);
       ro.disconnect();
       window.removeEventListener('blur', engine.forgetHeldKey);
       offs.forEach((f) => f());
@@ -340,9 +347,11 @@ export function Viewports() {
             if (activeView !== v.id) set({ activeView: v.id });
           }}
           onMouseMove={(e) => onMove(v.id, e)}
-          onMouseLeave={() => {
+          onMouseLeave={(e) => {
             set({ hover: null });
             shareCursor(null);
+            // Mid-stroke the ring follows the stroke; it goes when the button is let go.
+            if (e.buttons === 0) engine.hideBrushRing();
           }}
           onMouseDown={(e) => {
             pressed.current = [e.clientX, e.clientY];

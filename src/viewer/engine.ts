@@ -385,6 +385,25 @@ export function setBrushSize(mm: number): void {
   }
 }
 
+/**
+ * Takes the brush ring off the views. Cornerstone draws the ring where the pointer last moved
+ * over a view and is not told when the pointer leaves, so without this the ring stays behind.
+ * The next move over a view draws it again.
+ */
+export function hideBrushRing(): void {
+  const group = ToolGroupManager.getToolGroup(ORTHO_GROUP);
+  if (!group) return;
+  let hidden = false;
+  for (const name of Object.values(BRUSH)) {
+    // The tool keeps the ring it draws in this field, and draws nothing without it.
+    const tool = group.getToolInstance(name) as unknown as { _hoverData?: unknown } | undefined;
+    if (!tool?._hoverData) continue;
+    tool._hoverData = undefined;
+    hidden = true;
+  }
+  if (hidden) csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
+}
+
 export function setThreshold(range: [number, number]): void {
   const group = ToolGroupManager.getToolGroup(ORTHO_GROUP);
   if (!group) return;
