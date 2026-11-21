@@ -113,3 +113,44 @@ test('the brush size keeps one decimal below 5 mm and steps by half a millimetre
   await expect(size).toHaveValue('1.5');
   await expect(page.getByLabel('Brush size', { exact: true })).toHaveAttribute('min', '1.5');
 });
+
+/** The brush rings drawn in a view: the circle that follows the pointer. */
+const brushRings = (page: Page, view: string): Promise<number> => page.locator(`[data-view="${view}"] svg.svg-layer circle`).count();
+
+test('the brush ring goes when the pointer leaves the view', async ({ page }) => {
+  await openPhantom(page);
+  await page.keyboard.press('b');
+  const hover = async (view: string) => {
+    const box = (await page.locator(`[data-view="${view}"]`).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 30, { steps: 4 });
+  };
+  await hover('axial');
+  await expect.poll(() => brushRings(page, 'axial')).toBe(1);
+
+  // Out to the tool rail: no view has the pointer.
+  await page.getByLabel('Keyboard shortcuts').hover();
+  await expect.poll(() => brushRings(page, 'axial')).toBe(0);
+
+  // From one view to the next: only the view under the pointer has a ring.
+  await hover('axial');
+  await expect.poll(() => brushRings(page, 'axial')).toBe(1);
+  await hover('sagittal');
+  await expect.poll(() => brushRings(page, 'sagittal')).toBe(1);
+  await expect.poll(() => brushRings(page, 'axial')).toBe(0);
+
+  // It comes back with the pointer, and the brush still paints.
+  await hover('axial');
+  await expect.poll(() => brushRings(page, 'axial')).toBe(1);
+  const before = await maskVoxels(page, 1);
+  await drag(page, 'axial', [-60, 40], [-40, 40]);
+  expect(await maskVoxels(page, 1)).toBeGreaterThan(before);
+
+  // A stroke let go outside the views leaves no ring either.
+  const box = (await page.locator('[data-view="axial"]').boundingBox())!;
+  const rail = (await page.getByLabel('Keyboard shortcuts').boundingBox())!;
+  await page.mouse.move(box.x + 80, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rail.x + rail.width / 2, rail.y + rail.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => brushRings(page, 'axial')).toBe(0);
+});

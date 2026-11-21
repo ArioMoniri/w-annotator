@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { trapTab } from '../ui/focus';
 import { Hint } from './Hints';
 import { endTour, tourBack, tourNext, tourWithSample, tourWithoutSample, useTour } from './state';
 import { cutout, placeCard, stepsFor, type Rect, type Size, type TourState } from './steps';
@@ -69,12 +70,8 @@ function Layer({ tour }: { tour: TourState }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const buttons = Array.from(card.current?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? []);
       if (e.key === 'Tab') {
-        if (buttons.length === 0) return;
-        const at = buttons.indexOf(document.activeElement as HTMLElement);
-        e.preventDefault();
-        buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus();
+        if (card.current) trapTab(e, card.current);
         return;
       }
       // Nothing behind the tour reacts to keys while it is open.

@@ -277,7 +277,8 @@ test('slice, zoom, window and mask survive every layout change', async ({ page }
   // Not a double-click: with the crosshair tool a click moves the other two views, as it should.
   await page.locator('[data-view="coronal"]').hover();
   await page.locator('[data-view="coronal"]').getByRole('button', { name: 'Maximise' }).click();
-  expectSameView(await viewState(page, 'coronal'), before.coronal);
+  // Maximise enlarges the image (its own test is below); leaving it puts every view back as it was.
+  expect((await viewState(page, 'coronal')).mmPerPx).toBeLessThan(before.coronal.mmPerPx);
   await page.keyboard.press('Escape');
   for (const v of views) expectSameView(await viewState(page, v), before[v]);
 
@@ -291,6 +292,68 @@ test('slice, zoom, window and mask survive every layout change', async ({ page }
   await page.keyboard.press('b');
   await drag(page, 'axial', [0, 20], [12, 20]);
   expect(await maskVoxels(page)).toBeGreaterThan(voxels);
+});
+
+test('a maximised view shows the same part of the image, larger, and restoring puts it back', async ({ page }) => {
+  await openPhantom(page);
+  const stretched = await watchForStretch(page);
+  const box = async (view: string) => (await panes(page)).cells.find((c) => c.view === view)!;
+  /** Maximises `view` with `enter`, checks the image grew with the pane, then leaves with `leave` and checks it is back. */
+  const roundTrip = async (view: string, enter: () => Promise<void>, leave: () => Promise<void>) => {
+    const before = await viewState(page, view);
+    const small = await box(view);
+    await enter();
+    const large = await box(view);
+    // As much larger as an image that fits the pane becomes. The phantom is as wide as it is high in every view.
+    const grew = Math.min(large.w, large.h) / Math.min(small.w, small.h);
+    expect(grew).toBeGreaterThan(1.5);
+    const after = await viewState(page, view);
+    expect(after.mmPerPx, `${view} maximised`).toBeCloseTo(before.mmPerPx / grew, 4);
+    expectSameView({ ...after, mmPerPx: before.mmPerPx }, before, `${view} maximised:`);
+    await leave();
+    expectSameView(await viewState(page, view), before, `${view} restored:`);
+  };
+  const cell = (view: string) => page.locator(`[data-view="${view}"]`);
+
+  await roundTrip(
+    'sagittal',
+    () => cell('sagittal').dblclick({ position: { x: 60, y: 90 } }),
+    () => page.keyboard.press('Escape'),
+  );
+  await roundTrip(
+    'coronal',
+    async () => {
+      await cell('coronal').hover();
+      await cell('coronal').getByRole('button', { name: 'Maximise' }).click();
+    },
+    () => cell('coronal').getByRole('button', { name: 'Restore' }).click(),
+  );
+  await cell('axial').click({ position: { x: 60, y: 90 } });
+  await roundTrip(
+    'axial',
+    () => page.keyboard.press('m'),
+    () => page.keyboard.press('m'),
+  );
+  // From another layout, and after a zoom of the user's own.
+  await layoutButton(page, '3 side by side').click();
+  await page.keyboard.press('z');
+  await drag(page, 'axial', [0, 40], [0, -25]);
+  await roundTrip(
+    'axial',
+    () => page.keyboard.press('m'),
+    () => page.keyboard.press('m'),
+  );
+
+  // While maximised, a change in the size of the area still leaves the image as it is.
+  await page.keyboard.press('m');
+  const maximised = await viewState(page, 'axial');
+  await page.getByRole('button', { name: 'Hide segments' }).click();
+  expectSameView(await viewState(page, 'axial'), maximised, 'panel closed while maximised:');
+  await page.getByRole('button', { name: 'Show segments' }).click();
+  expectSameView(await viewState(page, 'axial'), maximised, 'panel open again:');
+
+  await page.waitForTimeout(200);
+  expect(await stretched()).toEqual([]);
 });
 
 test('opening and closing the segments panel keeps zoom and centre', async ({ page }) => {

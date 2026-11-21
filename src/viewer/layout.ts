@@ -112,6 +112,19 @@ export function placeViews(
   return out;
 }
 
+type Size = { w: number; h: number };
+
+/**
+ * How many times larger an image that just fits the pane `from` is when it just fits the pane
+ * `to`. `image` is the size of the image in the view, in any unit. An image enlarged by this
+ * much fills the new pane as it filled the old one. One when any size is empty.
+ */
+export function paneGrowth(from: Size, to: Size, image: Size): number {
+  const fit = (pane: Size) => Math.min(pane.w / image.w, pane.h / image.h);
+  if (![from, to, image].every((s) => s.w > 0 && s.h > 0)) return 1;
+  return fit(to) / fit(from);
+}
+
 /** The part of the segment a–b that lies inside `box` (Liang–Barsky), or null when none does. */
 export function clipSegment(
   a: readonly [number, number],

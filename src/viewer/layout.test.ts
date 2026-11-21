@@ -6,6 +6,7 @@ import {
   assignView,
   clipSegment,
   formatOrder,
+  paneGrowth,
   paneRects,
   parseLayout,
   parseOrder,
@@ -212,5 +213,38 @@ describe('clipSegment', () => {
 
   it('gives nothing when the box has no size', () => {
     expect(clipSegment([0, 5], [200, 5], { x: 10, y: 10, w: 0, h: -4 })).toBeNull();
+  });
+});
+
+describe('paneGrowth', () => {
+  const square = { w: 100, h: 100 };
+
+  it('is how many times larger an image that fits the pane becomes', () => {
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 800, h: 900 }, square)).toBeCloseTo(8 / 3, 10);
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 1600, h: 600 }, square)).toBe(2);
+  });
+
+  it('counts the room a narrow pane gains sideways', () => {
+    // Three side by side to one alone: the same height, three times the width.
+    expect(paneGrowth({ w: 300, h: 600 }, { w: 900, h: 600 }, square)).toBe(2);
+  });
+
+  it('follows the shape of the image', () => {
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 800, h: 900 }, { w: 200, h: 100 })).toBe(2);
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 800, h: 900 }, { w: 100, h: 200 })).toBe(3);
+  });
+
+  it('is undone by the way back', () => {
+    const small = { w: 483, h: 344 };
+    const large = { w: 968, h: 690 };
+    const image = { w: 250, h: 180 };
+    expect(paneGrowth(small, large, image) * paneGrowth(large, small, image)).toBeCloseTo(1, 12);
+  });
+
+  it('is one when the size is the same or anything has no size', () => {
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 400, h: 300 }, square)).toBe(1);
+    expect(paneGrowth({ w: 0, h: 300 }, { w: 400, h: 300 }, square)).toBe(1);
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 400, h: 0 }, square)).toBe(1);
+    expect(paneGrowth({ w: 400, h: 300 }, { w: 800, h: 600 }, { w: 0, h: 100 })).toBe(1);
   });
 });

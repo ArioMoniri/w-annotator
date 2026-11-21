@@ -42,6 +42,83 @@ test('Settings opens with the shortcut, moves by arrow keys, traps focus and clo
   await expect(dialog(page)).toHaveCount(0);
 });
 
+/**
+ * Tabs once round the open dialog and back, and checks that focus stops at every control in it,
+ * in order, and that the app moved it. WebKit on macOS leaves buttons out of plain Tab, so the
+ * dialog has to move focus itself rather than leave Tab to the webview.
+ */
+async function tabsRoundDialog(page: Page, what: string): Promise<void> {
+  const count = await page.evaluate(() => {
+    const w = window as unknown as { __stops: Element[]; __left: number; __watching?: boolean };
+    const root = document.querySelector('[role="dialog"]')!;
+    w.__stops = [...root.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex]')].filter((el) => {
+      const off = (el as HTMLButtonElement).disabled || el.getAttribute('tabindex')?.startsWith('-');
+      // In view: a control inside a closed disclosure is not, though Chromium keeps a box for it.
+      return !off && el.getClientRects().length > 0 && el.checkVisibility({ visibilityProperty: true });
+    });
+    w.__left = 0;
+    if (!w.__watching) {
+      // After the app has had the key: a Tab the app did not take is one the webview would act on.
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab' && !e.defaultPrevented) w.__left++;
+      });
+      w.__watching = true;
+    }
+    return w.__stops.length;
+  });
+  expect(count, what).toBeGreaterThan(1);
+  const at = () => page.evaluate(() => (window as unknown as { __stops: Element[] }).__stops.indexOf(document.activeElement!));
+  const start = await at();
+  expect(start, `${what}: focus starts on a control of the dialog`).toBeGreaterThanOrEqual(0);
+  for (let i = 1; i <= count; i++) {
+    await tab(page);
+    expect(await at(), `${what}: Tab ${i}`).toBe((start + i) % count);
+  }
+  for (let i = 1; i <= count; i++) {
+    await tab(page, true);
+    expect(await at(), `${what}: Shift+Tab ${i}`).toBe((start - i + count) % count);
+  }
+  expect(await page.evaluate(() => (window as unknown as { __left: number }).__left), `${what}: Tab presses left to the webview`).toBe(0);
+}
+
+test('plain Tab and Shift+Tab stop at every control of a dialog and stay inside it', async ({ page }) => {
+  await launch(page);
+  await page.keyboard.press('Control+,');
+  for (const section of ['Profile', 'Appearance', 'Mouse and trackpad', 'Shortcuts', 'Files', 'Help']) {
+    await page.getByRole('tab', { name: section }).click();
+    await page.getByRole('tab', { name: section }).focus();
+    await tabsRoundDialog(page, `Settings, ${section}`);
+  }
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Report a problem' }).click();
+  await expect(page.getByRole('dialog').getByLabel('Title')).toBeFocused();
+  await tabsRoundDialog(page, 'Report a problem');
+  // Text typed in a field is still there, and Tab did not end up in it.
+  await page.getByRole('dialog').getByLabel('Title').fill('Tab test');
+  await tab(page);
+  await tab(page, true);
+  await expect(page.getByRole('dialog').getByLabel('Title')).toHaveValue('Tab test');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  for (const mode of ['start', 'join']) {
+    await page.evaluate((mode) => (window as never as { __w: { store: { setState(s: object): void } } }).__w.store.setState({ roomModal: mode }), mode);
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await tabsRoundDialog(page, `Room, ${mode}`);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+
+  await page.evaluate(() => {
+    const ask = { title: 'Close the image?', body: 'Edits that are not saved will be lost.', confirm: 'Close', run: () => {}, other: { label: "Don't save", run: () => {} } };
+    (window as never as { __w: { store: { setState(s: object): void } } }).__w.store.setState({ confirm: ask });
+  });
+  await expect(page.getByRole('dialog', { name: 'Close the image?' })).toBeVisible();
+  await tabsRoundDialog(page, 'Confirm');
+});
+
 test('Settings opens from the empty state and from the file menu, and ? goes to Shortcuts', async ({ page }) => {
   await launch(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
