@@ -21,13 +21,16 @@ if (d0 >= 0) seq('b', F.slice(d0, d1).map(f => f.b), root + '/public/footage-b.m
 // scenes
 const scenes = []; F.forEach((f, i) => { const last = scenes[scenes.length - 1]; if (last && last[0] === f.s) last[2] = i + 1; else scenes.push([f.s, i, i + 1]); });
 // Camera: the recorder only states where the view should be. Move there a little early and ease in and out;
-// two passes of an 11-frame average make a move of about 0.4 s. A change of window layout is a cut, not a move.
+// two passes of an 11-frame average make a move of about 0.4 s. A change of window layout, or of what the app shows
+// between two scenes (a frame the recorder marked), is a cut, not a move: the camera does not ease across it.
 const LEAD = 7, WIN = 5;
-const cut = (i, j) => F[i].d !== F[j].d;
+const cuts = []; F.forEach((f, i) => { if (i && (f.c || f.d !== F[i - 1].d)) cuts.push(i); });
+const part = F.map((_, i) => cuts.filter(c => c <= i).length);
+const cut = (i, j) => part[i] !== part[j];
 const smooth = (key) => { let t = F.map((f, i) => { const j = Math.min(n - 1, i + LEAD); return (cut(i, j) ? f : F[j])[key]; });
   for (let pass = 0; pass < 2; pass++) t = t.map((_, i) => [0, 1, 2].map(c => { let s = 0, m = 0; for (let j = -WIN; j <= WIN; j++) { const q = i + j; if (q < 0 || q >= n || cut(i, q)) continue; s += t[q][c]; m++; } return s / m; }));
   return t.map(v => [Math.round(v[0] * 1000) / 1000, Math.round(v[1] * 10) / 10, Math.round(v[2] * 10) / 10]); };
-const track = { w: man.w, h: man.h, n, scenes, dual: d0 >= 0 ? [d0, d1] : null, a: F.map(f => f.ac), b: F.map(f => f.bc), az: smooth('az'), bz: smooth('bz'),
+const track = { w: man.w, h: man.h, n, scenes, dual: d0 >= 0 ? [d0, d1] : null, cuts, a: F.map(f => f.ac), b: F.map(f => f.bc), az: smooth('az'), bz: smooth('bz'),
   slice: F.map(f => f.sl), key: F.map(f => f.k), drop: F.map(f => f.dp) };
 fs.writeFileSync(root + '/src/track.json', JSON.stringify(track));
 console.log('frames', n, 'scenes', JSON.stringify(scenes), 'dual', d0, d1);

@@ -14,6 +14,8 @@ interface Track {
   scenes: [string, number, number][];
   /** [first frame, end frame) of the part with two windows */
   dual: [number, number] | null;
+  /** frames at which the picture changes at once: the layout of windows, or what the app shows between two scenes */
+  cuts: number[];
   /** per frame: cursor x, y in app pixels and whether the button is down */
   a: [number, number, number][];
   b: [number, number, number][];
@@ -22,7 +24,7 @@ interface Track {
   bz: [number, number, number][];
   /** per frame: the axial slice on screen, counted from 1 */
   slice: number[];
-  /** per frame: '' or the key that is held ('shift', 'save') */
+  /** per frame: '' or the keys that are pressed ('save') */
   key: string[];
   /** per frame: -1, or how far the two dropped files have come (0 to 1), then 1 to 2 while they land */
   drop: number[];
@@ -89,20 +91,15 @@ const Key = ({ label, size, lit }: { label: string; size: number; lit: boolean }
 );
 
 /** One statement per scene: what the viewer is looking at. */
-const CAPTIONS: Record<string, (lit: boolean) => ReactNode> = {
-  open: () => 'Open an image and its mask — MHA, NIfTI, NRRD or DICOM',
-  paint: () => 'Paint to correct the mask',
-  erase: (lit) => (
-    <>
-      <span style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6, marginTop: -6 }}>
-        <Key label="Shift" size={52} lit={lit} />
-      </span>
-      -drag erases
-    </>
-  ),
-  fill: () => 'Paint a few slices, fill the rest',
-  room: () => 'Work on the same mask at the same time',
-  save: () => 'Save it back as .nii.gz, .mha, .nrrd or DICOM SEG',
+const CAPTIONS: Record<string, string> = {
+  open: 'Open an image and its mask — MHA, NIfTI, NRRD or DICOM',
+  paint: 'Paint to correct the mask',
+  cut: 'Cut with a freehand loop',
+  fill: 'Paint a few slices, preview the fill, apply',
+  window: 'Pick a window: lung, abdomen, bone…',
+  kinds: 'Share a copy, or let others view through your computer',
+  room: 'Work on the same mask at the same time',
+  save: 'Save it back as .nii.gz, .mha, .nrrd or DICOM SEG',
 };
 
 const inOut = Easing.inOut(Easing.cubic);
@@ -260,7 +257,7 @@ const Caption = ({ f }: { f: number }) => (
       if (o <= 0 || !CAPTIONS[name]) return null;
       return (
         <div key={name} style={{ position: 'absolute', left: 0, right: 0, top: 0, textAlign: 'center', opacity: o, transform: `translateY(${(1 - o) * 8}px)` }}>
-          <div style={{ ...type(500, 42, 56, -0.016), color: INK }}>{CAPTIONS[name](track.key[f] === 'shift')}</div>
+          <div style={{ ...type(500, 42, 56, -0.016), color: INK }}>{CAPTIONS[name]}</div>
           {name === 'fill' && (
             <div style={{ ...type(500, 30, 40, 0), color: MUTED, marginTop: 14, fontVariantNumeric: 'tabular-nums' }}>
               Slice <span style={{ color: SKY, fontWeight: 600 }}>{track.slice[f]}</span>
@@ -338,8 +335,8 @@ const Footage = () => {
   const f = Math.min(Math.max(frame, 0), track.n - 1);
   const d = track.dual;
   const two = d !== null && f >= d[0] && f < d[1];
-  // going from one window to two and back is a short dip to the background, not a move
-  const dip = d ? Math.min(...[d[0], d[1]].map((c) => interpolate(Math.abs(f - c + 0.5), [0, 7], [0, 1], { ...clamp, easing: inOut }))) : 1;
+  // a cut is a short dip to the background, not a move
+  const dip = Math.min(1, ...track.cuts.map((c) => interpolate(Math.abs(f - c + 0.5), [0, 7], [0, 1], { ...clamp, easing: inOut })));
   const scene = sceneAt(f);
   const firstDrop = track.drop.findIndex((v) => v >= 0);
   const carrying = scene?.[0] === 'open' && (track.drop[f] < 0 ? f < firstDrop : track.drop[f] <= 1);
