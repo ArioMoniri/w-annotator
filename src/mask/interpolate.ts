@@ -81,16 +81,18 @@ export function signedDistance(inside: Uint8Array, w: number, h: number): Float3
 }
 
 /**
- * Fills the gaps between slices that contain `label`, along voxel axis `axis`.
- * Only empty voxels are written, so other segments are never overwritten.
- * Returns the number of voxels set.
+ * The voxels fill between slices would give to `label`, along voxel axis `axis`,
+ * as offsets into the mask. The mask is only read. Without `writable` only empty
+ * voxels are listed, so other segments are never overwritten; with it, a voxel is
+ * listed when `writable[its value]` is 1.
  */
-export function interpolateSlices(
+export function interpolatedVoxels(
   mask: Uint8Array,
   dims: [number, number, number],
   label: number,
   axis: 0 | 1 | 2,
-): number {
+  writable?: Uint8Array,
+): Uint32Array {
   const [u, v] = axis === 0 ? [1, 2] : axis === 1 ? [0, 2] : [0, 1];
   const stride = [1, dims[0], dims[0] * dims[1]];
   const w = dims[u];
@@ -118,7 +120,7 @@ export function interpolateSlices(
     if (plane) painted.push({ s, plane });
   }
 
-  let changed = 0;
+  const out: number[] = [];
   let previous: Float32Array | null = null;
   for (let i = 0; i + 1 < painted.length; i++) {
     const from = painted[i];
@@ -137,17 +139,32 @@ export function interpolateSlices(
           const p = a + b * w;
           if (d0[p] * (1 - t) + d1[p] * t > 0) {
             const o = offset(a, b, s);
-            if (mask[o] === 0) {
-              mask[o] = label;
-              changed++;
-            }
+            const value = mask[o];
+            if (writable ? value !== label && writable[value] === 1 : value === 0) out.push(o);
           }
         }
       }
     }
     previous = d1;
   }
-  return changed;
+  return Uint32Array.from(out);
+}
+
+/**
+ * Fills the gaps between slices that contain `label`, along voxel axis `axis`.
+ * Only empty voxels are written unless `writable` says otherwise (see
+ * `interpolatedVoxels`). Returns the number of voxels set.
+ */
+export function interpolateSlices(
+  mask: Uint8Array,
+  dims: [number, number, number],
+  label: number,
+  axis: 0 | 1 | 2,
+  writable?: Uint8Array,
+): number {
+  const voxels = interpolatedVoxels(mask, dims, label, axis, writable);
+  for (let n = 0; n < voxels.length; n++) mask[voxels[n]] = label;
+  return voxels.length;
 }
 
 const VIEW_NORMALS: Record<string, [number, number, number]> = {
