@@ -65,6 +65,24 @@ describe('view settings', () => {
   });
 });
 
+describe('saved window presets', () => {
+  it('start empty', () => {
+    expect(parseSettings(null).windowPresets).toEqual([]);
+  });
+  it('are kept between launches', () => {
+    const saved = JSON.stringify({ windowPresets: [{ name: 'Site lung', w: 1600, l: -550 }] });
+    expect(parseSettings(saved).windowPresets).toEqual([{ name: 'Site lung', w: 1600, l: -550 }]);
+  });
+  it('drop what is not a preset rather than break the list', () => {
+    expect(parseSettings('{"windowPresets":"Lung"}').windowPresets).toEqual([]);
+    expect(parseSettings('{"windowPresets":null}').windowPresets).toEqual([]);
+    expect(parseSettings('{"windowPresets":[{"name":"A","w":-1,"l":0},{"name":"B","w":10,"l":0}]}').windowPresets).toEqual([{ name: 'B', w: 10, l: 0 }]);
+  });
+  it('do not share one list between two reads', () => {
+    expect(parseSettings(null).windowPresets).not.toBe(parseSettings(null).windowPresets);
+  });
+});
+
 describe('cleanName', () => {
   it('trims and keeps at most 24 characters', () => {
     expect(cleanName('  Mina  ')).toBe('Mina');

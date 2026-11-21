@@ -6,8 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-21
+
 ### Added
 
+- The window in the status bar is now a button. It opens a menu of presets, Auto and Full range, with any tool selected, and shows the name of the preset in use.
+- CT presets Pancreas (W 150, L 65) and Abdomen sit with Liver and Soft tissue. Images that are not CT get windows worked out from their own values: Auto, Full range, Soft tissue, Bright fluid and Dark detail. The menu can switch between the CT and MR lists.
+- Save current as preset: name the window on screen and it joins the list, up to 12. Saved presets are kept between launches and can be removed from the menu.
+- P and Shift+P step through the window presets. Shift with the arrow keys makes the image brighter or darker and changes the contrast.
+- With the Window / Level tool, Ctrl-drag (⌘-drag on a Mac) a box to set the window from the values inside it, and a two-finger scroll on a trackpad changes brightness (up and down) and contrast (sideways). Shift+scroll still changes slice.
+- The zoom in the status bar is a button too: Zoom in, Zoom out, Fit and Actual size. The keys are =, - and 0.
 - Two kinds of room, chosen when a room is started. In a **shared copy** room everyone gets the image and the mask, can keep working offline and is merged when they come back. In a **view through my computer** room guests see and edit through the host's computer: they receive 8-bit pictures of the slices they look at, never the files, cannot save, and are disconnected when the host leaves.
 - The host can remove a person, switch off an unused invite link, and end or delete the room.
 - After offline work in a shared-copy room, changes to different voxels are both kept. Where both sides changed the same voxels the room's version stays and yours is kept until you choose *Use mine* or *Keep the room's*.
@@ -130,6 +138,7 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ArioMoniri/w-annotator/releases/tag/v0.1.0

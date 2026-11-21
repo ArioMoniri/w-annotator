@@ -1,4 +1,5 @@
 import { setBrushSize } from '../session';
+import { nudgeCurrentWindow } from '../windowing';
 import { getSettings } from '../state/settings';
 import { useStore, type ViewId } from '../state/store';
 import * as engine from '../viewer/engine';
@@ -38,6 +39,9 @@ function apply(view: ViewId, action: GestureAction, at: [number, number]): void 
       setBrushSize(size);
       break;
     }
+    case 'window':
+      nudgeCurrentWindow(action.dw, action.dl);
+      break;
     case 'none':
       break;
   }
@@ -65,6 +69,7 @@ export function attachViewportGestures(cell: HTMLElement, view: ViewId): () => v
       zoomSpeed: s.zoomSpeed,
       pane: view === 'volume3d' ? '3d' : 'slice',
       brushActive: BRUSH_TOOLS.includes(useStore.getState().tool),
+      windowActive: useStore.getState().tool === 'window',
       mac: isMac,
     });
     apply(view, action, pointIn(e));

@@ -39,6 +39,7 @@ const OPTIONS: GestureOptions = {
   zoomSpeed: 5,
   pane: 'slice',
   brushActive: false,
+  windowActive: false,
   mac: false,
 };
 
@@ -282,6 +283,68 @@ describe('two-finger scroll set to pan', () => {
   it('changes slice with Shift held', () => {
     const actions = run(macTrackpadScroll(1, { shiftKey: true }), pan);
     expect(slices(actions)).toBe(Math.floor(MAC_TRACKPAD_TOTAL / pixelsPerSlice(5)));
+  });
+});
+
+describe('the Window / Level tool on a trackpad', () => {
+  const tool = { windowActive: true, mac: true } as const;
+  const sum = (actions: GestureAction[]) => actions.reduce((s, a) => (a.type === 'window' ? [s[0] + a.dw, s[1] + a.dl] : s), [0, 0]);
+
+  it('changes the level, not the slice, on a two-finger scroll', () => {
+    const actions = run(macTrackpadScroll(1), tool);
+    expect(slices(actions)).toBe(0);
+    const [dw, dl] = sum(actions);
+    expect(dw).toBe(0);
+    // Fingers up (a positive delta with natural scrolling) is brighter: the level goes down, as dragging up does.
+    expect(dl).toBeLessThan(0);
+    expect(dl).toBeCloseTo(-MAC_TRACKPAD_TOTAL * 0.002);
+  });
+
+  it('goes the other way when the fingers do', () => {
+    expect(sum(run(macTrackpadScroll(-1), tool))[1]).toBeCloseTo(MAC_TRACKPAD_TOTAL * 0.002);
+  });
+
+  it('changes the width on a sideways scroll', () => {
+    const [dw, dl] = sum(run(horizontalSwipe(), tool));
+    expect(dl).toBe(0);
+    expect(dw).not.toBe(0);
+  });
+
+  it('keeps to one of the two on a scroll that drifts sideways', () => {
+    const [dw, dl] = sum(run(diagonalScroll(), tool));
+    expect(dw).toBe(0);
+    expect(dl).toBeCloseTo(-20 * 9 * 0.002);
+  });
+
+  it('follows the scroll direction setting', () => {
+    expect(sum(run(macTrackpadScroll(1), { ...tool, scrollDirection: 'reversed' }))[1]).toBeGreaterThan(0);
+  });
+
+  it('wins over two-finger pan', () => {
+    expect(types(run(macTrackpadScroll(1), { ...tool, twoFingerScroll: 'pan' })).includes('pan')).toBe(false);
+  });
+
+  it('still changes slice with Shift held', () => {
+    const actions = run(macTrackpadScroll(1, { shiftKey: true }), tool);
+    expect(types(actions).includes('window')).toBe(false);
+    expect(slices(actions)).toBeGreaterThan(0);
+  });
+
+  it('still changes slice on a notched mouse wheel', () => {
+    expect(run(notchedMouse(3), { windowActive: true })).toEqual(Array(3).fill({ type: 'slice', steps: 1 }));
+    expect(types(run(notchedMouseSafari(), tool))).toEqual(['slice']);
+  });
+
+  it('still zooms on a pinch', () => {
+    expect(types(run(pinchAsCtrlWheel('out'), tool))).toEqual(['zoom']);
+  });
+
+  it('does nothing in the 3D view but zoom', () => {
+    expect(types(run(macTrackpadScroll(1), { ...tool, pane: '3d' }))).toEqual(['zoom']);
+  });
+
+  it('is left alone while another tool is selected', () => {
+    expect(types(run(macTrackpadScroll(1), { mac: true })).includes('window')).toBe(false);
   });
 });
 

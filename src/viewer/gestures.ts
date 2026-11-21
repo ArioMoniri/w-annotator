@@ -41,6 +41,8 @@ export interface GestureOptions {
   pane: 'slice' | '3d';
   /** A brush tool is selected, so Alt+scroll changes its size. */
   brushActive: boolean;
+  /** The Window / Level tool is selected, so a trackpad scroll changes the window. */
+  windowActive: boolean;
   /** Running on a Mac, where a notched mouse sends small fractional pixel deltas. */
   mac: boolean;
 }
@@ -53,7 +55,12 @@ export type GestureAction =
   /** Move the image by this many canvas pixels. */
   | { type: 'pan'; dx: number; dy: number }
   /** Positive is larger. */
-  | { type: 'brush'; steps: number };
+  | { type: 'brush'; steps: number }
+  /**
+   * Change the window, in shares of its width: the level moves by `dl` widths and the
+   * width is multiplied by e^`dw`. The same way round as dragging: up is brighter, right is wider.
+   */
+  | { type: 'window'; dw: number; dl: number };
 
 export interface GestureState {
   lastTime: number;
@@ -88,6 +95,9 @@ const BRUSH_PIXELS = 16;
 const NOTCH_ZOOM = 0.1;
 const PINCH_ZOOM = 0.01;
 const SCROLL_ZOOM = 0.005;
+/** Window change per scrolled pixel: 500 pixels move the level by one width; 250 sideways multiply the width by e. */
+const WINDOW_LEVEL = 0.002;
+const WINDOW_WIDTH = 0.004;
 
 const NONE: GestureAction = { type: 'none' };
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
@@ -211,6 +221,13 @@ export function wheelAction(state: GestureState, raw: WheelLike, o: GestureOptio
   }
   if (e.metaKey || o.pane === '3d') {
     return e.deltaY === 0 ? NONE : { type: 'zoom', factor: Math.exp(-e.deltaY * SCROLL_ZOOM * gain) };
+  }
+  // With the Window / Level tool a plain scroll is the window. Shift still asks for slices.
+  if (o.windowActive && !e.shiftKey && !e.altKey) {
+    const dy = lockedVertical(state, e);
+    const dx = state.axis === 'x' ? e.deltaX : 0;
+    if (dx === 0 && dy === 0) return NONE;
+    return { type: 'window', dw: -dx * direction * WINDOW_WIDTH || 0, dl: -dy * direction * WINDOW_LEVEL || 0 };
   }
   if (o.twoFingerScroll === 'pan' && !e.shiftKey && !(e.altKey && o.brushActive)) {
     return e.deltaX === 0 && e.deltaY === 0 ? NONE : { type: 'pan', dx: -e.deltaX || 0, dy: -e.deltaY || 0 };

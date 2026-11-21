@@ -206,17 +206,21 @@ test('a narrow status bar drops whole items and keeps the save state in full', a
   await drag(page, 'axial', [-60, 40], [-20, 70]);
   const sync = page.locator('.status .syncgroup');
   const bar = page.locator('.status');
-  const fits = async () => {
-    const [b, s] = [(await bar.boundingBox())!, (await sync.boundingBox())!];
-    expect(s.x + s.width).toBeLessThanOrEqual(b.x + b.width);
-    expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    // Whatever is shown is shown whole.
-    for (const item of await bar.locator('[data-drop-order]').all()) {
-      if (!(await item.isVisible())) continue;
-      const box = (await item.boundingBox())!;
-      expect(box.x + box.width).toBeLessThanOrEqual(s.x + 1);
-    }
-  };
+  // The bar drops items over a frame or two after a resize, so everything is measured in
+  // one reading of the page, and the reading is repeated until the bar has settled.
+  const fits = () =>
+    expect(async () => {
+      const m = await bar.evaluate((el) => {
+        const right = (e: Element) => e.getBoundingClientRect().right;
+        const shown = [...el.querySelectorAll('[data-drop-order]')].filter((e) => (e as HTMLElement).offsetParent !== null);
+        const group = el.querySelector('.syncgroup')!;
+        return { bar: right(el), sync: right(group), syncLeft: group.getBoundingClientRect().left, scrolls: el.scrollWidth > el.clientWidth, items: shown.map(right) };
+      });
+      expect(m.sync).toBeLessThanOrEqual(m.bar);
+      expect(m.scrolls).toBe(false);
+      // Whatever is shown is shown whole.
+      for (const edge of m.items) expect(edge).toBeLessThanOrEqual(m.syncLeft + 1);
+    }).toPass({ timeout: 3_000 });
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByTestId('status-size')).toBeVisible();
   await fits();

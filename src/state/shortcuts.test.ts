@@ -75,6 +75,27 @@ describe('bindings', () => {
     expect(actionFor(b, 'mod+4')).toBe('layout.two');
     expect(actionFor(b, 'mod+5')).toBe('layout.single');
   });
+  it('steps through window presets with P and Shift+P, leaving the digits to the segments', () => {
+    const b = defaultBindings();
+    expect(actionFor(b, 'p')).toBe('window.next');
+    expect(actionFor(b, 'shift+p')).toBe('window.previous');
+    expect(ACTIONS.find((a) => a.id === 'window.next')?.label).toBe('Next window preset');
+    expect(ACTIONS.find((a) => a.id === 'window.previous')?.label).toBe('Previous window preset');
+  });
+  it('has keys for brightness and contrast', () => {
+    const b = defaultBindings();
+    expect(actionFor(b, 'shift+arrowup')).toBe('window.brighter');
+    expect(actionFor(b, 'shift+arrowdown')).toBe('window.darker');
+    expect(actionFor(b, 'shift+arrowright')).toBe('window.moreContrast');
+    expect(actionFor(b, 'shift+arrowleft')).toBe('window.lessContrast');
+  });
+  it('has keys for zoom', () => {
+    const b = defaultBindings();
+    expect(actionFor(b, '=')).toBe('view.zoomIn');
+    expect(actionFor(b, '-')).toBe('view.zoomOut');
+    expect(actionFor(b, '0')).toBe('view.fit');
+    expect(ACTIONS.find((a) => a.id === 'view.fit')?.label).toBe('Fit to view');
+  });
   it('finds the action for a key', () => {
     expect(actionFor(defaultBindings(), 'b')).toBe('tool.brush');
     expect(actionFor(defaultBindings(), 'q')).toBeNull();

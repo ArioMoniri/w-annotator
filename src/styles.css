@@ -3396,3 +3396,103 @@ select.select.paintover {
   left: auto;
   right: 0;
 }
+
+/* ── Window and zoom read-outs in the status bar (ViewMenus.tsx) ── */
+
+.statusmenu {
+  display: inline-flex;
+  flex: none;
+}
+
+.status .statusbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  white-space: pre;
+  cursor: pointer;
+}
+
+.status .statusbtn b {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.status .statusbtn svg {
+  color: var(--text-3);
+  flex: none;
+}
+
+.status .statusbtn .preset {
+  color: var(--text-1);
+}
+
+.status .statusbtn:hover,
+.status .statusbtn[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.status .statusbtn:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Opens upwards, so it comes in from below. */
+.menu.statuspop {
+  min-width: 220px;
+  overflow-y: auto;
+  font: 13px/20px var(--font-ui);
+  color: var(--text-1);
+  white-space: nowrap;
+  animation-name: statuspop-in;
+}
+
+@keyframes statuspop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.menu.statuspop [aria-checked='true'] {
+  background: var(--bg-active);
+}
+
+.menu .wl,
+.form .wl {
+  font: 11px/16px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.form .wl {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.menu .presetrow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.menu .presetrow .item {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The window hint is shown whole or not at all: when it does not fit, the strip compacts and drops it. */
+.strip[data-strip='window'] .hint {
+  flex: none;
+}
+
+/* Its first step gives up only the hint: W and L keep their letters. */
+.strip[data-strip='window'][data-compact='1'] .field > .label,
+.strip[data-strip='window'][data-compact='1'] .field > label {
+  display: inline;
+}

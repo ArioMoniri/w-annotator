@@ -3,22 +3,12 @@ import { activeSegmentInfo, useStore } from '../state/store';
 import { applyFillPreview, cancelFillPreview, fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } from '../session';
 import { paintOverLabel } from '../mask/paintOver';
 import { clearMeasurements, fitAll } from '../viewer/engine';
-import { getImage } from '../session';
-import { autoWindow } from '../io';
+import { useSettings } from '../state/settings';
+import { matchChoice, windowChoices } from '../viewer/window';
+import { applyWindowChoice } from '../windowing';
 import { BRUSH_MAX } from '../mask/brush';
-import { Choice, NumberField, Slider, useKeyHint } from './common';
+import { Choice, MOD, NumberField, Slider, useKeyHint } from './common';
 import { TOOLS } from './ToolRail';
-
-const CT_PRESETS: { name: string; w: number; l: number }[] = [
-  { name: 'Soft tissue', w: 400, l: 40 },
-  { name: 'Lung', w: 1500, l: -600 },
-  { name: 'Bone', w: 1800, l: 400 },
-  { name: 'Brain', w: 80, l: 40 },
-  { name: 'Abdomen', w: 350, l: 50 },
-  { name: 'Liver', w: 150, l: 30 },
-  { name: 'Stroke', w: 40, l: 40 },
-  { name: 'Subdural', w: 200, l: 75 },
-];
 
 const SHAPES = [
   { value: 'circle' as const, label: 'Circle' },
@@ -133,54 +123,48 @@ function ThresholdField() {
 
 function WindowFields() {
   const voi = useStore((s) => s.voi);
-  const looksLikeCt = useStore((s) => !!s.image?.ct);
-  if (!voi) return null;
+  const image = useStore((s) => s.image);
+  const asked = useStore((s) => s.windowSet);
+  const custom = useSettings((s) => s.windowPresets);
+  if (!voi || !image) return null;
   const w = Math.round(voi.upper - voi.lower);
   const l = Math.round((voi.upper + voi.lower) / 2);
   const apply = (nw: number, nl: number) => setVoi(nl - Math.max(1, nw) / 2, nl + Math.max(1, nw) / 2);
-  const current = CT_PRESETS.find((p) => p.w === w && p.l === l)?.name ?? '';
+  const choices = windowChoices(image, custom, asked ?? (image.ct ? 'ct' : 'mr'));
+  const current = matchChoice(choices, voi)?.name ?? '';
   return (
     <>
-      {looksLikeCt && (
-        <div className="field">
-          <label htmlFor="wl-preset">Preset</label>
-          <select
-            id="wl-preset"
-            className="select"
-            value={current}
-            onChange={(e) => {
-              const p = CT_PRESETS.find((x) => x.name === e.target.value);
-              if (p) apply(p.w, p.l);
-              // Give the keyboard back to the tool shortcuts.
-              e.target.blur();
-            }}
-          >
-            <option value="" disabled>
-              Custom
-            </option>
-            {CT_PRESETS.map((p) => (
-              <option key={p.name}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      <div className="field">
+        <label htmlFor="wl-preset">Preset</label>
+        <select
+          id="wl-preset"
+          className="select"
+          value={current}
+          onChange={(e) => {
+            const c = choices.find((x) => x.name === e.target.value);
+            if (c) applyWindowChoice(c);
+            // Give the keyboard back to the tool shortcuts.
+            e.target.blur();
+          }}
+        >
+          <option value="" disabled>
+            Custom
+          </option>
+          {choices.map((c) => (
+            <option key={c.name}>{c.name}</option>
+          ))}
+        </select>
+      </div>
       <div className="field">
         <span className="label">W</span>
         <NumberField label="Window width" wide value={w} min={1} onCommit={(v) => apply(v, l)} />
         <span className="label">L</span>
         <NumberField label="Window level" wide value={l} onCommit={(v) => apply(w, v)} />
       </div>
-      <button
-        className="btn secondary"
-        onClick={() => {
-          const img = getImage();
-          if (!img) return;
-          const auto = autoWindow(img);
-          setVoi(auto.lower, auto.upper);
-        }}
-      >
+      <button className="btn secondary" onClick={() => setVoi(image.auto.lower, image.auto.upper)}>
         Reset
       </button>
+      <span className="hint">{MOD}-drag a box to set the window from it.</span>
     </>
   );
 }

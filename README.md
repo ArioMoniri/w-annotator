@@ -42,6 +42,7 @@ W Annotator shows a volume in axial, sagittal and coronal views with a 3D view o
 - Segments: add, rename, recolour, hide, lock, clear and delete. Each row shows the volume in mL.
 - Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, split islands into separate segments, and combine with another segment.
 - Viewing: crosshair, pan, zoom, a ruler, window/level with CT presets, mask opacity and an outline-only view.
+- Windowing: presets for CT and for MR, your own saved presets, a window from a box drawn on the image, and brightness and contrast by keys or a two-finger scroll.
 - Layouts: 2×2, one large view with three beside it, three across, two across or a single view. Any pane can show any view, and lines link the planes.
 - Files: a list of the open image and up to four masks. One mask is edited; the others show as outlines for comparison.
 - Mouse and trackpad: two-finger scroll moves through slices, pinch zooms about the pointer, and the settings let you change both.
@@ -100,7 +101,7 @@ With the server field left empty, the desktop app hosts the room itself. That wo
 | `Ctrl+O` | Open image | `Ctrl+Shift+O` | Open mask |
 | `Ctrl+S` | Save mask | `?` | All shortcuts |
 
-On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans, right-drag changes window/level and `Alt`-click (`Option`-click on macOS) selects the segment under the cursor. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
+On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans, right-drag changes window/level, `P` steps through the window presets, `=` `-` `0` zoom in, out and to fit, and `Alt`-click (`Option`-click on macOS) selects the segment under the cursor. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
 
 ## Build from source
 

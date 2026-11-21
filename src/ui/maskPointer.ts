@@ -1,6 +1,8 @@
 import { cutsWithOutline, ellipseOutline, rectangleOutline, thinOutline, type Point } from '../mask/scissors';
 import { cutOutline, editIslandAt, pickSegmentAt } from '../session';
 import { useStore, type ViewId } from '../state/store';
+import { windowFromBox } from '../windowing';
+import { isMac } from './common';
 
 /**
  * Presses on a slice view that the app handles itself, ahead of the viewer's tools:
@@ -17,6 +19,8 @@ const SMALLEST = 3;
 
 interface Drag {
   pointer: number;
+  /** What the outline is for: a cut in the mask, or a box to take the window from. */
+  use: 'cut' | 'window';
   shape: 'rectangle' | 'circle' | 'freehand';
   /** In the view's own pixels, for the cut. */
   points: Point[];
@@ -82,6 +86,12 @@ export function attachMaskPointer(cell: HTMLElement, view: ViewId): () => void {
       pickSegmentAt(view, ...pointIn(e));
       return;
     }
+    // With the Window / Level tool, a box drawn with the main modifier held gives the window. Nothing is written.
+    if (s.tool === 'window' && (isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey) {
+      taken = true;
+      begin(e, 'window', 'rectangle');
+      return;
+    }
     // A locked or hidden segment is refused, with the reason, by the cell itself.
     if (cell.dataset.blocked === 'true' || e.shiftKey || e.ctrlKey || e.metaKey) return;
     if (s.tool === 'fill' && s.fillAction !== 'fill') {
@@ -91,6 +101,11 @@ export function attachMaskPointer(cell: HTMLElement, view: ViewId): () => void {
     }
     if (s.tool !== 'scissors' || s.scissorsShape === 'sphere' || !cutsWithOutline(s.scissorsShape, s.scissorsAction, s.scissorsDepth)) return;
     taken = true;
+    begin(e, 'cut', s.scissorsShape);
+  };
+
+  /** Starts an outline at the press, drawn in its own layer over the view. */
+  const begin = (e: PointerEvent, use: Drag['use'], shape: Drag['shape']) => {
     const rect = surface();
     const box = cell.getBoundingClientRect();
     const layer = document.createElementNS(SVG, 'svg');
@@ -102,7 +117,7 @@ export function attachMaskPointer(cell: HTMLElement, view: ViewId): () => void {
       layer.append(path);
     }
     cell.append(layer);
-    drag = { pointer: e.pointerId, shape: s.scissorsShape, points: [pointIn(e)], offset: [rect.left - box.left, rect.top - box.top], layer };
+    drag = { pointer: e.pointerId, use, shape, points: [pointIn(e)], offset: [rect.left - box.left, rect.top - box.top], layer };
     cell.setPointerCapture(e.pointerId);
     window.addEventListener('keydown', onKey, true);
   };
@@ -120,7 +135,8 @@ export function attachMaskPointer(cell: HTMLElement, view: ViewId): () => void {
     const xs = done.points.map((p) => p[0]);
     const ys = done.points.map((p) => p[1]);
     if (Math.max(...xs) - Math.min(...xs) < SMALLEST && Math.max(...ys) - Math.min(...ys) < SMALLEST) return;
-    void cutOutline(view, outlineOf(done));
+    if (done.use === 'window') windowFromBox(view, [...done.points[0]], [...done.points[done.points.length - 1]]);
+    else void cutOutline(view, outlineOf(done));
   };
 
   const onCancel = (e: PointerEvent) => {

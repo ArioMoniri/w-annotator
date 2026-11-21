@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { parseWindowPresets, type WindowPreset } from '../viewer/window';
 import { DEFAULT_ORDER, formatOrder, parseLayout, parseOrder } from '../viewer/layout';
 
 /** When the lines that mark the other two planes are drawn in a view. */
@@ -39,6 +40,8 @@ export interface Settings {
   referenceLines: string;
   /** Slice views blend between voxels. Off shows each voxel as a flat block. Drawing only. */
   smoothPixels: boolean;
+  /** Window presets the user saved, in the order saved. A display preference; never sent to a room. */
+  windowPresets: WindowPreset[];
 }
 
 /** Settings that are one of a few words, and the words allowed. */
@@ -66,12 +69,13 @@ export const DEFAULT_SETTINGS: Settings = {
   viewOrder: formatOrder(DEFAULT_ORDER),
   referenceLines: 'hover',
   smoothPixels: true,
+  windowPresets: [],
 };
 
 const KEY = 'w-annotator:settings';
 
 export function parseSettings(raw: string | null): Settings {
-  const out = { ...DEFAULT_SETTINGS };
+  const out: Settings = { ...DEFAULT_SETTINGS, windowPresets: [] };
   if (!raw) return out;
   try {
     const saved = JSON.parse(raw) as Record<string, unknown>;
@@ -83,7 +87,7 @@ export function parseSettings(raw: string | null): Settings {
         if (!Number.isFinite(value)) continue;
         value = Math.min(10, Math.max(1, value as number));
       }
-      (out as Record<string, unknown>)[key] = value;
+      (out as unknown as Record<string, unknown>)[key] = value;
     }
   } catch {
     /* unreadable settings fall back to the defaults */
@@ -92,6 +96,7 @@ export function parseSettings(raw: string | null): Settings {
   out.layout = parseLayout(out.layout);
   out.viewOrder = formatOrder(parseOrder(out.viewOrder));
   out.referenceLines = parseReferenceLines(out.referenceLines);
+  out.windowPresets = parseWindowPresets(out.windowPresets);
   return out;
 }
 
@@ -103,11 +108,11 @@ function load(): Settings {
     if (!settings.server) settings.server = localStorage.getItem('w-annotator:server') ?? '';
     return settings;
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return parseSettings(null);
   }
 }
 
-export const useSettings = create<Settings>(() => (typeof localStorage === 'undefined' ? { ...DEFAULT_SETTINGS } : load()));
+export const useSettings = create<Settings>(() => (typeof localStorage === 'undefined' ? parseSettings(null) : load()));
 
 export function setSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
   useSettings.setState({ [key]: value } as Pick<Settings, K>);

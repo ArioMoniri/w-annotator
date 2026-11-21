@@ -2,7 +2,9 @@ import { useLayoutEffect, useRef } from 'react';
 import { statusText } from '../mask/recovery';
 import { useRecovery } from '../recovery';
 import { useStore } from '../state/store';
+import { useSettings } from '../state/settings';
 import { itemsToDrop } from './place';
+import { WindowReadout, ZoomReadout } from './ViewMenus';
 
 export function StatusBar() {
   const hover = useStore((s) => s.hover);
@@ -14,6 +16,8 @@ export function StatusBar() {
   const dims = useStore((s) => s.image?.dims);
   const ct = useStore((s) => !!s.image?.ct);
   const maskHidden = useStore((s) => s.maskHidden);
+  const windowSet = useStore((s) => s.windowSet);
+  const presets = useSettings((s) => s.windowPresets.length);
   const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2)).replace('-', '−');
   const segName = hover && hover.segment ? (segments.find((x) => x.index === hover.segment)?.name ?? `Segment ${hover.segment}`) : 'none';
 
@@ -28,11 +32,12 @@ export function StatusBar() {
     else sync = guest ? 'Synced · nothing saved on this device' : dirty ? 'Synced · not saved to file' : 'Synced';
   }
 
-  // When the bar is too narrow, whole items leave in order (size, zoom, window, then the
-  // values under the cursor) so the save state at the end is never cut mid-word.
+  // When the bar is too narrow, whole items leave in order (the preset name, size, zoom, then
+  // the values under the cursor) so the save state at the end is never cut mid-word. The
+  // window stays: it is the way in to the presets.
   const bar = useRef<HTMLElement>(null);
   // Everything that changes how wide the items are.
-  const layoutKey = [sync, copyAt, maskHidden, segName, ct, dims?.join('x'), voi && Math.round(voi.upper - voi.lower), zoom != null].join('|');
+  const layoutKey = [sync, copyAt, maskHidden, segName, ct, dims?.join('x'), voi && `${voi.lower}:${voi.upper}`, windowSet, presets, zoom != null].join('|');
   useLayoutEffect(() => {
     const el = bar.current;
     if (!el) return;
@@ -44,7 +49,10 @@ export function StatusBar() {
       const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
       const widths = items.map((item) => item.offsetWidth + gap);
       const fixed = el.scrollWidth - widths.reduce((a, b) => a + b, 0);
-      el.dataset.drop = String(itemsToDrop(widths, fixed, el.clientWidth));
+      let drop = itemsToDrop(widths, fixed, el.clientWidth);
+      el.dataset.drop = String(drop);
+      // An item inside another one is narrower than it was counted, so check the result too.
+      while (drop < items.length && el.scrollWidth > el.clientWidth) el.dataset.drop = String(++drop);
     };
     fit();
     const observer = new ResizeObserver(fit);
@@ -71,20 +79,12 @@ export function StatusBar() {
         </span>
       )}
       {dims && (
-        <span data-drop-order="1" data-testid="status-size">
+        <span data-drop-order="2" data-testid="status-size">
           <b>Size</b> {dims[0]} × {dims[1]} × {dims[2]}
         </span>
       )}
-      {voi && (
-        <span data-drop-order="3" data-testid="status-window">
-          <b>W</b> {Math.round(voi.upper - voi.lower)} <b>L</b> {fmt(Math.round((voi.upper + voi.lower) / 2))}
-        </span>
-      )}
-      {zoom != null && (
-        <span style={{ minWidth: 70 }} data-drop-order="2" data-testid="status-zoom">
-          <b>Zoom</b> {Math.round(zoom * 100)}%
-        </span>
-      )}
+      <WindowReadout />
+      <ZoomReadout />
       <span className="syncgroup">
         {/* Keyed by its text so each change fades in. */}
         <span className="sync" data-testid="sync" data-unsaved={dirty || undefined} key={sync}>
