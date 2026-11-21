@@ -19,7 +19,7 @@ macOS builds are signed and notarised. The app updates itself from GitHub Releas
 
 <a href="docs/assets/launch.mp4"><img src="docs/assets/launch.webp" width="720" alt="Preview of the tour: an image and its mask are dropped on the window and open in four views, a gap in the lung mask is painted in, a stray piece is cut away with a freehand loop, a new segment is painted on three slices and the fill between them is previewed and applied, the window is changed from lung to abdomen to bone, and two people correct the same mask at the same time"></a>
 
-<sub><a href="docs/assets/launch.mp4">Watch the 35-second tour</a></sub>
+<sub><a href="docs/assets/launch.mp4">Watch the 36-second tour</a></sub>
 
 </div>
 

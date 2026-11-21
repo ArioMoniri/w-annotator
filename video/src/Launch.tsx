@@ -14,7 +14,7 @@ interface Track {
   scenes: [string, number, number][];
   /** [first frame, end frame) of the part with two windows */
   dual: [number, number] | null;
-  /** frames at which the picture changes at once: the layout of windows, or what the app shows between two scenes */
+  /** frames at which the picture changes at once (the layout of windows, or what the app shows between two scenes): a plain cut */
   cuts: number[];
   /** per frame: cursor x, y in app pixels and whether the button is down */
   a: [number, number, number][];
@@ -32,7 +32,7 @@ interface Track {
 const track = raw as unknown as Track;
 
 export const TITLE = 54;
-export const END = 72;
+export const END = 60;
 const OVERLAP = 10; // frames of cross-fade between the cards and the footage
 const APP_W = track.w;
 const APP_H = track.h;
@@ -335,15 +335,13 @@ const Footage = () => {
   const f = Math.min(Math.max(frame, 0), track.n - 1);
   const d = track.dual;
   const two = d !== null && f >= d[0] && f < d[1];
-  // a cut is a short dip to the background, not a move
-  const dip = Math.min(1, ...track.cuts.map((c) => interpolate(Math.abs(f - c + 0.5), [0, 7], [0, 1], { ...clamp, easing: inOut })));
   const scene = sceneAt(f);
   const firstDrop = track.drop.findIndex((v) => v >= 0);
   const carrying = scene?.[0] === 'open' && (track.drop[f] < 0 ? f < firstDrop : track.drop[f] <= 1);
   const landed = track.drop.findIndex((v) => v > 1);
   return (
     <AbsoluteFill>
-      <AbsoluteFill style={{ opacity: dip }}>
+      <AbsoluteFill>
         <AppWindow rect={two ? LEFT : SINGLE} cam={track.az[f]} cursor={track.a[f]} since={landed >= 0 && f >= landed && f - landed < 16 ? f - landed : sinceDown(track.a, f)} pointer={!carrying} over={two ? null : <SaveKeys f={f} />}>
           <OffthreadVideo src={staticFile('footage-a.mp4')} style={video} muted />
         </AppWindow>

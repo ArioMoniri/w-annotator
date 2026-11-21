@@ -131,8 +131,6 @@ function at(rows, vals, v) { let i = 0; while (i < rows.length - 2 && v > rows[i
   const ZONE = [1.45, 640, 380];     // the drop zone of the empty window
   const AXIAL = [2.36, 271, 258.5];  // the tool rail and the axial view, and nothing else
   const FILL = [1.6, 448, 294];      // the options of the brush, the axial view and most of the sagittal view beside it
-  const WINDOW = [1.45, 838.5, 524]; // the enlarged axial view, the menu of windows and the status bar
-  const DIALOG = [1.5, 640, 400];    // a dialog in the middle of the window
   const SAVE = [1.65, 892, 558];     // the message and the status at the bottom right
   try {
     // ── 1. two files are dropped on the empty window ──
@@ -210,21 +208,29 @@ function at(rows, vals, v) { let i = 0; while (i < rows.length - 2 && v > rows[i
     log('fill', JSON.stringify(await st(A))); done('fill');
 
     // ── 5. the window: two presets from the read-out in the status bar ──
-    // off camera: the middle slice, and the axial view enlarged and moved to sit beside the menu
+    // off camera: the middle slice, and the axial view enlarged and placed so that the slice and the menu fill the frame
     await A.evaluate(() => window.__w.store.setState({ toasts: [] })); await ses(A, 'setTool', 'pan');
     await scrollTo(A, S2);
     await A.evaluate(() => window.__w.store.setState({ panelOpen: false, maximized: 'axial' })); await A.waitForTimeout(1500);
-    const big = await A.locator('[data-view="axial"]').boundingBox(); const SHRINK = 0.74, SHIFT = [650 - (big.x + big.width / 2), 508 - (big.y + big.height / 2)];
-    await A.evaluate(([k, dx, dy]) => { const e = window.__w.engine; e.zoomBy('axial', k); e.panBy('axial', dx, dy); }, [SHRINK, ...SHIFT]); await A.waitForTimeout(800);
     const readout = A.locator('button', { hasText: /^W\s*\d/ }).first(); const item = (name) => A.locator('[role=menuitem],[role=menuitemradio]').filter({ hasText: name }).first();
-    win.A.x = 700; win.A.y = 620; await A.mouse.move(win.A.x, win.A.y);
-    scene = 'window'; cutNext = true; win.A.cam = WINDOW.slice();
-    await one(shot(), rest(9));
+    // The menu opens above the read-out, its right edge at the button's. At this zoom its names are 24 px tall in the
+    // video. One camera holds the slice and the menu; the other has the slice in the middle, for when the menu is shut.
+    const WZ = 1.76, vw = W / WZ, vh = H / WZ, rb = await readout.boundingBox();
+    const menuCam = [WZ, rb.x + rb.width + 9 - vw / 2, H - vh / 2], left = menuCam[1] - vw / 2;
+    const spot = [left + (vw - 233) / 2, 550]; // the middle of the room left of the menu
+    const imageCam = [WZ, spot[0], 772 - vh / 2]; // the slice alone: the status bar is below the frame
+    const big = await A.locator('[data-view="axial"]').boundingBox(); const SHRINK = 0.88, SHIFT = [spot[0] - (big.x + big.width / 2), spot[1] - (big.y + big.height / 2)];
+    await A.evaluate(([k, dx, dy]) => { const e = window.__w.engine; e.zoomBy('axial', k); e.panBy('axial', dx, dy); }, [SHRINK, ...SHIFT]); await A.waitForTimeout(800);
+    log('window cams', JSON.stringify(menuCam), JSON.stringify(imageCam), JSON.stringify(rb));
+    win.A.x = spot[0] + 150; win.A.y = spot[1] + 120; await A.mouse.move(win.A.x, win.A.y);
+    scene = 'window'; cutNext = true; win.A.cam = imageCam.slice();
+    await one(shot(), rest(5));
     for (const [n, name] of ['Abdomen', 'Bone'].entries()) {
-      if (!(await item(name).isVisible())) await one(mv('A', ...mid(await readout.boundingBox()), n ? 10 : 16), click('A'), rest(n ? 5 : 10));
-      await one(mv('A', ...mid(await item(name).boundingBox()), 11), rest(2), click('A', async () => { await A.mouse.click(win.A.x, win.A.y); await A.waitForTimeout(700); }), rest(n ? 26 : 16));
+      if (!(await item(name).isVisible())) await one(cam('A', menuCam), mv('A', ...mid(await readout.boundingBox()), n ? 12 : 16), click('A'), rest(n ? 8 : 12));
+      if (n === 0) log('menu', JSON.stringify(await A.locator('[role=menu]').first().boundingBox().catch(() => null)));
+      await one(mv('A', ...mid(await item(name).boundingBox()), 11), rest(2), click('A', async () => { await A.mouse.click(win.A.x, win.A.y); await A.waitForTimeout(700); }), cam('A', imageCam),
+        mv('A', spot[0] + 190, spot[1] + 110, 12), rest(n ? 20 : 10));
     }
-    if (await item('Bone').isVisible()) await A.keyboard.press('Escape');
     log('window', JSON.stringify(await st(A)), await readout.textContent()); done('window');
 
     // ── 6. Share: the two kinds of room ──
@@ -242,12 +248,23 @@ function at(rows, vals, v) { let i = 0; while (i < rows.length - 2 && v > rows[i
     await A.evaluate(() => window.__w.store.setState({ toasts: [] }));
     win.A.x = 900; win.A.y = 300; await A.mouse.move(win.A.x, win.A.y);
     scene = 'kinds'; cutNext = true; win.A.cam = FULL.slice();
-    await one(shot(), rest(5), mv('A', ...mid(await A.getByRole('button', { name: 'Share' }).boundingBox()), 16), cam('A', DIALOG),
-      click('A', async () => { await A.mouse.click(win.A.x, win.A.y); await A.getByRole('radio', { name: 'Shared copy' }).waitFor(); await A.waitForTimeout(500); }), rest(8));
+    // The camera goes to the two kinds, large enough to read (their text is 27 px tall in the video), with Start below;
+    // then to the dialog that says what an invite link is, which is shown only briefly. A camera is told where to go
+    // some frames after the click, because it sets off early and must not move before the dialog is there.
+    const KZ = 2.1, kh = H / KZ; let next = FULL;
+    await one(shot(), rest(5), mv('A', ...mid(await A.getByRole('button', { name: 'Share' }).boundingBox()), 16),
+      click('A', async () => {
+        await A.mouse.click(win.A.x, win.A.y); await A.getByRole('radio', { name: 'Shared copy' }).waitFor(); await A.waitForTimeout(500);
+        const start = await A.getByRole('button', { name: 'Start', exact: true }).boundingBox();
+        next = [KZ, W / 2, start.y + start.height + 16 - kh / 2]; log('kinds cam', JSON.stringify(next));
+      }), rest(18), set(() => { win.A.cam = next.slice(); }), rest(8));
     log('name', await A.getByPlaceholder('How others will see you').inputValue());
-    await one(mv('A', ...mid(await A.getByRole('radio', { name: 'Shared copy' }).boundingBox()), 14), rest(34),
+    await one(mv('A', ...mid(await A.getByRole('radio', { name: 'Shared copy' }).boundingBox()), 14), rest(30),
       mv('A', ...mid(await A.getByRole('button', { name: 'Start', exact: true }).boundingBox()), 14),
-      click('A', async () => { await A.mouse.click(win.A.x, win.A.y); await A.getByTestId('room-link').waitFor({ timeout: 60000 }); await A.waitForTimeout(500); }), rest(26));
+      click('A', async () => {
+        await A.mouse.click(win.A.x, win.A.y); await A.getByTestId('room-link').waitFor({ timeout: 60000 }); await A.waitForTimeout(500);
+        const d = await A.getByRole('dialog').boundingBox(); next = [2.3, d.x + d.width / 2, d.y + d.height / 2]; log('link cam', JSON.stringify(next), JSON.stringify(d));
+      }), rest(6), set(() => { win.A.cam = next.slice(); }), rest(26));
     const link = (await A.getByTestId('room-link').textContent()).trim(); log('link', link.replace(/#.*/, '#…'));
     done('kinds');
 
@@ -269,7 +286,7 @@ function at(rows, vals, v) { let i = 0; while (i < rows.length - 2 && v > rows[i
       A: [...cam('A', AXIAL), ...rest(14), ...mv('A', ...minaFix[0], 16), ...rest(2), ...stroke('A', minaFix, 28), ...rest(4)],
       B: [...cam('B', AXIAL), ...rest(4), ...mv('B', ...samFix[0], 16), ...rest(2), ...stroke('B', samFix, 28)],
     });
-    await play({ A: [...shot(async () => { await A.waitForTimeout(800); }), ...rest(28)] });
+    await play({ A: [...shot(async () => { await A.waitForTimeout(800); }), ...rest(24)] });
     log('room', JSON.stringify(await st(A)), JSON.stringify(await st(B))); done('room');
 
     // ── 8. save ──

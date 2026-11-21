@@ -1,6 +1,6 @@
 # Launch video and README slideshow
 
-The source of the 35-second tour at [`docs/assets/launch.mp4`](../docs/assets/launch.mp4), of its looping preview `docs/assets/launch.webp`, and of the slideshow `docs/assets/features.webp`.
+The source of the 36-second tour at [`docs/assets/launch.mp4`](../docs/assets/launch.mp4), of its looping preview `docs/assets/launch.webp`, and of the slideshow `docs/assets/features.webp`.
 
 The video is real footage of the app, recorded by a script and composed with [Remotion](https://www.remotion.dev/). The slideshow is made of screenshots of the app taken by a second script. This folder has its own `package.json`; nothing here is a dependency of the app.
 
@@ -27,7 +27,7 @@ Each scene shows one thing, and its caption says what that is.
 
 Three things in the picture are not the app's own pixels, and each stands for something that cannot be photographed. The two file chips are the files being dragged: the files really go through the app's drop handler, but a drag from the operating system has no picture in a browser. The slice number under the caption repeats the number the axial view shows. The keys (Ctrl+S) show what is pressed.
 
-The script also prepares what the corrections correct. Off camera, with the app's own eraser and brush, it takes a bite out of the right lung and paints a stray piece beside it before the `paint` scene, and takes one gap out of each lung before the `room` scene. It names the three segments, gives the new one a blue colour, sets the scissors to freehand, closes the Files list and, where a scene does not need it, the right panel, and joins the room from the second window through the app's own function, since none of that is what a scene is about. For the `window` scene the axial view is maximised, made a little smaller and moved to the left, so that the whole slice sits beside the menu; afterwards the views and the lung window are put back. Where what the app shows changes between two scenes, the picture dips to the background for a moment.
+The script also prepares what the corrections correct. Off camera, with the app's own eraser and brush, it takes a bite out of the right lung and paints a stray piece beside it before the `paint` scene, and takes one gap out of each lung before the `room` scene. It names the three segments, gives the new one a blue colour, sets the scissors to freehand, closes the Files list and, where a scene does not need it, the right panel, and joins the room from the second window through the app's own function, since none of that is what a scene is about. For the `window` scene the axial view is maximised and placed so that the slice and the menu fill the frame; afterwards the views and the lung window are put back. In the `kinds` scene the dialog with the invite link is on screen for a second only: the link is a local address and not the point. Where what the app shows changes between two scenes, the picture cuts.
 
 The window is drawn as a title bar with the footage in a separate box below it, so the bar never covers the app. At rest the whole app is visible, scaled to fit. When the action is in a small part of the app, the footage is enlarged inside that box until that part fills it, so that what matters is large enough to read. The background is a slow gradient with a little grain.
 
@@ -39,7 +39,7 @@ The cursor, the zoom towards the action and the window on a background follow th
 cd video
 npm install
 npm run render      # renders out/launch-full.mp4, then ffmpeg writes ../docs/assets/launch.mp4 (1920x1080, 30 fps, H.264, no audio)
-npm run preview     # writes ../docs/assets/launch.webp, a 12-second cut of that file (needs ffmpeg and Python with Pillow)
+npm run preview     # writes ../docs/assets/launch.webp, a 13-second cut of that file (needs ffmpeg and Python with Pillow)
 npm run studio      # opens the Remotion editor
 ```
 
