@@ -31,17 +31,8 @@ async function open(p) {
   await p.evaluate(() => { const s = window.__w.session; s.patchSegment(3, { name: 'Left lung' }); s.patchSegment(4, { name: 'Right lung' }); s.patchSegment(5, { name: 'Airways' }); s.setVoi(-1350, 150); });
   await p.locator('[data-view="axial"] canvas').first().waitFor(); await p.waitForTimeout(3500);
 }
-// Enlarges one view (or, with null, goes back to all four). The app keeps the image at the size it had, so the image
-// is then magnified by as much as the view grew: the picture is of the view filled, as after Maximise and a zoom.
-const grown = new Map();
-async function enlarge(p, v) {
-  const was = await p.evaluate(() => window.__w.store.getState().maximized);
-  if (was) { await p.evaluate(([id, k]) => window.__w.engine.zoomBy(id, 1 / k), [was, grown.get(p)]); await p.evaluate(() => window.__w.store.setState({ maximized: null })); await p.waitForTimeout(700); }
-  if (!v) return;
-  const a = await box(p, v); await p.evaluate((m) => window.__w.store.setState({ maximized: m }), v); await p.waitForTimeout(700); const b = await box(p, v);
-  const k = Math.min(b.width / a.width, b.height / a.height); grown.set(p, k);
-  await p.evaluate(([id, k]) => window.__w.engine.zoomBy(id, k), [v, k]); await p.waitForTimeout(500);
-}
+// Enlarges one view, as Maximise does, or with null goes back to all four.
+async function enlarge(p, v) { await p.evaluate((m) => window.__w.store.setState({ maximized: m }), v); await p.waitForTimeout(1200); }
 async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down(); for (const q of pts.slice(1)) { await p.mouse.move(...q, { steps: 4 }); await p.waitForTimeout(30); } await p.mouse.up(); await p.waitForTimeout(250); }
 
 (async () => {
@@ -52,6 +43,12 @@ async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down()
     await shot(p, 'views-' + theme);
     if (theme === 'light') { await p.context().close(); continue; }
     await p.evaluate(() => window.__w.store.setState({ filesOpen: false })); // the close-ups that follow are about the segments
+
+    // ── the window: the same slice in two presets, chosen from the read-out in the status bar ──
+    await p.evaluate(() => window.__w.session.setTool('pan')); await enlarge(p, 'axial'); await park(p); await shot(p, 'window-lung');
+    await p.locator('button', { hasText: /^W\s*\d/ }).first().click();
+    await p.locator('[role=menuitem],[role=menuitemradio]').filter({ hasText: 'Abdomen' }).first().click(); await park(p); await shot(p, 'window-abdomen');
+    await p.evaluate(() => { window.__w.session.setVoi(-1350, 150); window.__w.session.setTool('crosshair'); }); await enlarge(p, null);
 
     // ── two people in one mask ──
     const A = p;
@@ -120,7 +117,7 @@ async function dab(p, pts) { await p.mouse.move(...pts[0]); await p.mouse.down()
     fs.writeFileSync(OUT + '/rects.json', JSON.stringify({ vw: VW, vh: VH, ...rects }));
     await enlarge(A, null);
     await A.evaluate(() => window.__w.store.setState({ activeView: 'axial' })); // the fill joins slices of the view that was used last
-    await A.getByRole('button', { name: 'Fill between slices' }).click(); await idle(A); await A.waitForTimeout(600);
+    await A.getByRole('button', { name: /Fill (between slices|gaps)/ }).first().click(); await A.getByText(/^Preview:/).waitFor(); await A.keyboard.press('Enter'); await idle(A); await A.waitForTimeout(600);
     console.log('fill', await A.evaluate(() => window.__w.store.getState().toasts.map(t => t.message).join(' | ')));
     await A.locator('.toast button[aria-label]').last().click().catch(() => {}); // dismiss the toast so it is not in the picture
     await park(A); await A.waitForTimeout(1500);
