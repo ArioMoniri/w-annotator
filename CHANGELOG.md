@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- The brush ring no longer stays in a view after the pointer has left it.
+- Maximising a view now enlarges its image to fill the larger pane, and restoring puts it back as it was.
+
 ## [0.1.1] - 2026-11-20
 
 ### Added

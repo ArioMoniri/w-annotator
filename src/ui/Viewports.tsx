@@ -190,7 +190,7 @@ export function Viewports() {
       cell.style.width = `${r.w}px`;
       cell.style.height = `${r.h}px`;
     }
-    engine.resizeViewports();
+    engine.resizeViewports(a.maximized);
     // Keys act on the active view, so it has to be one that is on screen.
     const active = useStore.getState().activeView;
     const first = VIEWS.find((v) => rects[v.id]);

@@ -16,6 +16,7 @@ import type { SegmentInfo } from '../collab/protocol';
 import type { ToolId, ViewId } from '../state/store';
 import { hexToRgb } from './geometry';
 import { zoomAbout } from './gestures';
+import { paneGrowth } from './layout';
 import { LINE_CENTRE_GAP, LinkedLinesTool } from './linkedLines';
 
 const {
@@ -71,6 +72,8 @@ let maskLoaded = false;
 const drawnSize = new Map<string, { w: number; h: number }>();
 /** The views on screen now. */
 const onScreen = new Set<string>();
+/** How many times the image of a maximised view was enlarged, so that leaving maximise puts it back. */
+const enlarged = new Map<string, number>();
 
 /** When the lines marking the other two planes are drawn. */
 export type LinesSetting = 'always' | 'hover' | 'crosshair';
@@ -156,6 +159,7 @@ export function mountViewports(els: ViewportElements): void {
   mounted = els;
   drawnSize.clear();
   onScreen.clear();
+  enlarged.clear();
   lines.mode = 'Disabled';
   engine = new RenderingEngine(ENGINE_ID);
   const { ViewportType, OrientationAxis } = Enums;
@@ -479,6 +483,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   await setVolumesForViewports(e, [{ volumeId: IMAGE_VOLUME_ID }], [VOLUME3D_ID]);
   (e.getViewport(VOLUME3D_ID) as Types.IVolumeViewport).setProperties({ preset: 'CT-Bone' });
   imageLoaded = true;
+  enlarged.clear();
   for (const id of ALL_IDS) {
     const vp = e.getViewport(id) as Types.IVolumeViewport;
     if (id !== VOLUME3D_ID) vp.resetCamera();
@@ -895,8 +900,11 @@ function renderNow(): void {
  * pixel and the point at its centre. Cornerstone alone keeps the camera's parallel scale,
  * which is half the view's height in millimetres, so a taller view would magnify the image.
  * A view that is not on screen is skipped and costs nothing; it is picked up here when it returns.
+ *
+ * The one exception is `maximised`, the view the user asked to see alone: its image grows
+ * with its pane, and shrinks back by as much when the view is no longer the maximised one.
  */
-export function resizeViewports(): void {
+export function resizeViewports(maximised: string | null = null): void {
   if (!engine) return;
   // A frame that is still waiting makes Cornerstone skip the resize, so draw it first.
   renderNow();
@@ -912,9 +920,20 @@ export function resizeViewports(): void {
     }
     if (!size) continue;
     const last = drawnSize.get(id);
+    const grown = enlarged.get(id);
+    if (id !== maximised) enlarged.delete(id);
     if (last && last.w === size.w && last.h === size.h) continue;
     const scale = imageLoaded ? vp.getCamera().parallelScale : undefined;
-    changed.push({ vp, id, size, mmPerPx: last && scale ? (2 * scale) / last.h : null });
+    let mmPerPx = last && scale ? (2 * scale) / last.h : null;
+    if (mmPerPx !== null && last) {
+      if (id !== maximised && grown) mmPerPx *= grown;
+      if (id === maximised && !grown) {
+        const growth = paneGrowth(last, size, imageExtent(vp));
+        enlarged.set(id, growth);
+        mmPerPx /= growth;
+      }
+    }
+    changed.push({ vp, id, size, mmPerPx });
   }
   if (changed.length) {
     engine.resize(false, true);
@@ -928,6 +947,18 @@ export function resizeViewports(): void {
   }
   if (visibility && imageLoaded) csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
   renderNow();
+}
+
+/** Width and height, in millimetres, of what a view holds, as its camera sees it. */
+function imageExtent(vp: Types.IVolumeViewport): { w: number; h: number } {
+  const b = vp.getBounds();
+  const { viewUp: up, viewPlaneNormal: n } = vp.getCamera();
+  if (!b || !up || !n) return { w: 0, h: 0 };
+  const right = [up[1] * n[2] - up[2] * n[1], up[2] * n[0] - up[0] * n[2], up[0] * n[1] - up[1] * n[0]];
+  // The box around the image, measured along the camera's right and up.
+  const size = [b[1] - b[0], b[3] - b[2], b[5] - b[4]];
+  const along = (axis: ArrayLike<number>) => Math.abs(axis[0]) * size[0] + Math.abs(axis[1]) * size[1] + Math.abs(axis[2]) * size[2];
+  return { w: along(right), h: along(up) };
 }
 
 /** Fits a view that is on screen for the first time since the image was opened, without losing its slice. */
