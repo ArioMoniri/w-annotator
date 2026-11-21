@@ -17,9 +17,9 @@ macOS builds are signed and notarised. The app updates itself from GitHub Releas
 
 <br><br>
 
-<a href="docs/assets/launch.mp4"><img src="docs/assets/launch.webp" width="720" alt="Preview of the tour: an image and its mask are dropped on the window and open in four views, a gap in the lung mask is painted in, a new segment is painted on three slices and filled between them, and two people correct the same mask at the same time"></a>
+<a href="docs/assets/launch.mp4"><img src="docs/assets/launch.webp" width="720" alt="Preview of the tour: an image and its mask are dropped on the window and open in four views, a gap in the lung mask is painted in, a stray piece is cut away with a freehand loop, a new segment is painted on three slices and the fill between them is previewed and applied, the window is changed from lung to abdomen to bone, and two people correct the same mask at the same time"></a>
 
-<sub><a href="docs/assets/launch.mp4">Watch the 30-second tour</a></sub>
+<sub><a href="docs/assets/launch.mp4">Watch the 35-second tour</a></sub>
 
 </div>
 
@@ -28,10 +28,10 @@ macOS builds are signed and notarised. The app updates itself from GitHub Releas
 W Annotator shows a volume in axial, sagittal and coronal views with a 3D view of the mask, and lets you fix the mask by hand. The image and the mask can be in different formats; a mask on another grid is resampled to the image.
 
 <p align="center">
-  <img src="docs/assets/features.webp" width="720" alt="Five screenshots in turn: two people correcting one lung mask, a segment before and after filling between slices, smoothing a segment with the volumes listed, an image and its mask in four views, and the dark and light themes">
+  <img src="docs/assets/features.webp" width="720" alt="Six screenshots in turn: two people correcting one lung mask, a segment before and after filling between slices, one slice in the lung window and the abdomen window, smoothing a segment with the volumes listed, an image and its mask in four views, and the dark and light themes">
 </p>
 
-<p align="center"><sub>A chest CT with a lung mask: two people in one mask, fill between slices, refining a segment, the four views, and the two themes.</sub></p>
+<p align="center"><sub>A chest CT with a lung mask: two people in one mask, fill between slices, two windows, refining a segment, the four views, and the two themes.</sub></p>
 
 - Editing tools: brush and eraser (circle or sphere, size in mm), threshold brush, scissors and fill. Painting can go over everything, only empty voxels, or only inside one segment.
 - Scissors: rectangle, circle, freehand loop or sphere; erase inside, erase outside or fill inside; on this slice or through all slices.
@@ -41,8 +41,8 @@ W Annotator shows a volume in axial, sagittal and coronal views with a 3D view o
 - Smooth pixels on or off for the slice views, to see exactly which voxels a mask covers.
 - Segments: add, rename, recolour, hide, lock, clear and delete. Each row shows the volume in mL.
 - Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, split islands into separate segments, and combine with another segment.
-- Viewing: crosshair, pan, zoom, a ruler, window/level with CT presets, mask opacity and an outline-only view.
-- Windowing: presets for CT and for MR, your own saved presets, a window from a box drawn on the image, and brightness and contrast by keys or a two-finger scroll.
+- Viewing: crosshair, pan, zoom, a ruler, mask opacity and an outline-only view. The zoom in the status bar is a button: zoom in, zoom out, fit or actual size.
+- Window: the window in the status bar opens the presets. For CT: soft tissue, abdomen, liver, pancreas, lung, bone and more. For MR they are worked out from the image. You can save your own, set the window from a box drawn on the image, and change brightness and contrast with keys or a two-finger scroll.
 - Layouts: 2×2, one large view with three beside it, three across, two across or a single view. Any pane can show any view, and lines link the planes.
 - Files: a list of the open image and up to four masks. One mask is edited; the others show as outlines for comparison.
 - Mouse and trackpad: two-finger scroll moves through slices, pinch zooms about the pointer, and the settings let you change both.
@@ -59,11 +59,11 @@ Drop files onto the window, use *Open with* from the system file manager (an ima
 
 ## Working together
 
-A room lets several people edit one mask at the same time. Nobody needs an account, only a display name (kept in Settings).
+A room lets several people edit one mask at the same time. Nobody needs an account, only a display name (kept in Settings). Everyone needs version 0.1.2 or later; an older app is told to update.
 
 1. Open an image, press **Share** and choose the kind of room.
-2. Send each person an invite link. A link works for one person and stops working after 24 hours; make another from the room menu.
-3. They paste it under *Join a room*.
+2. Send each person an invite link. A link works for one person and stops working after 24 hours; make another from the room menu. There are no room codes.
+3. They paste it under *Join a room*. Rooms you have joined are listed there, so you can come back to a shared-copy room without a new link.
 
 There are two kinds of room, chosen when it is started:
 
@@ -99,9 +99,11 @@ With the server field left empty, the desktop app hosts the room itself. That wo
 | `Ctrl+1`–`5` | Choose a layout | `Ctrl+,` | Settings |
 | `Ctrl+Z` | Undo | `Ctrl+Shift+Z` | Redo |
 | `Ctrl+O` | Open image | `Ctrl+Shift+O` | Open mask |
-| `Ctrl+S` | Save mask | `?` | All shortcuts |
+| `P` / `Shift+P` | Next / previous window preset | `Shift`+arrows | Brightness and contrast |
+| `=` / `-` / `0` | Zoom in / out / fit | `Alt`-click | Select the segment under the cursor |
+| `Enter` / `Esc` | Apply / cancel the fill preview | `Ctrl+S` | Save mask |
 
-On macOS use `Cmd` in place of `Ctrl`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans, right-drag changes window/level, `P` steps through the window presets, `=` `-` `0` zoom in, out and to fit, and `Alt`-click (`Option`-click on macOS) selects the segment under the cursor. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
+On macOS use `⌘` in place of `Ctrl` and `⌥` in place of `Alt`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans and right-drag changes window/level. With the Window / Level tool, `Ctrl`-drag a box to set the window from what is inside it, and a two-finger scroll changes brightness and contrast. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
 
 ## Build from source
 
