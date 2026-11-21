@@ -2,6 +2,8 @@
 
 Thanks for taking the time to help. This page says how to set up, what a change needs before it can be merged, and what is in scope.
 
+New to the project, or setting up a coding agent to work on it? Start with [`docs/COLLABORATING.md`](docs/COLLABORATING.md): it walks through adding a feature, what must not break, CI, and how releases and auto-update work.
+
 ## Set up
 
 You need Node.js with pnpm, a stable Rust toolchain, and the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.

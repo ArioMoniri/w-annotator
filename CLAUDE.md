@@ -55,6 +55,7 @@ Placeholder; update it as the code takes shape.
 
 | Doc | What it is |
 | --- | --- |
+| `docs/COLLABORATING.md` | How to add a feature, what not to break, CI, releases and auto-update |
 | `docs/process/GOAL.md` | Current goal and acceptance criteria |
 | `docs/process/LOOP.md` | The iteration loop, its current state and log |
 | `docs/process/TDD.md` | Test-first rules and what must be unit-tested |
