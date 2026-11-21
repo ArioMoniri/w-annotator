@@ -185,3 +185,135 @@ export async function tab(page: Page, back = false): Promise<void> {
   const mac = process.platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit';
   await page.keyboard.press(`${mac ? 'Alt+' : ''}${back ? 'Shift+' : ''}Tab`);
 }
+
+/* ───────────────────────── rooms ───────────────────────── */
+
+/** What an invite link looks like: the room server, a room id, and the secret after `#`, which no server sees. */
+export const INVITE_LINK = /^http:\/\/[^/]+\/j\/[A-Z0-9]{12}#[A-Za-z0-9_-]{22}$/;
+
+/** Starts a room on the image that is open and returns the first invite link. */
+export async function startRoom(page: Page, name: string, kind: 'Shared copy' | 'View through my computer' = 'Shared copy'): Promise<string> {
+  await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByPlaceholder('How others will see you').fill(name);
+  await page.getByRole('radio', { name: kind }).check();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  const link = (await page.getByTestId('room-link').textContent())!.trim();
+  await page.keyboard.press('Escape');
+  return link;
+}
+
+/** Another single-use link from the host's room menu. */
+export async function anotherLink(host: Page, ttlSeconds?: number): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return host.evaluate((ttl) => (window as any).__w.session.createInvite(ttl), ttlSeconds);
+}
+
+/** Fills in the join form and submits it. Does not wait for the outcome. */
+export async function submitJoin(page: Page, name: string, link: string): Promise<void> {
+  if (!(await page.getByRole('dialog').isVisible())) {
+    const inRoomless = page.getByRole('button', { name: 'Join a room', exact: true });
+    if (await inRoomless.isVisible()) await inRoomless.click();
+    else {
+      await page.getByRole('button', { name: 'Share' }).click();
+      await page.getByRole('tab', { name: 'Join a room' }).click();
+    }
+  }
+  await page.getByPlaceholder('How others will see you').fill(name);
+  await page.getByPlaceholder('Paste the invite link').fill(link);
+  await page.getByRole('button', { name: 'Join', exact: true }).click();
+}
+
+/** Joins a room from a fresh page and waits until its views are up. */
+export async function joinRoom(page: Page, name: string, link: string): Promise<void> {
+  await skipTour(page);
+  await page.goto('/');
+  await submitJoin(page, name, link);
+  await page.locator('[data-view="axial"] canvas').first().waitFor({ timeout: 30_000 });
+}
+
+/** The whole mask as a string, to compare two people's masks voxel for voxel. */
+export async function maskDump(page: Page): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
+}
+
+/**
+ * Puts this page's connection to the room server under the test's control. `cut()` breaks
+ * the connection and refuses new ones, as a network that went away would; `restore()` lets
+ * the app through again. Call it before the page joins or starts a room.
+ */
+export async function cuttable(page: Page): Promise<{ cut(): Promise<void>; restore(): void }> {
+  let offline = false;
+  const live = new Set<{ close(): Promise<void> }>();
+  await page.routeWebSocket(/\/v2\/rooms\//, (ws) => {
+    if (offline) {
+      void ws.close();
+      return;
+    }
+    const server = ws.connectToServer();
+    const both = {
+      close: async () => {
+        await ws.close();
+        await server.close();
+      },
+    };
+    live.add(both);
+    ws.onClose(() => live.delete(both));
+  });
+  return {
+    cut: async () => {
+      offline = true;
+      const open = [...live];
+      live.clear();
+      await Promise.all(open.map((c) => c.close()));
+    },
+    restore: () => {
+      offline = false;
+    },
+  };
+}
+
+/** Counts what the room server sends this page: bytes in all, and frames of each kind (the second byte of a frame). */
+export function watchRoomTraffic(page: Page): { bytes: number; kinds: Record<number, number> } {
+  const seen = { bytes: 0, kinds: {} as Record<number, number> };
+  page.on('websocket', (ws) => {
+    if (!ws.url().includes('/v2/rooms/')) return;
+    ws.on('framereceived', (frame) => {
+      if (typeof frame.payload === 'string') return;
+      seen.bytes += frame.payload.length;
+      const kind = frame.payload[1];
+      seen.kinds[kind] = (seen.kinds[kind] ?? 0) + 1;
+    });
+  });
+  return seen;
+}
+
+/** The value the app holds for one voxel of the image. */
+export async function imageValue(page: Page, ijk: [number, number, number]): Promise<number> {
+  return page.evaluate((ijk) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vol = (window as any).__w.session.getImage();
+    return vol.data[(ijk[2] * vol.dims[1] + ijk[1]) * vol.dims[0] + ijk[0]] as number;
+  }, ijk);
+}
+
+/** One stored slice of the mask as a string. */
+export async function sliceDump(page: Page, k: number): Promise<string> {
+  return page.evaluate((k) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vol = (window as any).__w.session.getMask();
+    const n = vol.dims[0] * vol.dims[1];
+    return Array.from((vol.data as Uint8Array).subarray(k * n, (k + 1) * n)).join('');
+  }, k);
+}
+
+/** After `restore()`: reconnect from the room menu rather than wait for the next attempt. */
+export async function reconnectNow(page: Page): Promise<void> {
+  await page.getByTestId('room-pill').click();
+  // The app may have got there first; then there is nothing to press.
+  await page
+    .getByRole('button', { name: 'Reconnect now' })
+    .click({ timeout: 2000 })
+    .catch(() => undefined);
+  await page.keyboard.press('Escape');
+}

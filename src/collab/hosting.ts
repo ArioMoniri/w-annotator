@@ -19,10 +19,3 @@ export function hostedRoom(info: { port: number; addresses: string[] }): HostedR
     localOnly: !address,
   };
 }
-
-/** Why an invite could not be used, in words for the join form. */
-export function joinProblem(input: string, defaultServer: string): string {
-  const bareCode = /^[a-z0-9]{4,16}$/i.test(input.replace(/[\s-]/g, ''));
-  if (bareCode && !defaultServer) return 'A code alone needs a room server. Paste the invite link instead.';
-  return 'Enter the room code or paste the invite link.';
-}

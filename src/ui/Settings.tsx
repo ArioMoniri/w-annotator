@@ -156,12 +156,19 @@ function Mouse() {
 
 function Files() {
   const autosave = useSettings((s) => s.autosave);
+  const guest = useStore((s) => s.room?.kind === 'host-view' && s.room.role !== 'host');
   const server = useSettings((s) => s.server);
   return (
     <>
-      <Row label="Autosave" help="Keeps a recovery copy of unsaved mask edits on this device.">
-        {(ids) => <Switch on={autosave} labelledBy={ids.label} describedBy={ids.help} onChange={(v) => setSetting('autosave', v)} />}
-      </Row>
+      {guest ? (
+        <Row label="Autosave" help="Off in this room. Nothing is kept on this device; the host's computer keeps the mask.">
+          {(ids) => <Switch on={false} labelledBy={ids.label} describedBy={ids.help} onChange={() => undefined} />}
+        </Row>
+      ) : (
+        <Row label="Autosave" help="Keeps a recovery copy of unsaved mask edits on this device.">
+          {(ids) => <Switch on={autosave} labelledBy={ids.label} describedBy={ids.help} onChange={(v) => setSetting('autosave', v)} />}
+        </Row>
+      )}
       <div className="form">
         <label>
           Room server
