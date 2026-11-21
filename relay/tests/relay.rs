@@ -30,9 +30,18 @@ impl Server {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (stop, stopped) = oneshot::channel::<()>();
-        let task = tokio::spawn(w_relay::serve(listener, async {
-            let _ = stopped.await;
-        }));
+        // Protocol v1 is off unless a relay is asked to serve it.
+        let relay = w_relay::Relay::new(w_relay::RelayConfig {
+            v1: true,
+            ..Default::default()
+        });
+        let task = tokio::spawn(async move {
+            relay
+                .serve(listener, async {
+                    let _ = stopped.await;
+                })
+                .await
+        });
         Server {
             addr,
             stop: Some(stop),

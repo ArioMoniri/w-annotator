@@ -5,8 +5,8 @@
 //! * **v2** at `/v2/rooms/<ID>`: rooms with a record, member keys, roles,
 //!   invites, a total order for edits and the view-through-host rules. The wire
 //!   format is written down in `docs/design/ROOMS-PROTOCOL.md`.
-//! * **v1** at `/r/<CODE>?name=`: the original dumb relay, unchanged, for apps
-//!   that have not moved yet.
+//! * **v1** at `/r/<CODE>?name=`: the original dumb relay, for apps that have
+//!   not moved yet. Off by default; `RelayConfig::v1` turns it on.
 //!
 //! The relay keeps everything in memory, never looks inside a payload and
 //! writes no logs.
@@ -45,8 +45,8 @@ pub use v1::{
 /// How a relay is set up. `Default` is the standalone relay.
 #[derive(Debug, Clone)]
 pub struct RelayConfig {
-    /// Whether protocol v1 (`/r/<CODE>`) is served. When off, it answers
-    /// HTTP 426 so an old app tells its user to update.
+    /// Whether protocol v1 (`/r/<CODE>`) is served. Off unless asked for: it
+    /// then answers HTTP 426 so an old app tells its user to update.
     pub v1: bool,
     pub limits: Limits,
     pub timing: Timing,
@@ -57,7 +57,7 @@ pub struct RelayConfig {
 impl Default for RelayConfig {
     fn default() -> Self {
         RelayConfig {
-            v1: true,
+            v1: false,
             limits: Limits::default(),
             timing: Timing::default(),
             faults: None,

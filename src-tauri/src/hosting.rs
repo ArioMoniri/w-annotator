@@ -49,9 +49,15 @@ impl Host {
         };
         let port = listener.local_addr()?.port();
         let (stop, stopped) = oneshot::channel::<()>();
-        let task = tokio::spawn(w_relay::serve(listener, async {
-            let _ = stopped.await;
-        }));
+        // One person's rooms on a local network: the small configuration, protocol v2 only.
+        let relay = w_relay::Relay::new(w_relay::RelayConfig::embedded());
+        let task = tokio::spawn(async move {
+            relay
+                .serve(listener, async {
+                    let _ = stopped.await;
+                })
+                .await
+        });
         *slot = Some(Running { port, stop, task });
         Ok(info(port))
     }
