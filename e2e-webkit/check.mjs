@@ -9,11 +9,14 @@
  */
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { KIND, assemble, joinRoom } from '../e2e-desktop/roombot.mjs';
 import { click, clickOn, drag, hover, idle, maskVoxels, open, rect, sleep, state, until } from './wd.mjs';
 
 const APP = process.env.W_APP ? resolve(process.env.W_APP) : undefined;
 const URL = process.env.W_URL ?? 'http://localhost:1420/';
 const SHOTS = process.env.W_SHOTS ? resolve(process.env.W_SHOTS) : null;
+/** A room server for the web build, e.g. ws://localhost:8787. The desktop app hosts rooms itself. */
+const RELAY = process.env.W_RELAY;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 const results = [];
@@ -514,6 +517,42 @@ try {
         window.__w.session.saveMask();
       });
       await until(() => state(b, (s) => !s.dirty), Boolean, { timeout: 15_000, what: 'the mask to be saved' });
+    });
+  }
+
+  /* ── rooms: keys, signatures and encryption have to work in this engine too ── */
+  // The desktop app hosts the room itself. The web build needs a room server: W_RELAY=ws://localhost:8787.
+  if (APP || RELAY) {
+    await check('a room starts, a second person joins with the link and is sent the mask', async () => {
+      if (RELAY) await b.exec((server) => window.__w.settings.setSetting('server', server), RELAY);
+      await b.exec(() => {
+        window.__room = null;
+        window.__w.session.startRoom('Mina', 'shared').then((r) => (window.__room = r));
+      });
+      const started = await until(() => b.exec(() => window.__room), Boolean, { what: 'the room to start' });
+      expect(typeof started !== 'string', `the room did not start: ${started}`);
+      expect(/^http:\/\/[^/]+\/j\/[A-Z0-9]{12}#[A-Za-z0-9_-]{22}$/.test(started.link), `unexpected invite link ${started.link}`);
+      expect((await state(b, (s) => s.room?.status)) === 'online', 'the room is not online');
+      await shot('15 room');
+
+      // The second person is a client of its own, run from Node (e2e-desktop/roombot.mjs).
+      const bot = await joinRoom(started.link, 'Bot');
+      try {
+        expect(bot.welcome.roster.length === 2, `expected two members, found ${bot.welcome.roster.length}`);
+        const hostId = bot.welcome.roster.find((m) => m.role === 'host').id;
+        await until(() => state(b, (s) => s.peers.map((p) => p.name).join()), (names) => names === 'Bot', { what: 'the guest to show up by name' });
+        bot.send(KIND.syncRequest, { rid: 1, image: false, fp: null }, undefined, { to: hostId });
+        await until(() => bot.frames.some((f) => f.kind === KIND.syncSlab && f.meta.t === 'end'), Boolean, { what: 'the mask to arrive' });
+        const mask = assemble(bot.frames, KIND.syncSlab, 1);
+        const painted = mask.reduce((n, v) => n + (v !== 0 ? 1 : 0), 0);
+        const here = await maskVoxels(b);
+        expect(painted === here, `the guest was sent ${painted} voxels, the app has ${here}`);
+      } finally {
+        bot.close();
+      }
+      await until(() => state(b, (s) => s.peers.length), (n) => n === 0, { what: 'the guest to leave' });
+      await b.exec(() => window.__w.session.leaveRoom(true));
+      expect((await state(b, (s) => s.room)) === null, 'the room is still open');
     });
   }
 

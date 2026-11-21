@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, patchVoxelCount, restoreOverwritten } from './patch';
+import { applyPatch, applyPatchWhereUnchanged, decodePatch, diffMask, encodePatch, patchSlices, patchVoxelCount, restoreOverwritten, splitPatch } from './patch';
 
 const SLICE = 16; // 4 x 4
 
@@ -156,5 +156,38 @@ describe('restoreOverwritten', () => {
     cur[3] = 4;
     expect(restoreOverwritten(cur, diffMask(prev, cur, SLICE)!)).toBe(0);
     expect(cur[3]).toBe(4);
+  });
+});
+
+describe('splitPatch', () => {
+  const patch = {
+    starts: Uint32Array.from([10, 100]),
+    lengths: Uint32Array.from([4, 10]),
+    before: Uint8Array.from([0, 0, 0, 0, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]),
+    after: Uint8Array.from([1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3]),
+  };
+
+  it('leaves a patch that fits alone', () => {
+    expect(splitPatch(patch, 1000)).toEqual([patch]);
+  });
+
+  it('cuts a large patch into pieces that each fit and together do the same', () => {
+    const pieces = splitPatch(patch, 20);
+    expect(pieces.length).toBeGreaterThan(1);
+    for (const piece of pieces) expect(encodePatch(piece).length).toBeLessThanOrEqual(20);
+    for (const side of ['before', 'after'] as const) {
+      const whole = new Uint8Array(120).fill(7);
+      const parts = new Uint8Array(120).fill(7);
+      applyPatch(whole, patch, side);
+      for (const piece of pieces) applyPatch(parts, piece, side);
+      expect(Array.from(parts)).toEqual(Array.from(whole));
+    }
+  });
+
+  it('cuts through a single long run', () => {
+    const long = { starts: Uint32Array.from([0]), lengths: Uint32Array.from([100]), before: new Uint8Array(100), after: new Uint8Array(100).fill(5) };
+    const pieces = splitPatch(long, 40);
+    expect(pieces.map((p) => Array.from(p.starts))).toEqual([[0], [28], [56], [84]]);
+    expect(pieces.map((p) => p.after.length)).toEqual([28, 28, 28, 16]);
   });
 });

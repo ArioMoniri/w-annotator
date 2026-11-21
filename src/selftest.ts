@@ -7,7 +7,10 @@
  * room and lets a second connection join it, saves the mask, writes the result
  * as JSON and quits the app.
  */
-import { roomUrl, type ServerMessage } from './collab/protocol';
+import { RoomClient } from './collab/client';
+import { unwrapRoomKey } from './collab/crypto';
+import { inviteKeys, makeSeed } from './collab/identity';
+import { FrameKind, parseInvite } from './collab/protocol';
 import { finishSelfTest } from './platform';
 import * as session from './session';
 import { get } from './state/store';
@@ -58,27 +61,42 @@ async function stroke(): Promise<void> {
   send('up', 1, 0);
 }
 
-/** Joins the room as a second person over a plain WebSocket and leaves again. */
+/** Joins the room as a second person with the invite link, says its name, and leaves again. */
 async function botVisit(link: string): Promise<string> {
-  const ws = new WebSocket(roomUrl(link.replace(/\/r\/[^/]+$/, ''), link.split('/r/')[1], 'Bot'));
+  const invite = parseInvite(link);
+  if (!invite) throw new Error(`Unexpected invite link ${link}`);
+  // The app is the host and reaches its own relay over loopback, whatever address the link carries.
+  const server = `ws://127.0.0.1:${new URL(invite.server.replace(/^ws/, 'http')).port}`;
+  let people = 0;
+  let failed = '';
+  const bot: RoomClient = new RoomClient(server, invite.room, makeSeed(), { t: 'redeem', secret: invite.secret }, null, {
+    onStatus: () => undefined,
+    onWelcome: (welcome) => {
+      const key = welcome.invite && unwrapRoomKey(inviteKeys(invite.secret).wrapKey, welcome.invite.wrappedKey);
+      if (!key) {
+        failed = 'The invite carried no room key';
+        return;
+      }
+      bot.setKey(key);
+      people = welcome.roster.length;
+      bot.sendFrame(FrameKind.Presence, { t: 'hi', name: 'Bot' });
+    },
+    onText: () => undefined,
+    onFrame: () => undefined,
+    onEnded: (code, reason) => {
+      failed = `Could not join through ${link}: ${code} ${reason}`;
+    },
+    members: () => [],
+  });
+  bot.connect();
   try {
-    const welcome = await new Promise<Extract<ServerMessage, { t: 'welcome' }>>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`No answer from ${link}`)), 10_000);
-      ws.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error(`Could not connect to ${link}`));
-      };
-      ws.onmessage = (ev) => {
-        const msg = JSON.parse(String(ev.data)) as ServerMessage;
-        if (msg.t !== 'welcome') return;
-        clearTimeout(timer);
-        resolve(msg);
-      };
+    await until('the guest to show up in the app', () => {
+      if (failed) throw new Error(failed);
+      return get().peers.some((p) => p.name === 'Bot');
     });
-    if (welcome.peers.length !== 1) throw new Error(`Expected the host in the room, found ${welcome.peers.length} people`);
-    await until('the guest to show up in the app', () => get().peers.some((p) => p.name === 'Bot'));
+    if (people !== 2) throw new Error(`Expected the host and the guest in the room, found ${people} people`);
   } finally {
-    ws.close();
+    bot.close();
   }
   await until('the guest to leave', () => get().peers.length === 0);
   return `guest joined through ${link} and left`;
@@ -126,7 +144,7 @@ export async function run(): Promise<void> {
   await step('room hosted', async () => {
     const started = await session.startRoom('Self test');
     if (typeof started === 'string') throw new Error(started);
-    if (!started.link.startsWith('ws://')) throw new Error(`Unexpected invite link ${started.link}`);
+    if (!/^http:\/\/[^/]+\/j\/[A-Z0-9]{12}#/.test(started.link)) throw new Error(`Unexpected invite link ${started.link}`);
     if (!get().room?.hosting) throw new Error('The room is not hosted by this app');
     return `${await botVisit(started.link)}${started.localOnly ? ' (no network address, loopback only)' : ''}`;
   });

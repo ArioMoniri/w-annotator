@@ -370,7 +370,7 @@ async fn ping_is_answered_with_pong_and_the_request_id() {
 
 #[tokio::test]
 async fn v1_and_v2_rooms_live_side_by_side_on_one_relay() {
-    let relay = TestRelay::start().await;
+    let relay = TestRelay::with(|c| c.v1 = true).await;
     // Same characters as a v1 code and as a v2 room id: two different rooms.
     let room = "MIXED123";
     let v1_url = |name: &str| format!("ws://{}/r/{room}?name={name}", relay.addr);
@@ -434,8 +434,8 @@ async fn v1_and_v2_rooms_live_side_by_side_on_one_relay() {
 }
 
 #[tokio::test]
-async fn v1_can_be_switched_off_and_then_answers_426() {
-    let relay = TestRelay::with(|c| c.v1 = false).await;
+async fn v1_is_off_by_default_and_then_answers_426() {
+    let relay = TestRelay::start().await;
     let url = format!("ws://{}/r/ABCDEF?name=x", relay.addr);
     assert_eq!(http_status(connect_async(url).await), 426);
     let res = relay.http_get("/r/ABCDEF").await;

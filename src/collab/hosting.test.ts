@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hostedRoom, joinProblem } from './hosting';
+import { hostedRoom } from './hosting';
 
 describe('hostedRoom', () => {
   it('lets the host connect over loopback and shares the network address', () => {
@@ -20,18 +20,5 @@ describe('hostedRoom', () => {
 
   it('ignores blank addresses', () => {
     expect(hostedRoom({ port: 1, addresses: ['', ' '] }).localOnly).toBe(true);
-  });
-});
-
-describe('joinProblem', () => {
-  it('asks for the full link when a bare code is given and no room server is set', () => {
-    expect(joinProblem('ABC-DEF', '')).toBe('A code alone needs a room server. Paste the invite link instead.');
-    expect(joinProblem(' abcdef ', '')).toBe('A code alone needs a room server. Paste the invite link instead.');
-  });
-
-  it('gives the general hint for anything else', () => {
-    expect(joinProblem('', '')).toBe('Enter the room code or paste the invite link.');
-    expect(joinProblem('ws://nowhere', '')).toBe('Enter the room code or paste the invite link.');
-    expect(joinProblem('not a code!', 'ws://rooms.example.org')).toBe('Enter the room code or paste the invite link.');
   });
 });

@@ -1,7 +1,7 @@
 {
   "name": "w-annotator",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,6 +23,9 @@
     "@cornerstonejs/codec-openjph": "^2.4.11",
     "@cornerstonejs/core": "5.19.4",
     "@cornerstonejs/tools": "5.19.4",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-opener": "^2.7.3",

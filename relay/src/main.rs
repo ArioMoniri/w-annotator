@@ -12,7 +12,8 @@ Usage: w-relay [--port <PORT>] [--host <ADDR>] [options]
   --joins-per-minute <N>    Connection attempts per address per minute
                             (default: 30; raise it behind a proxy, where
                             every client has the proxy's address)
-  --no-v1                   Refuse apps that still use the old protocol
+  --v1                      Also serve the old protocol, for apps from before
+                            rooms had kinds and invite links that expire
 ";
 
 struct Options {
@@ -33,6 +34,11 @@ fn parse(args: &[String], env_port: Option<String>) -> Result<Options, String> {
     let mut config = w_relay::RelayConfig::default();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
+        if arg == "--v1" {
+            config.v1 = true;
+            continue;
+        }
+        // The default now; still accepted so existing start-up scripts keep working.
         if arg == "--no-v1" {
             config.v1 = false;
             continue;
@@ -144,7 +150,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!((o.host.to_string().as_str(), o.port), ("127.0.0.1", 1234));
-        assert!(o.config.v1);
+        assert!(!o.config.v1);
+        assert!(parse(&args(&["--v1"]), None).unwrap().config.v1);
         assert_eq!(o.config.limits.max_rooms, 1024);
         assert!(o.config.faults.is_none());
         let o = parse(

@@ -183,6 +183,7 @@ export function Viewports() {
   const cells = useRef<Partial<Record<ViewId, HTMLDivElement | null>>>({});
   const gridRef = useRef<HTMLDivElement>(null);
   const maximized = useStore((s) => s.maximized);
+  const veil = useStore((s) => s.room?.veil ?? null);
   const layout = parseLayout(useSettings((s) => s.layout));
   const viewOrder = useSettings((s) => s.viewOrder);
   const referenceLines = parseReferenceLines(useSettings((s) => s.referenceLines));
@@ -463,6 +464,12 @@ export function Viewports() {
           {v.id !== 'volume3d' && <RemoteCursors view={v.id} tick={tick} />}
         </div>
       ))}
+      {/* A guest of a view-through-host room sees nothing while the host is away. A layer over the views, never a change to them. */}
+      {veil && (
+        <div className="roomveil" role="status" data-testid="room-veil">
+          {veil}
+        </div>
+      )}
     </div>
   );
 }

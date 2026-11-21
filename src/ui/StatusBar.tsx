@@ -25,7 +25,12 @@ export function StatusBar() {
   const copyAt = useRecovery((s) => s.savedAt);
 
   let sync = dirty ? 'Unsaved changes' : 'Saved';
-  if (room) sync = room.status === 'online' ? (dirty ? 'Synced · not saved to file' : 'Synced') : room.status === 'connecting' ? 'Connecting…' : 'Reconnecting…';
+  if (room) {
+    const guest = room.kind === 'host-view' && room.role !== 'host';
+    if (room.status === 'connecting') sync = 'Connecting…';
+    else if (room.status === 'offline') sync = room.kind === 'shared' ? 'Offline · changes merge when you reconnect' : 'Offline';
+    else sync = guest ? 'Synced · nothing saved on this device' : dirty ? 'Synced · not saved to file' : 'Synced';
+  }
 
   // When the bar is too narrow, whole items leave in order (the preset name, size, zoom, then
   // the values under the cursor) so the save state at the end is never cut mid-word. The

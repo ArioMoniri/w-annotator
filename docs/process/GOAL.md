@@ -21,7 +21,7 @@ Ship W Annotator: a simple, calm desktop app for opening medical volumes, overla
 - React, TypeScript, Vite, pnpm. Rendering and tools built on Cornerstone3D.
 - No AI features of any kind.
 - The UI is simple and calm; the image comes first. Design follows `docs/design/DESIGN.md`.
-- Rooms need a display name only: no accounts, no patient data sent.
+- Rooms need a display name only: no accounts. A shared-copy room sends the image and mask to its members; a view-through-host room sends guests 8-bit pictures of the slices they look at. File names, paths and DICOM tags are never sent (`docs/design/ROOMS.md`).
 - No telemetry. The only outbound traffic is the room relay and update checks to GitHub Releases.
 - Built test first (`TDD.md`); every change meets `DOD.md`.
 - Tests: Vitest for unit, Playwright for e2e against the Vite web build, `cargo test` for Rust.
@@ -43,8 +43,8 @@ The numeric targets are starting proposals. Confirm or change them with the `gri
 | AC-7 | Saving writes the mask in its original format with geometry and label values unchanged (read, write, read is identical). Unsaved changes are indicated, and closing with unsaved changes asks first. | unit, e2e | not started |
 | AC-8 | MPR shows axial, coronal and sagittal views with linked crosshairs. A 3D view shows the volume with the mask. Switching layout keeps all edits. | e2e | not started |
 | AC-9 | Window/level: drag to adjust, numeric W and L shown, one-step reset, and CT presets for brain, soft tissue, lung and bone. CT values are correct Hounsfield units after rescale. | unit, e2e | not started |
-| AC-10 | Rooms: create or join with a display name and a room code. Participants are listed. An edit by one participant appears for the others within 300 ms on a local network. Concurrent edits converge to the same mask on every client. A client that drops and reconnects catches up. | unit, e2e with two contexts, cargo | not started |
-| AC-11 | Room traffic contains only display name, presence and mask edits. No image data, file names, paths or DICOM tags. | unit on the protocol | not started |
+| AC-10 | Rooms: create one of two kinds (shared copy, view through host) or join with a display name and an invite link that works once and expires. Participants are listed; the host can remove them and end the room. An edit by one participant appears for the others within 300 ms on a local network. Concurrent edits converge to the same mask on every client. A client that drops and reconnects catches up. | unit, e2e with two contexts, cargo | not started |
+| AC-11 | Room traffic contains display name, presence and mask edits; in a shared-copy room also the image, in a view-through-host room 8-bit pictures of the slices a guest looks at. Never file names, paths or DICOM tags. Payloads are encrypted between the apps. Supersedes the earlier "no image data" (`docs/design/ROOMS.md` A8). | unit on the protocol, e2e | not started |
 | AC-12 | Performance on a 512 x 512 x 300 16-bit volume on a mid-range laptop: first image visible within 5 s of opening; slice scrolling and brush strokes at 30 fps or better. | manual measurement, recorded | not started |
 | AC-13 | A first-time user (the `tester-user` agent) opens a volume and mask, corrects it with brush and eraser, and saves, with no help text beyond what is on screen, no dead ends and no critical or high bugs. | tester-user report | not started |
 | AC-14 | UI is simple and calm: `ux-reviewer` reports no blocker or major issue against `docs/design/DESIGN.md`; the council verdict is APPROVE. | council | not started |
@@ -59,7 +59,6 @@ The numeric targets are starting proposals. Confirm or change them with the `gri
 - Any AI or machine-learning feature: auto-segmentation, model inference, assistants, suggestions.
 - Accounts, login, permissions, cloud storage of images or masks.
 - PACS or DICOMweb connections; DICOM SEG and RTSTRUCT.
-- Sharing the image volume through a room. Each participant opens their own copy.
 - Diagnostic or regulated clinical use. This is a research tool.
 - Measurements and annotations beyond what mask correction needs, reporting, hanging protocols.
 - Registration, resampling and fusion of multiple volumes.
