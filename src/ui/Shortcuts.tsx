@@ -24,6 +24,8 @@ const MOUSE: [string, string][] = [
   ['Brush size, with a brush tool', `${isMac ? '⌥' : 'Alt'}+Scroll`],
   ['Pan', 'Middle-drag'],
   ['Window / Level', 'Right-drag'],
+  ['Brightness and contrast, with the Window / Level tool', 'Two-finger scroll'],
+  ['Window from a box, with the Window / Level tool', `${MOD}-drag`],
   ['Erase with the brush', 'Shift-drag'],
   ['Select the segment under the cursor', `${isMac ? '⌥' : 'Alt'}-click`],
   ['Apply a fill preview', 'Enter'],

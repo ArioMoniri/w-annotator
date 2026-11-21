@@ -69,6 +69,7 @@ import {
 } from './collab/protocol';
 import * as engine from './viewer/engine';
 import { indexToWorld, voxelAt } from './viewer/geometry';
+import { mrWindows, sampleValues } from './viewer/window';
 import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, useStore, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
@@ -307,7 +308,8 @@ async function loadImage(vol: VolumeData, path?: string): Promise<void> {
   // Masks belong to the image they were opened on.
   masks.clear();
   set({
-    image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt, path },
+    image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt, auto, mr: mrWindows(sampleValues(renderable.data, 200_003)), path },
+    windowSet: null,
     voi,
     hover: null,
     maximized: null,

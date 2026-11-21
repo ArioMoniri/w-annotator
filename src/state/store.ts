@@ -4,6 +4,7 @@ import type { SegmentStats } from '../mask/ops';
 import type { MaskRow } from '../mask/collection';
 import type { PaintOver } from '../mask/paintOver';
 import type { ScissorsAction, ScissorsDepth, ScissorsShape } from '../mask/scissors';
+import type { MrWindows, Voi, WindowSet } from '../viewer/window';
 
 export type ToolId =
   | 'crosshair'
@@ -77,7 +78,18 @@ export interface Hover {
 
 interface State {
   /** `ct` is true when the values look like Hounsfield units; it picks the default window and the unit shown. */
-  image: { name: string; dims: [number, number, number]; range: [number, number]; ct: boolean; path?: string } | null;
+  image: {
+    name: string;
+    dims: [number, number, number];
+    range: [number, number];
+    ct: boolean;
+    /** The window the image would open on from its values alone, and the MR windows worked out from them. */
+    auto: Voi;
+    mr: MrWindows;
+    path?: string;
+  } | null;
+  /** The preset list the user asked for, when the guess from the values was wrong. Null follows `image.ct`. */
+  windowSet: WindowSet | null;
   /** Name, unsaved state and segments below are those of the active mask. */
   maskName: string | null;
   dirty: boolean;
@@ -124,6 +136,8 @@ interface State {
   /** Measurements per segment index, refreshed shortly after edits stop. */
   stats: Record<number, SegmentStats>;
   measurementsOpen: boolean;
+  /** The dialog that names a new window preset is open. */
+  savePreset: boolean;
 
   maximized: ViewId | null;
   activeView: ViewId;
@@ -152,6 +166,7 @@ interface State {
 
 export const useStore = create<State>(() => ({
   image: null,
+  windowSet: null,
   maskName: null,
   dirty: false,
   masks: [],
@@ -183,6 +198,7 @@ export const useStore = create<State>(() => ({
   show3dImage: false,
   stats: {},
   measurementsOpen: false,
+  savePreset: false,
 
   maximized: null,
   activeView: 'axial',

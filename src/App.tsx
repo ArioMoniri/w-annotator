@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { findUpdate, isTauri, onFilesGiven, onNativeDrag, selfTestRequested, startFilesDump } from './platform';
 import { stepBrushSize } from './mask/brush';
 import * as session from './session';
+import * as windowing from './windowing';
 import { DROP_TEXT, dropHint } from './files/roles';
 import { fileRows } from './mask/collection';
 import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/shortcuts';
 import { EDIT_TOOLS, get, set, toast, useStore, type ToolId } from './state/store';
-import { initEngine, scrollSlices } from './viewer/engine';
+import { fitAll, initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
 import { ReportDialog } from './ui/ReportDialog';
 import { noteImagePaths, startRecovery } from './recovery';
@@ -14,6 +15,7 @@ import { OptionsStrip } from './ui/OptionsStrip';
 import { RecoveryBar } from './ui/RecoveryBar';
 import { Busy, ConfirmDialog, Toasts, UpdateBanner } from './ui/Overlays';
 import { MeasurementsSheet } from './ui/Measurements';
+import { SavePresetDialog } from './ui/ViewMenus';
 import { RoomModal } from './ui/RoomModal';
 import { SettingsDialog } from './ui/Settings';
 import { SegmentsPanel } from './ui/SegmentsPanel';
@@ -74,6 +76,16 @@ function useHotkeys() {
       'segment.previous': () => cycleSegment(-1),
       'mask.outline': () => session.setOutlineOnly(!get().outlineOnly),
       'mask.toggle': () => session.setMaskHidden(!get().maskHidden),
+      'window.next': () => windowing.stepWindowPreset(1),
+      'window.previous': () => windowing.stepWindowPreset(-1),
+      // A lower level is a brighter picture; a narrower window is more contrast.
+      'window.brighter': () => windowing.nudgeCurrentWindow(0, -windowing.LEVEL_STEP),
+      'window.darker': () => windowing.nudgeCurrentWindow(0, windowing.LEVEL_STEP),
+      'window.moreContrast': () => windowing.nudgeCurrentWindow(-windowing.WIDTH_STEP, 0),
+      'window.lessContrast': () => windowing.nudgeCurrentWindow(windowing.WIDTH_STEP, 0),
+      'view.zoomIn': () => windowing.zoomActive(1),
+      'view.zoomOut': () => windowing.zoomActive(-1),
+      'view.fit': () => fitAll(),
       'slice.previous': () => scrollActive(-1),
       'slice.next': () => scrollActive(1),
       'slice.back5': () => scrollActive(-5),
@@ -102,12 +114,14 @@ function useHotkeys() {
       const combo = comboFromEvent(e);
       if (!combo) return;
       const withModifier = combo.startsWith('mod+');
-      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm || s.measurementsOpen)) return;
+      if (!withModifier && (isTyping(e.target) || s.roomModal || s.confirm || s.measurementsOpen || s.savePreset)) return;
       if (combo === 'mod+y') {
         e.preventDefault();
         return session.redo();
       }
-      const action = actionFor(useShortcuts.getState().bindings, combo);
+      const bindings = useShortcuts.getState().bindings;
+      // "+" is Shift and "=" on many keyboards: unless it has a job of its own it zooms in as "=" does.
+      const action = actionFor(bindings, combo) ?? (combo === '+' && bindings['view.zoomIn'] === '=' ? 'view.zoomIn' : null);
       if (action) {
         if (s.settings && !action.endsWith('shortcuts') && action !== 'app.settings') return;
         if (!s.image && !always.has(action)) return;
@@ -256,6 +270,7 @@ export function App() {
       <ReportDialog />
       <ConfirmDialog />
       <MeasurementsSheet />
+      <SavePresetDialog />
       <SettingsDialog />
       <Tour />
     </div>

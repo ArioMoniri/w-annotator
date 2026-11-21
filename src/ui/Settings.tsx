@@ -112,7 +112,7 @@ function Mouse() {
           />
         )}
       </Row>
-      <Row label="Two-finger scroll" help="On a trackpad. When it pans, hold Shift to change slice.">
+      <Row label="Two-finger scroll" help="On a trackpad. When it pans, hold Shift to change slice. With the Window / Level tool it changes brightness and contrast, and Shift changes slice.">
         {(ids) => (
           <Choice
             label="Two-finger scroll"
