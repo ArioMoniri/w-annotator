@@ -1,6 +1,6 @@
 import { placeMenu } from './place';
 import { Ellipsis, Eye, EyeOff, Lock, LockOpen, Plus } from 'lucide-react';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SegmentInfo } from '../collab/protocol';
 import { SEGMENT_COLORS, SEGMENT_COLOR_NAMES, useStore } from '../state/store';
 import { formatVolume } from '../mask/ops';
@@ -17,6 +17,7 @@ import {
   setOpacity,
   setOutlineOnly,
   showOnly,
+  splitSegment,
   type RefineOp,
 } from '../session';
 import { Slider, useDismiss, useKeyHint } from './common';
@@ -135,7 +136,7 @@ function CombineForm({ seg, onClose }: { seg: SegmentInfo; onClose: () => void }
 
 type MenuKind = 'menu' | 'color' | 'combine' | AmountOp;
 
-function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew: boolean }) {
+function Row({ seg, active, isNew, picked }: { seg: SegmentInfo; active: boolean; isNew: boolean; picked: boolean }) {
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenuState] = useState<MenuKind | null>(null);
   const [anchor, setAnchor] = useState<React.CSSProperties>({});
@@ -179,6 +180,10 @@ function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew:
     setMenu(null);
     void refineSegment(seg.index, op);
   };
+  // A segment picked from the image may be far down the list: bring its row into view.
+  useEffect(() => {
+    if (picked) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [picked]);
 
   const commit = (value: string) => {
     const name = value.trim().slice(0, 40);
@@ -188,7 +193,7 @@ function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew:
 
   return (
     <div
-      className={`segrow${isNew ? ' new' : ''}`}
+      className={`segrow${isNew ? ' new' : ''}${picked ? ' picked' : ''}`}
       ref={rowRef}
       role="option"
       aria-selected={active}
@@ -322,6 +327,9 @@ function Row({ seg, active, isNew }: { seg: SegmentInfo; active: boolean; isNew:
             <button className="item" role="menuitem" onClick={(e) => setMenu('removeSmall', e.currentTarget.closest('.segrow') as HTMLElement)}>
               {AMOUNTS.removeSmall.item}
             </button>
+            <button className="item" role="menuitem" onClick={() => (setMenu(null), splitSegment(seg.index))}>
+              Split into separate segments
+            </button>
           </div>
           <hr />
           <button
@@ -383,6 +391,7 @@ export function SegmentsPanel() {
   const key = useKeyHint();
 
   const newSegment = useStore((s) => s.newSegment);
+  const pickedSegment = useStore((s) => s.pickedSegment);
 
   return (
     <aside className="panel" aria-label="Segments" data-tour="segments">
@@ -402,7 +411,7 @@ export function SegmentsPanel() {
             </button>
           </div>
         ) : (
-          segments.map((seg) => <Row key={seg.index} seg={seg} active={seg.index === active} isNew={seg.index === newSegment} />)
+          segments.map((seg) => <Row key={seg.index} seg={seg} active={seg.index === active} isNew={seg.index === newSegment} picked={seg.index === pickedSegment} />)
         )}
       </div>
       <footer>

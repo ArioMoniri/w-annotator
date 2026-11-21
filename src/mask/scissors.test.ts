@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cut,
+  cutsWithOutline,
   ellipseOutline,
   rectangleOutline,
   sliceRange,
@@ -259,5 +260,19 @@ describe('outlines', () => {
     const circle = ellipseOutline([10, 10], [13, 14]);
     expect(circle.length).toBeGreaterThanOrEqual(48);
     for (const [x, y] of circle) expect(Math.hypot(x - 10, y - 10)).toBeCloseTo(5, 6);
+  });
+});
+
+describe('which scissors do the cutting', () => {
+  it('uses the outline code for freehand, erase outside and all slices', () => {
+    expect(cutsWithOutline('freehand', 'erase', 'slice')).toBe(true);
+    expect(cutsWithOutline('rectangle', 'outside', 'slice')).toBe(true);
+    expect(cutsWithOutline('circle', 'fill', 'all')).toBe(true);
+  });
+
+  it('leaves a rectangle or circle on one slice, and the sphere, to the viewer', () => {
+    expect(cutsWithOutline('rectangle', 'erase', 'slice')).toBe(false);
+    expect(cutsWithOutline('circle', 'fill', 'slice')).toBe(false);
+    expect(cutsWithOutline('sphere', 'outside', 'all')).toBe(false);
   });
 });

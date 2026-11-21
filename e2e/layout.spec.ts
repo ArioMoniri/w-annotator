@@ -591,6 +591,7 @@ test('the 3D view shows whole segments and follows every mask change', async ({ 
   // Fill between slices changes the mask outside the tools; the 3D view shows the solid it made.
   const voxels = await maskVoxels(page);
   await page.keyboard.press('i');
+  await page.keyboard.press('Enter');
   const filled = await shown();
   expect(await maskVoxels(page)).toBeGreaterThan(voxels * 3);
   expect(filled).toBeGreaterThan(twoStrokes * 2);

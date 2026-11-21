@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { SegmentInfo } from '../collab/protocol';
 import type { SegmentStats } from '../mask/ops';
 import type { MaskRow } from '../mask/collection';
+import type { PaintOver } from '../mask/paintOver';
+import type { ScissorsAction, ScissorsDepth, ScissorsShape } from '../mask/scissors';
 
 export type ToolId =
   | 'crosshair'
@@ -97,10 +99,16 @@ interface State {
   brushMin: number;
   brushShape: 'circle' | 'sphere';
   threshold: [number, number];
-  scissorsShape: 'rectangle' | 'circle' | 'sphere';
-  scissorsAction: 'erase' | 'fill';
-  /** Whether painting may take voxels from other segments. */
-  paintOver: 'all' | 'empty';
+  scissorsShape: ScissorsShape;
+  scissorsAction: ScissorsAction;
+  /** Whether the scissors cut the slice on screen or every slice. */
+  scissorsDepth: ScissorsDepth;
+  /** What a click with the Fill tool does: fill an enclosed area, or remove or keep the island under the cursor. */
+  fillAction: 'fill' | 'remove' | 'keep';
+  /** What painting may write over: everything, empty voxels only, or the inside of one segment (its index). */
+  paintOver: PaintOver;
+  /** A fill between slices that is shown but not yet done. */
+  preview: { count: number; view: string; segment: number } | null;
 
   segments: SegmentInfo[];
   activeSegment: number;
@@ -110,6 +118,8 @@ interface State {
   maskHidden: boolean;
   /** The segment just made with Add segment, so only its row animates in. */
   newSegment: number | null;
+  /** The segment just picked from the image, so its row shows where it is. */
+  pickedSegment: number | null;
   show3dImage: boolean;
   /** Measurements per segment index, refreshed shortly after edits stop. */
   stats: Record<number, SegmentStats>;
@@ -158,7 +168,10 @@ export const useStore = create<State>(() => ({
   threshold: [0, 0],
   scissorsShape: 'rectangle',
   scissorsAction: 'erase',
+  scissorsDepth: 'slice',
+  fillAction: 'fill',
   paintOver: 'all',
+  preview: null,
 
   segments: [],
   activeSegment: 0,
@@ -166,6 +179,7 @@ export const useStore = create<State>(() => ({
   outlineOnly: false,
   maskHidden: false,
   newSegment: null,
+  pickedSegment: null,
   show3dImage: false,
   stats: {},
   measurementsOpen: false,

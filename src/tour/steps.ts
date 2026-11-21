@@ -59,7 +59,7 @@ export const FULL_STEPS: TourStep[] = [
     id: 'interpolate',
     targets: ['interpolate'],
     title: 'Fill between slices',
-    body: 'Paint every few slices, then use this to fill the gaps between them.',
+    body: 'Paint every few slices, then use this to preview the fill for the gaps and apply it.',
     hint: 'slices',
     prepare: 'brush',
     prefer: ['bottom'],

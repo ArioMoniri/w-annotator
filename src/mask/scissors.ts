@@ -37,6 +37,19 @@ interface Geometry {
 
 export type CutAction = 'erase' | 'eraseOutside' | 'fill';
 
+export type ScissorsShape = 'rectangle' | 'circle' | 'freehand' | 'sphere';
+export type ScissorsAction = 'erase' | 'outside' | 'fill';
+export type ScissorsDepth = 'slice' | 'all';
+
+/**
+ * True when the app cuts with its own outline code: a freehand loop, erasing outside,
+ * or cutting through every slice. A rectangle or circle on one slice, and the sphere,
+ * are left to the viewer's own scissors.
+ */
+export function cutsWithOutline(shape: ScissorsShape, action: ScissorsAction, depth: ScissorsDepth): boolean {
+  return shape !== 'sphere' && (shape === 'freehand' || action === 'outside' || depth === 'all');
+}
+
 export interface Cut {
   map: PlaneMap;
   /** In the units of `map.x` and `map.y`. Closed from the last point back to the first. */

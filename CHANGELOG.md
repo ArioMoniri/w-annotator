@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Freehand scissors: drag a loop around a region and release to erase or fill inside it. Where a loop crosses itself, what it goes around once is inside.
+- Scissors "Erase outside", and a depth choice: this slice or all slices of the view. A cut through all slices says how many voxels it changed and offers Undo.
+- Alt-click on a slice view selects the segment under the cursor, with any tool.
+- Paint over "Only <segment>": painting stays inside one segment. The choice is also in the threshold brush, the scissors (fill) and the Fill tool, and it applies to Fill between slices.
+- Fill tool actions "Remove island" and "Keep island": click a piece of the segment to remove it, or to keep it and remove the rest. Islands are followed through the whole volume.
+- Fill between slices now shows a preview first. Apply (Enter) writes it as one undo step; Cancel (Esc) leaves the mask as it was. A preview is never sent to a room.
+- "Smooth pixels" in the menu on a view's name. Off draws each voxel as a flat block. The image values are not changed.
+- "Split into separate segments" in a segment's menu: each island becomes a segment of its own, at most 20 at a time, asking first when there are many.
+
+### Changed
+
+- The scissors erase the active segment only. Other segments inside the shape are left as they are.
+
 ## [0.1.1] - 2026-11-20
 
 ### Added
