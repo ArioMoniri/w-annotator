@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, modLabel, openPhantom, pixelAt, tab, tintedPixels } from './helpers';
+import { SEGMENT_1, SEGMENT_2, drag, isTinted, jumpToVoxel, modLabel, openPhantom, pixelAt, tab, tabOnPage, tintedPixels } from './helpers';
 
 const TEXT_1 = 'rgb(231, 233, 236)';
 const WARN = 'rgb(229, 180, 84)';
@@ -309,7 +309,7 @@ test('a pressed segmented button shows a focus ring', async ({ page }) => {
   await page.keyboard.press('b');
   const circle = page.getByRole('group', { name: 'Brush shape' }).getByRole('button', { name: 'Circle' });
   await page.getByRole('group', { name: 'Brush shape' }).getByRole('button', { name: 'Sphere' }).focus();
-  await tab(page, true);
+  await tabOnPage(page, true);
   await expect(circle).toBeFocused();
   await expect(circle).toHaveAttribute('aria-pressed', 'true');
   expect(await circle.evaluate((el) => getComputedStyle(el).boxShadow)).toContain('inset');
