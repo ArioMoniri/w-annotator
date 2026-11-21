@@ -98,7 +98,7 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Crosshair | Hint: `Click to move all views to a point.` |
 | Pan | Hint: `Drag to move the image.` |
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
-| Window / Level | Preset select (Soft tissue, Lung, Bone, Brain, Abdomen — CT only) · `W` number · `L` number · `Reset` |
+| Window / Level | Preset select (the same list as the window menu in the status bar, 2.6; `Custom` when the window is no preset) · `W` number · `L` number · `Reset` (the Auto window) · hint `Ctrl-drag a box to set the window from it.` (`⌘-drag` on a Mac; the hint is shown whole or not at all). Ctrl-drag (⌘-drag) on a slice view draws a box, a dashed white line with a dark edge in the layer the scissors outline uses; on release the window becomes the 1st–99th percentile of the values under it on that slice. Esc drops the box. Nothing is written. On a trackpad a two-finger scroll changes the level (up and down) or the width (sideways) instead of the slice; Shift+scroll changes slice. |
 | Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. · `Fill between slices` button. |
 | Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1,204 voxels between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, or saving cancels with a toast. Scrolling, zoom and window work as usual. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
@@ -123,7 +123,7 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
   - bottom-left: `Slice 84 / 212`
   - edge midpoints: orientation letters `A P R L S I`, `--text-3`
 - **Double-click** a viewport (or press `M`) to maximise; same again, or `Esc`, restores. With an edit tool active, double-click is still maximise — strokes start on pointer move, not on click.
-- Scroll = slice. Mod+scroll = zoom. Middle-drag = pan. Right-drag = window/level. These work regardless of the active tool.
+- Scroll = slice. Mod+scroll = zoom. Middle-drag = pan. Right-drag = window/level. These work regardless of the active tool. With the Window / Level tool only: a two-finger trackpad scroll is the window, and Mod-drag is a box to take the window from.
 - Trackpad: two-finger scroll = slice, in proportion to distance (or pan, by a setting); pinch = zoom about the pointer. Shift+scroll = five slices at a time. Alt+scroll = brush size while a brush tool is active. In the 3D view scroll and pinch zoom. A sideways swipe does nothing. The window itself never scrolls or zooms.
 - The brush cursor is a 1px ring in the active segment colour with a 1px black halo.
 - Focus layout: the first pane takes the left 3/4; the other three stack in the right 1/4.
@@ -169,7 +169,14 @@ Above Segments sits **Files**, a section that folds to its 36 px heading: one 28
 11px mono, tabular numerals, `--text-2`, items 16 apart. Values update live under the pointer; show `—` when the pointer is outside a viewport. Each item has a fixed min-width so the bar does not jitter.
 
 Left: `Slice 84 / 212` · `X 212  Y 148  Z 84` · `Value −412 HU` · `Segment Liver`
-Right: `W 400  L 40` · `Zoom 125%` · sync status (`Saved`, `Unsaved changes`, or in a room `Synced` / `Reconnecting…`)
+Right: `W 400  L 40  Soft tissue` · `Zoom 125%` · sync status (`Saved`, `Unsaved changes`, or in a room `Synced` / `Reconnecting…`)
+
+**Window and zoom are buttons.** Each is the read-out itself with a 10 px chevron: 20 high, `--bg-hover` on hover and while open, the bar's inset focus ring. A click, Enter or Space opens a menu (`--bg-raised`, `--shadow-2`, 13px UI font) above the bar with its right edge on the button's; it fades in from 4px below, scrolls inside itself when taller than the room above the bar, and closes on a choice, Esc or a click elsewhere. Focus goes to the item in use; ↑ ↓ Home End move through the items; Esc gives the focus back to the button. Both work with any tool.
+
+- **Window menu.** Row `Presets for` with a segmented `CT / MR` (set from the image's values; the user can overrule it). Then the presets as radio items, each with its `W … L …` at the right in 11px mono `--text-3`, the one in use on `--bg-active`. CT list: Soft tissue, Abdomen, Liver, Pancreas, Lung, Bone, Brain, Stroke, Subdural · saved presets · Auto, Full range. MR list: Auto, Full range · Soft tissue, Bright fluid, Dark detail (worked out from the image) · saved presets. A saved preset has a 20 px `×` at the end of its row (`Remove preset <name>`); removing keeps the menu open. Last item: `Save current as preset…`.
+- **Save dialog.** Small modal `Save window as preset`: the window in mono (`W 1600 L −550`), one `Name` field (24 characters), `Cancel`, primary `Save`. Enter saves. A name in use, an empty name or a full list (12) shows the reason in `--danger` under the field.
+- **Zoom menu.** `Zoom in`, `Zoom out` (the menu stays open for these), divider, `Fit`, `Actual size`, each with its key at the right. They act on the active view, about its centre. Actual size is one voxel on one screen pixel and is disabled for the 3D view.
+- The read-out shows the name of the preset in use in `--text-1`, and no name when the window is none of them. On a narrow bar the name is the first thing to leave; the window itself never leaves.
 
 ### 2.7 Empty state (no image open)
 
@@ -572,7 +579,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Crosshair | Click to move all views to a point. |
 | Pan | Drag to move the image. |
 | Zoom | Drag up or down to zoom. · Fit |
-| Window / Level | Preset · Soft tissue · Lung · Bone · Brain · Abdomen · Custom · W · L · Reset |
+| Window / Level | Preset · Custom · Soft tissue · Abdomen · Liver · Pancreas · Lung · Bone · Brain · Stroke · Subdural · Auto · Full range · Bright fluid · Dark detail · W · L · Reset · Ctrl-drag a box to set the window from it. (⌘-drag on a Mac) · toast when the box misses the image: Drag the box over the image to set the window from it. |
 | Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices (short: Fill gaps) |
 | Paint over tooltip | Empty only keeps other segments as they are. (select: … Only paints inside one segment.) · list tooltip: Paint only inside one segment |
 | Fill preview | Preview: 1,204 voxels between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
@@ -625,7 +632,15 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 
 ### 6.6 Status bar
 
-`Slice 84 / 212` · `X 212  Y 148  Z 84` · `Value −412 HU` (plain `Value 1280` when the modality has no unit) · `Segment Liver` / `Segment none` · `W 400  L 40` · `Zoom 125%` · `Saved` · `Unsaved changes` · `Saving…` · `Synced` · `Reconnecting…` · `Offline`
+`Slice 84 / 212` · `X 212  Y 148  Z 84` · `Value −412 HU` (plain `Value 1280` when the modality has no unit) · `Segment Liver` / `Segment none` · `W 400  L 40  Soft tissue` (button, tooltip `Change the window`) · `Zoom 125%` (button, tooltip `Change the zoom`) · `Saved` · `Unsaved changes` · `Saving…` · `Synced` · `Reconnecting…` · `Offline`
+
+| Element | Copy |
+|---|---|
+| Window menu | Presets for · CT · MR · (presets) · Auto · Full range · Save current as preset… · Remove preset Site lung |
+| Save dialog | Save window as preset · Name · Cancel · Save · Give the preset a name. · There is already a preset called Lung. Choose another name. · You can keep 12 presets. Remove one to save another. |
+| Zoom menu | Zoom in · Zoom out · Fit · Actual size (tooltip: One image pixel on one screen pixel) |
+| Shortcut list | Next window preset · Previous window preset · Brighter · Darker · More contrast · Less contrast · Zoom in · Zoom out · Fit to view · mouse: Brightness and contrast, with the Window / Level tool — Two-finger scroll · Window from a box, with the Window / Level tool — Ctrl-drag (⌘-drag) |
+| Two-finger scroll setting, help | On a trackpad. When it pans, hold Shift to change slice. With the Window / Level tool it changes brightness and contrast, and Shift changes slice. |
 
 ### 6.7 Empty state and drag-drop
 

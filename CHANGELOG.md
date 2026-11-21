@@ -6,9 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-<<<<<<< HEAD
 ### Added
 
+- The window in the status bar is now a button. It opens a menu of presets, Auto and Full range, with any tool selected, and shows the name of the preset in use.
+- CT presets Pancreas (W 150, L 65) and Abdomen sit with Liver and Soft tissue. Images that are not CT get windows worked out from their own values: Auto, Full range, Soft tissue, Bright fluid and Dark detail. The menu can switch between the CT and MR lists.
+- Save current as preset: name the window on screen and it joins the list, up to 12. Saved presets are kept between launches and can be removed from the menu.
+- P and Shift+P step through the window presets. Shift with the arrow keys makes the image brighter or darker and changes the contrast.
+- With the Window / Level tool, Ctrl-drag (⌘-drag on a Mac) a box to set the window from the values inside it, and a two-finger scroll on a trackpad changes brightness (up and down) and contrast (sideways). Shift+scroll still changes slice.
+- The zoom in the status bar is a button too: Zoom in, Zoom out, Fit and Actual size. The keys are =, - and 0.
 - Freehand scissors: drag a loop around a region and release to erase or fill inside it. Where a loop crosses itself, what it goes around once is inside.
 - Scissors "Erase outside", and a depth choice: this slice or all slices of the view. A cut through all slices says how many voxels it changed and offers Undo.
 - Alt-click on a slice view selects the segment under the cursor, with any tool.
@@ -21,13 +26,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - The scissors erase the active segment only. Other segments inside the shape are left as they are.
-=======
+
 ### Fixed
 
 - The brush ring no longer stays in a view after the pointer has left it.
 - Maximising a view now enlarges its image to fill the larger pane, and restoring puts it back as it was.
 - Tab and Shift+Tab now reach every control in a dialog, including buttons, switches and sliders, on macOS too, and stay inside the dialog.
->>>>>>> origin/main
 
 ## [0.1.1] - 2026-11-20
 

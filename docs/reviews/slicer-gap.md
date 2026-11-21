@@ -43,7 +43,7 @@ Not confirmed from the pages (prior knowledge of the Slicer application, not its
 | 3D view of segments; image volume rendering ([SE], [VR]) | Have (basic) | Flat silhouette is an open iter1 issue; see 2.2. |
 | Four-up layout, double-click to maximise ([UI]) | Have | |
 | Crosshair, pan, zoom, reset field of view ([UI]) | Have | Fit button; scroll, Ctrl+scroll, middle-drag, right-drag W/L with any tool. |
-| Window/level drag, presets, auto reset ([UI], [VO]) | Have | 8 CT presets, W and L numbers, Reset. |
+| Window/level drag, presets, auto reset ([UI], [VO]) | Have | 9 CT presets and 5 worked out from the image for MR, from a menu on the status bar with any tool; W and L numbers, Reset; keys for presets, brightness and contrast. |
 | Line measurement ([MK]) | Have | Ruler, in mm. |
 | Orientation letters, value and position read-out ([UI]) | Have | Also the segment under the cursor in the status bar. |
 | Space toggles the last two effects; next/previous segment keys ([SE]) | Have | `Space`, `,` `.`, and every key can be rebound. |
@@ -93,8 +93,8 @@ Effort: S = under 2 days, M = up to a week, L = more. "Where" is the one-sentenc
 | Item | In Slicer | Who needs it, how often | Where here | Effort and risk | Verdict |
 |---|---|---|---|---|---|
 | Interpolation toggle | [UI] slice controls; [VO] "Interpolate". | Whenever a border is judged at voxel level. Smoothed pixels hide which voxel the mask really covers. | A "Smooth pixels" switch in a small view menu on the viewport label. | S. | **Have** (was Should). |
-| Auto window/level from a region | [UI] Ctrl-drag a box; Ctrl-double-click resets. | MR daily: units are arbitrary and one preset never fits. | Ctrl-drag a box while the Window/Level tool is active. | S. | **Nice.** Right-drag W/L already works everywhere. |
-| Custom presets, preset keys | [VO] presets. | Sites with their own windows. | "Save current as preset" at the end of the preset list. | S. | **Nice.** Add Mediastinum (W 350, L 50 is close to Abdomen) only if asked. |
+| Auto window/level from a region | [UI] Ctrl-drag a box; Ctrl-double-click resets. | MR daily: units are arbitrary and one preset never fits. | Ctrl-drag a box while the Window/Level tool is active. | S. | **Have** (was Nice). 1st–99th percentile of the box; ⌘-drag on a Mac. |
+| Custom presets, preset keys | [VO] presets. | Sites with their own windows. | "Save current as preset" at the end of the preset list. | S. | **Have** (was Nice). Up to 12 saved presets; `P` / `Shift+P` step through the list. Mediastinum not added: it is the Abdomen window. |
 | Slab / MIP thickness | Slice view thick slab (not in the doc pages). | Lung nodule against vessel, small vessels, airways with MinIP. Weekly in chest work. | A "Slab" number in the view menu; painting is disabled while a slab is on. | M. Painting on a slab is ambiguous, so view only. | **Should**, later. |
 | Second image: switch, then blend | [UI] foreground/background selectors, opacity; keys `[` `]`, `t`. | Brain tumour (T1c with FLAIR), prostate (T2 with ADC), PET/CT. In those fields, every case. | The file name button lists open images; one key cycles them; a blend slider only when two are open. | L. Different grids need resampling for display; rooms must send or name the extra image. | **Should**, later. Switching first, blending second. |
 | Shaded 3D surface with smoothing | [SE] Show 3D, smoothing factor 0 to 1. | Each case, at the end: steps between slices, holes and stray pieces show at once in 3D. | The existing 3D view; no control beyond a "Smooth" switch. | M to L. Surface extraction per edit must not stall painting. | **Should**, later. An open iter1 item. |

@@ -3358,3 +3358,14 @@ select.select.paintover {
   flex: 1;
   min-width: 0;
 }
+
+/* The window hint is shown whole or not at all: when it does not fit, the strip compacts and drops it. */
+.strip[data-strip='window'] .hint {
+  flex: none;
+}
+
+/* Its first step gives up only the hint: W and L keep their letters. */
+.strip[data-strip='window'][data-compact='1'] .field > .label,
+.strip[data-strip='window'][data-compact='1'] .field > label {
+  display: inline;
+}
