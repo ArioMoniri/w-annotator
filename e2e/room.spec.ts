@@ -284,7 +284,7 @@ test('a shared-copy guest keeps working offline and is merged on return', async 
 
   link_.restore();
   await reconnectNow(guest);
-  await expect(guest.locator('.toast').filter({ hasText: 'Merged' })).toContainText(/Merged your offline work: [\d,]+ voxels on 1 slice added\./, { timeout: 30_000 });
+  await expect(guest.locator('.toast').filter({ hasText: 'Merged your offline work' })).toContainText(/Merged your offline work: [\d,]+ voxels on 1 slice added\./, { timeout: 30_000 });
   await expect(guest.getByTestId('sync')).toContainText('Synced');
 
   // Changes to different voxels are both kept, on both sides.
