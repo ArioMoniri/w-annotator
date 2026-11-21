@@ -6,7 +6,6 @@ import * as engine from './viewer/engine';
 import {
   actualSizeFactor,
   boxValues,
-  matchChoice,
   nudgeWindow,
   percentileWindow,
   presetNameError,
@@ -81,12 +80,6 @@ export function removeWindowPreset(name: string): void {
     'windowPresets',
     getSettings().windowPresets.filter((p) => p.name !== name),
   );
-}
-
-/** The name of the preset on screen, if the window is one. */
-export function currentPresetName(): string {
-  const voi = get().voi;
-  return voi ? (matchChoice(currentChoices(), voi)?.name ?? '') : '';
 }
 
 /**

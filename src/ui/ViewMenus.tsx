@@ -51,7 +51,12 @@ function useStatusMenu() {
     setOpen(false);
     if (e.detail === 0) button.current?.focus();
   };
-  return { open, place, ref, button, menu, toggle, done, close };
+  /** Arrows move through the items; Tab leaves the menu, so it closes. */
+  const keys = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Tab') setOpen(false);
+    else menuKeys(e);
+  };
+  return { open, place, ref, button, menu, toggle, done, close, keys };
 }
 
 const GROUP: Record<WindowChoice['kind'], string> = { builtin: 'preset', custom: 'saved', auto: 'image', full: 'image' };
@@ -89,7 +94,7 @@ export function WindowReadout() {
         <ChevronUp size={10} aria-hidden />
       </button>
       {m.open && (
-        <div className="menu statuspop" role="menu" aria-label="Window" ref={m.menu} style={m.place} onKeyDown={menuKeys}>
+        <div className="menu statuspop" role="menu" aria-label="Window" ref={m.menu} style={m.place} onKeyDown={m.keys}>
           <div className="row">
             <span id="window-set">Presets for</span>
             <Choice
@@ -179,7 +184,7 @@ export function ZoomReadout() {
         <ChevronUp size={10} aria-hidden />
       </button>
       {m.open && (
-        <div className="menu statuspop" role="menu" aria-label="Zoom" ref={m.menu} style={m.place} onKeyDown={menuKeys}>
+        <div className="menu statuspop" role="menu" aria-label="Zoom" ref={m.menu} style={m.place} onKeyDown={m.keys}>
           <button className="item" role="menuitem" onClick={() => zoomActive(1)}>
             Zoom in {key('view.zoomIn') && <kbd>{key('view.zoomIn')}</kbd>}
           </button>

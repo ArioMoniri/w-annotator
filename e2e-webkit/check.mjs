@@ -126,6 +126,7 @@ try {
   };
   const ALT = '';
   const ENTER = '';
+  const ESC = '\uE00C';
   const voxelsOf = (label) => maskVoxels(b, label);
 
   await check('a freehand loop erases what it goes around, and undo brings it back', async () => {
@@ -220,6 +221,41 @@ try {
     await b.exec(() => window.__w.settings.setSetting('smoothPixels', true));
     await sleep(200);
     expect((await b.exec(() => window.__w.engine.getSmoothPixels('axial'))) === true, 'smoothing did not come back');
+  });
+
+  await check('the window read-out opens its menu above the status bar and a preset changes the window', async () => {
+    const before = await state(b, (s) => s.voi);
+    await clickOn(b, '[data-testid="status-window"]');
+    await sleep(300);
+    const menu = await rect(b, '.statuspop');
+    const bar = await rect(b, '.status');
+    expect(menu, 'no menu opened');
+    expect(menu.y >= 0 && menu.y + menu.height <= bar.y + 1, `the menu spans ${menu.y} to ${menu.y + menu.height}; the bar starts at ${bar.y}`);
+    expect(menu.x >= 0 && menu.x + menu.width <= bar.x + bar.width + 1, 'the menu runs off the side of the window');
+    await shot('03e window menu');
+    // The last preset is Full range in the CT list and a worked-out window in the MR list; neither is what a file opens on.
+    await b.exec(() => [...document.querySelectorAll('.statuspop [role="menuitemradio"]')].find((el) => el.getAttribute('aria-checked') !== 'true' && el.dataset.preset !== 'Auto').click());
+    await sleep(300);
+    const after = await state(b, (s) => s.voi);
+    expect(after.lower !== before.lower || after.upper !== before.upper, 'choosing a preset did not change the window');
+    expect(!(await rect(b, '.statuspop')), 'the menu stayed open after a choice');
+    await b.exec((v) => window.__w.session.setVoi(v.lower, v.upper), before);
+  });
+
+  await check('the zoom read-out opens its menu and Zoom in enlarges the active view', async () => {
+    await b.exec(() => window.__w.store.setState({ activeView: 'axial' }));
+    const before = await b.exec(() => window.__w.engine.getZoom('axial'));
+    await clickOn(b, '[data-testid="status-zoom"]');
+    await sleep(300);
+    expect(await rect(b, '.statuspop'), 'no menu opened');
+    await clickOn(b, '.statuspop [role="menuitem"]');
+    await sleep(300);
+    const after = await b.exec(() => window.__w.engine.getZoom('axial'));
+    expect(Math.abs(after / before - 1.25) < 0.01, `zoom went from ${before} to ${after}`);
+    await b.keys(ESC);
+    await sleep(200);
+    expect(!(await rect(b, '.statuspop')), 'Esc did not close the menu');
+    await b.exec(() => window.__w.engine.fitAll());
   });
 
   /* ── the navigation tools ── */
