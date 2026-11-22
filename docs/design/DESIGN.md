@@ -773,7 +773,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 **Focus**
 - `:focus-visible` everywhere: 2px gap in the surface colour + 2px `--accent` ring (`--focus-ring`). Never removed, never replaced by a colour change only.
 - A focused viewport shows the accent outline at 2px.
-- Modals and popovers trap focus and return it to the trigger on close. `Esc` closes the topmost layer: tooltip → menu → modal → maximised viewport.
+- Modals and popovers trap focus and return it to the trigger on close. `Esc` closes the topmost layer: tooltip → menu → modal → maximised viewport. One press closes one layer: a held key does not go on to the next, and Esc during a drag (a stroke, a pan, an outline) belongs to the drag. The segment popovers (Grow, Combine and the like) hold Tab as modals do.
 
 **Hit sizes**
 - Rail buttons 36 × 36; top-bar and strip controls 28 high with at least 28 wide; row icons 24 × 24 with 4px spacing (WCAG 2.2 target size 24 minimum is met everywhere).

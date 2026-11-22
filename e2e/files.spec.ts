@@ -160,6 +160,64 @@ test('hiding a comparison mask removes its outline and showing it brings it back
   expect(isTinted(await pixelAt(page, 'axial', [24, 34, 24]))).toBe(true);
 });
 
+/** Where a slice view is: its slice, its zoom as mm per screen pixel, and the world point at its centre. */
+async function place(page: Page, view: string): Promise<{ slice: number; mmPerPx: number; centre: number[] }> {
+  return page.evaluate((view) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = (window as any).__w;
+    const r = document.querySelector(`[data-view="${view}"]`)!.getBoundingClientRect();
+    const a = w.engine.canvasToWorld(view, 0, 0) as number[];
+    const b = w.engine.canvasToWorld(view, 100, 0) as number[];
+    return {
+      slice: w.engine.getSlice(view).index as number,
+      mmPerPx: Math.round((Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / 100) * 1e5) / 1e5,
+      centre: (w.engine.canvasToWorld(view, r.width / 2, r.height / 2) as number[]).map((v) => Math.round(v * 1e3) / 1e3),
+    };
+  }, view);
+}
+
+test('showing, hiding and adding comparison masks leaves every view where it was', async ({ page }) => {
+  await openPhantom(page, false);
+  // Every view away from its middle slice, and zoomed and panned by hand.
+  await jumpToVoxel(page, [31, 20, 14]);
+  for (const view of ['axial', 'sagittal', 'coronal']) {
+    await page.keyboard.press('z');
+    await drag(page, view, [0, 40], [0, 15]);
+    await page.keyboard.press('h');
+    await drag(page, view, [0, 0], [14, -9]);
+  }
+  await page.keyboard.press('c');
+  const views = ['axial', 'sagittal', 'coronal'];
+  const places = async () => Object.fromEntries(await Promise.all(views.map(async (v) => [v, await place(page, v)])));
+  const before = await places();
+  for (const v of views) expect(Math.abs(before[v].slice - 23.5), v).toBeGreaterThan(3);
+  const settled = async (what: string) => {
+    // Long enough for the labelmap to reach the views and for anything that follows it.
+    await page.waitForTimeout(900);
+    expect(await places(), what).toEqual(before);
+  };
+
+  // The first mask takes the place of the empty one; the second makes the first a comparison.
+  await openBall(page, 'phantom_seg.nii', [30, 22, 24], 5);
+  await expect(rows(page)).toHaveCount(2);
+  await settled('a mask opened');
+  await openBall(page, 'corrected_seg.nii', [24, 34, 24], 5);
+  await expect(rows(page)).toHaveCount(3);
+  await settled('a second mask opened');
+  await row(page, 'phantom_seg').hover();
+  await row(page, 'phantom_seg').getByRole('button', { name: 'Hide' }).click();
+  await settled('comparison hidden');
+  await row(page, 'phantom_seg').getByRole('button', { name: 'Show' }).click();
+  await settled('comparison shown');
+  // A third mask: two comparisons at once.
+  await openBall(page, 'third_seg.nii', [20, 20, 20], 4);
+  await expect(rows(page)).toHaveCount(4);
+  await settled('another mask opened');
+  // Editing another one swaps which masks are outlines.
+  await radio(page, 'phantom_seg').check();
+  await settled('another mask made active');
+});
+
 test('the image cannot be hidden, only dimmed', async ({ page }) => {
   await openPhantom(page, false);
   await greyWindow(page);
