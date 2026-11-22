@@ -151,6 +151,17 @@ function RoomButton() {
       },
     });
   };
+  const leave = () => {
+    setOpen(false);
+    set({
+      confirm: {
+        title: 'Leave the room?',
+        body: 'Others can keep working. Nobody can invite or remove people until you come back. Your copy of the mask stays open here.',
+        confirm: 'Leave',
+        run: () => leaveRoom(),
+      },
+    });
+  };
   const end = () => {
     setOpen(false);
     set({
@@ -279,7 +290,8 @@ function RoomButton() {
             </button>
           ) : (
             <>
-              <button className="item danger" onClick={() => (setOpen(false), leaveRoom())}>
+              {/* Leaving ends nothing for the others, so it is not drawn like Delete below it. A host is asked first. */}
+              <button className={host ? 'item' : 'item danger'} onClick={host ? leave : () => (setOpen(false), leaveRoom())}>
                 Leave room
               </button>
               {host && (

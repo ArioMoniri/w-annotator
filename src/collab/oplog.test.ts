@@ -12,12 +12,16 @@ function person(size = 16) {
   const live = new Uint8Array(size);
   const synced = new Uint8Array(size);
   const replays: number[] = [];
+  const calls = { confirm: 0, reapply: 0 };
   const log = new OpLog<Write>({
-    confirm: (op) => {
+    confirm: (op, _own, shown) => {
+      calls.confirm++;
       synced[op.index] = op.value;
-      live[op.index] = op.value;
+      // What is on screen already shows it: writing it again is the work this flag saves.
+      if (!shown) live[op.index] = op.value;
     },
     reapply: (op) => {
+      calls.reapply++;
       live[op.index] = op.value;
     },
     replay: (after) => replays.push(after),
@@ -26,10 +30,35 @@ function person(size = 16) {
     live[index] = value;
     return log.local({ index, value });
   };
-  return { live, synced, log, replays, edit };
+  return { live, synced, log, replays, edit, calls };
 }
 
 describe('OpLog', () => {
+  it('does no extra work when my own edits are confirmed in the order I made them', () => {
+    // A whole-volume edit goes out as many pieces. Each confirmation used to put every
+    // later piece back on screen: for 100 pieces, 4950 writes of a megabyte each.
+    const a = person(128);
+    const cids = Array.from({ length: 100 }, (_, i) => a.edit(i, 7));
+    cids.forEach((cid, i) => a.log.ack(cid, i + 1));
+    expect(a.calls).toEqual({ confirm: 100, reapply: 0 });
+    expect(a.log.pending).toBe(0);
+    expect(Array.from(a.live.slice(0, 100))).toEqual(new Array(100).fill(7));
+    expect(Array.from(a.synced.slice(0, 100))).toEqual(new Array(100).fill(7));
+  });
+
+  it('still rebuilds the screen when a confirmation skips an older edit of mine', () => {
+    const a = person();
+    const first = a.edit(0, 1);
+    const second = a.edit(0, 2);
+    // The second is confirmed while the first is still waiting: the first will be numbered later, so it wins.
+    a.log.ack(second, 1);
+    expect(a.live[0]).toBe(1);
+    expect(a.synced[0]).toBe(2);
+    a.log.ack(first, 2);
+    expect(a.live[0]).toBe(1);
+    expect(a.synced[0]).toBe(1);
+  });
+
   it('applies frames in order and moves the head', () => {
     const a = person();
     a.log.remote(1, { index: 0, value: 5 });

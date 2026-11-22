@@ -4,6 +4,8 @@ import {
   HEADER_BYTES,
   b64decode,
   b64encode,
+  cleanPeerName,
+  cleanText,
   closeMessage,
   decodeFrame,
   displayNames,
@@ -106,6 +108,24 @@ describe('room ids and links', () => {
     expect(parseInvite('https://rooms.example.org/j/abc#AAECAwQFBgcICQoLDA0ODw')).toBeNull();
     expect(parseInvite('')).toBeNull();
   });
+  it('rejects a host that could be mistaken for another, and other schemes', () => {
+    const tail = '/j/K7Q2M9XA4TDP#AAECAwQFBgcICQoLDA0ODw';
+    // Text before an @ looks like the host but is not.
+    expect(parseInvite(`https://rooms.example.org@evil.example${tail}`)).toBeNull();
+    expect(parseInvite(`https://rooms.example.org:pw@evil.example${tail}`)).toBeNull();
+    expect(parseInvite(`https://evil.example?x=${tail}`)).toBeNull();
+    expect(parseInvite(`https://evil.example\\rooms.example.org${tail}`)).toBeNull();
+    expect(parseInvite(`https://rooms.example.org%2e.evil${tail}`)).toBeNull();
+    expect(parseInvite(`https://rooms.example.org:99999${tail}`)).toBeNull();
+    expect(parseInvite(`https://rooms..example.org${tail}`)).toBeNull();
+    expect(parseInvite(`javascript://rooms.example.org${tail}`)).toBeNull();
+    expect(parseInvite(`file://rooms.example.org${tail}`)).toBeNull();
+    expect(parseInvite(`ftp://rooms.example.org${tail}`)).toBeNull();
+    // Plain names, addresses and ports still work.
+    expect(parseInvite(`http://localhost:8787${tail}`)!.server).toBe('ws://localhost:8787');
+    expect(parseInvite(`http://[fd00::1]:8787${tail}`)!.server).toBe('ws://[fd00::1]:8787');
+    expect(parseInvite(`https://ROOMS.Example.org${tail}`)!.server).toBe('wss://rooms.example.org');
+  });
   it('signs the documented text', () => {
     expect(signingInput('auth', 'k7q2m9xa4tdp', 'NONCE')).toBe('w-rooms/2 auth K7Q2M9XA4TDP NONCE');
   });
@@ -137,7 +157,11 @@ describe('closeMessage', () => {
     expect(closeMessage(4001, 'relay full', shared)).toBe('The room server is full. Try again later.');
     expect(closeMessage(4429, 'too many attempts', shared)).toBe('Too many attempts. Try again in a minute.');
     expect(closeMessage(4426, 'Update W Annotator to join this room', shared)).toBe('Update W Annotator to join this room');
+    expect(closeMessage(4426, 'The host is on an older version', shared)).toBe('The host is on an older version');
+    // Any other text would be the room server's own words shown as ours.
+    expect(closeMessage(4426, 'Your licence has expired. Visit example.org', shared)).toBe('Update W Annotator to join this room');
     expect(closeMessage(4401, 'not a member', shared)).toBe('You are not a member of this room.');
+    expect(closeMessage(4999, '', view)).toBe('The room server sent something that does not fit this room, so you left it. Nothing was saved on this device.');
     expect(closeMessage(4003, 'signed in elsewhere', shared)).toBe('This room was opened somewhere else with your invite.');
     expect(closeMessage(1006, '', shared)).toBe("Can't reach the room server. Check your network and try again in a minute.");
   });
@@ -160,6 +184,21 @@ describe('names', () => {
     expect(names.get(20)).toBe('Ana 2');
     expect(names.get(30)).toBe('ana 3');
     expect(names.get(40)).toBe('Ben');
+  });
+  it('never numbers the host, whatever ids the others have', () => {
+    const names = displayNames([10, 20, 30], new Map([[10, 'Mina'], [20, 'Mina'], [30, 'mina']]), 20);
+    expect(names.get(20)).toBe('Mina');
+    expect(names.get(10)).toBe('Mina 2');
+    expect(names.get(30)).toBe('mina 3');
+  });
+  it('drops characters that could disguise a name', () => {
+    expect(cleanPeerName('Ana\u202Egro.exe')).toBe('Anagro.exe');
+    expect(cleanPeerName('A\u0000n\na\u200B\u2066')).toBe('A n a');
+    expect(cleanPeerName('\u202E\u200F')).toBeNull();
+    expect(cleanPeerName('  Ben  ')).toBe('Ben');
+    expect(cleanPeerName('x'.repeat(40))!.length).toBe(24);
+    expect(cleanPeerName(7)).toBeNull();
+    expect(cleanText('Liver\u202E\t(left)', 64)).toBe('Liver (left)');
   });
   it('gives a plain name to someone who has not said theirs yet', () => {
     expect(displayNames([5], new Map()).get(5)).toBe('Someone');

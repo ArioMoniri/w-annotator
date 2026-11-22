@@ -10,6 +10,7 @@ import {
   nudgeWindow,
   parseWindowPresets,
   percentileWindow,
+  windowSetFor,
   presetNameError,
   sameWindow,
   sampleValues,
@@ -341,5 +342,19 @@ describe('actual size', () => {
   });
   it('changes nothing when the view is not known', () => {
     expect(actualSizeFactor(0, [1, 1])).toBe(1);
+  });
+});
+
+describe('an 8-bit picture of someone else\'s view', () => {
+  const source = { auto: { lower: 0, upper: 255 }, range: [0, 255] as [number, number], mr: { soft: { lower: 0, upper: 255 }, fluid: { lower: 0, upper: 255 }, dark: { lower: 0, upper: 255 } } };
+  it('offers the whole grey scale and nothing in Hounsfield units', () => {
+    const choices = windowChoices(source, [{ name: 'Mine', w: 400, l: 40 }], 'grey');
+    expect(choices).toEqual([{ name: 'Full range', voi: { lower: 0, upper: 255 }, kind: 'full' }]);
+  });
+  it('is the set for such an image whatever list was asked for', () => {
+    expect(windowSetFor({ ct: false, grey: true }, 'ct')).toBe('grey');
+    expect(windowSetFor({ ct: true }, null)).toBe('ct');
+    expect(windowSetFor({ ct: false }, null)).toBe('mr');
+    expect(windowSetFor({ ct: false }, 'ct')).toBe('ct');
   });
 });
