@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- "Open the sample" on the start screen, for anyone who skipped the welcome tour.
+
+### Changed
+
+- Messages about a cut, a fill or removed islands give the amount in mL or mm³, like the measurements, where some counted voxels. The fill preview does the same.
+- The options strip keeps whole words in a narrow window. Where there is no room, a group of buttons becomes a list with the same choices; "Fill between slices" has that one name at every width.
+- The MR window that was called "Soft tissue" is now "Mid range". Soft tissue is a CT window with a fixed meaning; the MR one is worked out from the image. The window itself is the same.
+- The Pancreas preset (W 150, L 65) is described as what it is: a narrow window chosen for a contrast-enhanced pancreas, not a standard preset. Its numbers are unchanged.
+- The hint under "Remove island" says that a segment in one piece is removed whole.
+
+### Fixed
+
+- Undo on a message could undo a newer step than the one the message was about. The button now goes as soon as another edit, an undo or a redo is made.
+- A message no longer disappears while the pointer is on it or while it has keyboard focus.
+- Undo or redo during a fill preview left the preview on screen, and Apply then found nothing to fill. Undo and redo now cancel the preview first.
+- "Erase outside" on one slice said nothing when it removed parts that were out of view in a zoomed-in view. It now says how much, with Undo.
+- "Remove island" on a segment in one piece says that all of it was removed.
+- The Window / Level strip could not set a width under 1, which made it useless on images scaled 0 to 1. The smallest width and the arrow-key step now follow the image's range.
+- In a narrow window the hint about Ctrl-drag (⌘-drag) for a window from a box disappeared. It is now the tooltip of the W and L fields.
+- Low contrast: the W and L numbers beside a preset and the segment number were hard to read on a selected or pointed-at row.
+- The view name and the slice counter were hard to read over a bright image. Each now has a small dark backing.
+- The README and Settings → Help gave CC BY 4.0 for both sources of the sample. LIDC-IDRI is CC BY 3.0.
+
 ## [0.1.2] - 2026-11-21
 
 ### Added

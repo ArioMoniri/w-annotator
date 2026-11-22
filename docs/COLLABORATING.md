@@ -67,7 +67,7 @@ These are the places where a change that looks harmless has caused real bugs.
 - **The options strip must not overflow, and must not shorten words.** It tightens itself in steps and has tests at narrow widths: hints go first, then groups of buttons become lists with the same names. Add controls sparingly.
 - **Dialogs use the shared `Modal`,** which handles Tab, Shift+Tab and Esc on every platform.
 - **Rooms send display names and mask edits only.** Nothing else leaves the machine. There is no telemetry and the app holds no GitHub token.
-- **No real patient data,** anywhere: tests, screenshots, issues, the README. Fixtures are synthetic or from open datasets with attribution.
+- **No private patient data,** anywhere: tests, screenshots, issues, the README. Fixtures are synthetic, or from open datasets with attribution such as the LUNA16 sample.
 
 ### WebKit is not Chromium
 
