@@ -98,15 +98,19 @@ test('the window is always shown in the status bar, with the name of its preset,
   expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
-test('a CT image lists Abdomen and Pancreas, and choosing one applies its width and level', async ({ page }) => {
+/** The Pancreas item itself, not "Pancreas, narrow". */
+const PANCREAS = /^Pancreas(?!,)/;
+
+test('a CT image lists Abdomen and both pancreas windows, and choosing one applies its width and level', async ({ page }) => {
   await openCt(page);
   await page.keyboard.press('b');
   await readout(page).click();
   const menu = windowMenu(page);
   await expect(menu).toBeVisible();
-  for (const name of ['Soft tissue', 'Abdomen', 'Liver', 'Pancreas', 'Lung', 'Bone', 'Brain', 'Auto', 'Full range']) {
-    await expect(menu.getByRole('menuitemradio', { name: new RegExp(`^${name}\\b`) })).toBeVisible();
-  }
+  const names = ['Soft tissue', 'Abdomen', 'Liver', 'Pancreas', 'Pancreas, narrow', 'Lung', 'Bone', 'Brain', 'Stroke', 'Subdural', 'Auto', 'Full range'];
+  // In this order, with the two pancreas windows after Abdomen and Liver.
+  expect(await menu.getByRole('menuitemradio').evaluateAll((items) => items.map((i) => (i as HTMLElement).dataset.preset))).toEqual(names);
+  for (const item of await menu.getByRole('menuitemradio').all()) await expect(item).toBeVisible();
   await expect(menu.getByRole('menuitemradio', { name: /^Bright fluid/ })).toHaveCount(0);
   await expect(menu.getByRole('menuitemradio', { name: /^Soft tissue/ })).toHaveAttribute('aria-checked', 'true');
   // The menu is whole and inside the window.
@@ -114,10 +118,17 @@ test('a CT image lists Abdomen and Pancreas, and choosing one applies its width 
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(1280);
 
-  await menu.getByRole('menuitemradio', { name: /^Pancreas/ }).click();
+  // The window published pancreas CT studies show the gland on.
+  await menu.getByRole('menuitemradio', { name: PANCREAS }).click();
   await expect(menu).toBeHidden();
+  expect(await wl(page)).toEqual({ w: 350, l: 40 });
+  await expect(readout(page)).toHaveText(/W\s*350\s*L\s*40\s*Pancreas\s*$/);
+
+  // The narrow one this project chose is still there, under its own name.
+  await readout(page).click();
+  await windowMenu(page).getByRole('menuitemradio', { name: /^Pancreas, narrow/ }).click();
   expect(await wl(page)).toEqual({ w: 150, l: 65 });
-  await expect(readout(page)).toHaveText(/W\s*150\s*L\s*65\s*Pancreas/);
+  await expect(readout(page)).toHaveText(/W\s*150\s*L\s*65\s*Pancreas, narrow/);
 
   await readout(page).click();
   await windowMenu(page).getByRole('menuitemradio', { name: /^Abdomen/ }).click();
@@ -159,6 +170,42 @@ test('the window menu works from the keyboard', async ({ page }) => {
   await expect(readout(page)).toBeFocused();
 });
 
+test('the CT window menu is whole on screen in a 1024 by 640 window, with every saved preset', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 640 });
+  await openCt(page);
+  // The most presets a person can save.
+  await page.evaluate(() => {
+    const presets = Array.from({ length: 12 }, (_, i) => ({ name: `Site ${i + 1}`, w: 500 + i, l: 10 + i }));
+    window.__w.settings.setSetting('windowPresets', presets);
+  });
+  await readout(page).click();
+  const menu = windowMenu(page);
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(12 + 12);
+  const box = (await menu.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(1024);
+  expect(box.y + box.height).toBeLessThanOrEqual(640);
+  // Every item can be reached: the first and the last are on screen once scrolled to, inside the menu.
+  for (const name of [/^Soft tissue/, /^Pancreas, narrow/, /^Full range/]) {
+    const item = menu.getByRole('menuitemradio', { name });
+    await item.scrollIntoViewIfNeeded();
+    const b = (await item.boundingBox())!;
+    expect(b.y).toBeGreaterThanOrEqual(box.y);
+    expect(b.y + b.height).toBeLessThanOrEqual(box.y + box.height + 0.5);
+  }
+  // Without saved presets nothing needs scrolling at all.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.__w.settings.setSetting('windowPresets', []));
+  await readout(page).click();
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(12);
+  expect(await menu.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+  const plain = (await menu.boundingBox())!;
+  expect(plain.y).toBeGreaterThanOrEqual(0);
+  expect(plain.y + plain.height).toBeLessThanOrEqual(640);
+});
+
 test('an image that is not CT lists windows worked out from its own values', async ({ page }) => {
   await openMr(page);
   expect(await state<boolean>(page, 'image.ct')).toBe(false);
@@ -190,7 +237,7 @@ test('an image that is not CT lists windows worked out from its own values', asy
   // The guess can be overruled: the CT list is one click away, and back.
   await readout(page).click();
   await menu.getByRole('group', { name: 'Presets for' }).getByRole('button', { name: 'CT' }).click();
-  await expect(menu.getByRole('menuitemradio', { name: /^Pancreas/ })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: PANCREAS })).toBeVisible();
   await expect(menu.getByRole('menuitemradio', { name: /^Bright fluid/ })).toHaveCount(0);
   await menu.getByRole('group', { name: 'Presets for' }).getByRole('button', { name: 'MR' }).click();
   await expect(menu.getByRole('menuitemradio', { name: /^Bright fluid/ })).toBeVisible();
@@ -201,6 +248,15 @@ test('P and Shift+P step through the presets, and the digits still pick segments
   await page.keyboard.press('p');
   await expect(readout(page)).toContainText('Abdomen');
   await page.keyboard.press('p');
+  await expect(readout(page)).toContainText('Liver');
+  // Both pancreas windows come next, then Lung.
+  await page.keyboard.press('p');
+  await expect(readout(page)).toHaveText(/W\s*350\s*L\s*40\s*Pancreas\s*$/);
+  await page.keyboard.press('p');
+  await expect(readout(page)).toContainText('Pancreas, narrow');
+  await page.keyboard.press('p');
+  await expect(readout(page)).toContainText('Lung');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+P');
   await expect(readout(page)).toContainText('Liver');
   await page.keyboard.press('Shift+P');
   await page.keyboard.press('Shift+P');
@@ -545,8 +601,11 @@ test('the Window / Level strip keeps its controls and lists saved presets', asyn
   await page.keyboard.press('w');
   const preset = page.getByLabel('Preset', { exact: true });
   await preset.selectOption('Pancreas');
-  expect(await wl(page)).toEqual({ w: 150, l: 65 });
+  expect(await wl(page)).toEqual({ w: 350, l: 40 });
   await expect(preset).toHaveValue('Pancreas');
+  await preset.selectOption('Pancreas, narrow');
+  expect(await wl(page)).toEqual({ w: 150, l: 65 });
+  await expect(preset).toHaveValue('Pancreas, narrow');
   await page.getByLabel('Window width').fill('900');
   await page.keyboard.press('Enter');
   await expect(preset).toHaveValue('');

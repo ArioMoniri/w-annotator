@@ -125,6 +125,82 @@ export function paneGrowth(from: Size, to: Size, image: Size): number {
   return fit(to) / fit(from);
 }
 
+/**
+ * A state in which a view shows its image enlarged: `large` while it is in the large pane of
+ * "1 large and 3 stacked", `maximised` while it is shown alone. Maximise goes on top of large.
+ */
+export type Enlarging = 'large' | 'maximised';
+
+/** How many times a view's image was enlarged on entering each state it is in now. */
+export type Growth = Partial<Record<Enlarging, number>>;
+
+export interface ViewPlan {
+  /** The pane an image opened in this view is sized for before any enlargement. */
+  home: Size;
+  /** The states the view is in, each with the pane it grows from and the pane it grows to. */
+  enlarge: Partial<Record<Enlarging, { from: Size; to: Size }>>;
+}
+
+const sizeOf = (r: Rect): Size => ({ w: r.w, h: r.h });
+
+/**
+ * For each view the arrangement has a place for, which enlarging states it is in.
+ *
+ * The view in the large pane of "1 large and 3 stacked" grows from the pane it has in 2 × 2,
+ * and the other three are sized as in 2 × 2 as well, so the result is the same whichever
+ * layout the image was opened in and whichever view is swapped into the large pane. A maximised
+ * view grows from the pane the layout gives it. Views hidden behind a maximised one keep their plan.
+ */
+export function growthPlan(
+  layout: LayoutId,
+  order: ViewOrder,
+  maximized: ViewId | null,
+  width: number,
+  height: number,
+): Partial<Record<ViewId, ViewPlan>> {
+  const out: Partial<Record<ViewId, ViewPlan>> = {};
+  const panes = paneRects(layout, width, height).map(sizeOf);
+  if (!panes.length) return out;
+  const grid = layout === 'focus' ? paneRects('grid', width, height).map(sizeOf) : panes;
+  panes.forEach((pane, i) => {
+    const plan: ViewPlan = { home: grid[i], enlarge: {} };
+    if (layout === 'focus' && i === 0) plan.enlarge.large = { from: grid[0], to: pane };
+    out[order[i]] = plan;
+  });
+  if (maximized) {
+    const full = sizeOf(paneRects('single', width, height)[0]);
+    const plan = out[maximized] ?? { home: full, enlarge: {} };
+    plan.enlarge.maximised = { from: panes[order.indexOf(maximized)] ?? full, to: full };
+    out[maximized] = plan;
+  }
+  return out;
+}
+
+export function totalGrowth(held: Growth): number {
+  return (held.large ?? 1) * (held.maximised ?? 1);
+}
+
+/**
+ * Moves a view from the states it is in (`held`) to the ones it should be in (`want`).
+ * `factor` is how many times larger its image is drawn after the move; `held` is what to remember.
+ *
+ * Entering a state multiplies by the growth of the pane, which is remembered. Leaving divides
+ * by what was remembered, not by what the panes would give now, so a view returns to the scale
+ * it had, whatever was resized or zoomed in between. A view that stays maximised stays as it
+ * is on screen while the layout changes underneath: its two factors are shared out again and
+ * their product is kept.
+ */
+export function stepGrowth(held: Growth, want: ViewPlan['enlarge'], image: Size): { held: Growth; factor: number } {
+  const before = totalGrowth(held);
+  const next: Growth = {};
+  if (want.large) next.large = held.large ?? paneGrowth(want.large.from, want.large.to, image);
+  if (want.maximised) {
+    next.maximised = held.maximised === undefined ? paneGrowth(want.maximised.from, want.maximised.to, image) : before / (next.large ?? 1);
+  }
+  const after = totalGrowth(next);
+  return { held: next, factor: after === before ? 1 : after / before };
+}
+
 /** The part of the segment a–b that lies inside `box` (Liang–Barsky), or null when none does. */
 export function clipSegment(
   a: readonly [number, number],

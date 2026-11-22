@@ -16,6 +16,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The desktop app has a content security policy: scripts only from the app, and no connections except to room servers.
 - A room's keys are removed from the device when the room is deleted, when you are removed from it, and when you forget the room.
 - `docs/design/ROOMS-PROTOCOL.md` describes protocol 3, with test vectors; `docs/reviews/rooms-security.md` and `SECURITY.md` say what is closed and what is left.
+- In "1 large and 3 stacked" the view in the large pane shows its image enlarged to fill the pane, as a maximised view does. It goes back to its size when it leaves the large pane, and a view swapped in grows in its place.
+- The Pancreas preset is now W 350, L 40: a soft-tissue window of the kind published pancreas CT studies use (W 350, L 40 as reported for Radiology 2010, doi:10.1148/radiol.10091819; W 400, L 40 in Cancer Imaging 2023, doi:10.1186/s40644-023-00637-9). There is no dedicated standard pancreas window. The earlier narrow window (W 150, L 65) stays as "Pancreas, narrow", for low-attenuation lesions on a contrast-enhanced scan.
+
+### Fixed
+
+- An image opened while the layout was "1 large and 3 stacked" stayed zoomed in after going back to 2 × 2. It now looks the same whichever layout it was opened in.
 
 ## [0.1.3] - 2026-11-22
 

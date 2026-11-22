@@ -9,7 +9,7 @@ import { useDismiss, useKeyHint } from './common';
 import { attachViewportGestures } from './gestureInput';
 import { attachMaskPointer } from './maskPointer';
 import { voxelAt } from '../viewer/geometry';
-import { parseLayout, parseOrder, placeViews } from '../viewer/layout';
+import { growthPlan, parseLayout, parseOrder, placeViews } from '../viewer/layout';
 
 const VIEWS: { id: ViewId; label: string; letters?: [string, string, string, string] }[] = [
   // letters: top, bottom, left, right — patient directions for the standard radiological views
@@ -203,7 +203,8 @@ export function Viewports() {
     const grid = gridRef.current;
     if (!grid) return;
     const a = arrangement.current;
-    const rects = placeViews(a.layout, parseOrder(a.viewOrder), a.maximized, grid.clientWidth, grid.clientHeight);
+    const order = parseOrder(a.viewOrder);
+    const rects = placeViews(a.layout, order, a.maximized, grid.clientWidth, grid.clientHeight);
     for (const { id } of VIEWS) {
       const cell = cells.current[id];
       if (!cell) continue;
@@ -215,7 +216,7 @@ export function Viewports() {
       cell.style.width = `${r.w}px`;
       cell.style.height = `${r.h}px`;
     }
-    engine.resizeViewports(a.maximized);
+    engine.resizeViewports(growthPlan(a.layout, order, a.maximized, grid.clientWidth, grid.clientHeight));
     // Keys act on the active view, so it has to be one that is on screen.
     const active = useStore.getState().activeView;
     const first = VIEWS.find((v) => rects[v.id]);
