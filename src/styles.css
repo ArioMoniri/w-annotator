@@ -2292,10 +2292,6 @@ button.avatar {
 
 /* ── Options strip: tighten until it fits ──────── */
 
-.strip .btn .short {
-  display: none;
-}
-
 .strip[data-compact='1'] .hint,
 .strip[data-compact='2'] .hint,
 .strip[data-compact='3'] .hint,
@@ -2311,16 +2307,6 @@ button.avatar {
 .strip[data-compact='2'] .options,
 .strip[data-compact='3'] .options {
   gap: 8px;
-}
-
-.strip[data-compact='2'] .btn .long,
-.strip[data-compact='3'] .btn .long {
-  display: none;
-}
-
-.strip[data-compact='2'] .btn .short,
-.strip[data-compact='3'] .btn .short {
-  display: inline;
 }
 
 .strip[data-compact='2'] .seg-control button,
@@ -3341,18 +3327,11 @@ select.select.paintover {
   text-overflow: ellipsis;
 }
 
-.seg-control button .short {
-  display: none;
-}
-
-.strip[data-compact='2'] .seg-control button .long,
-.strip[data-compact='3'] .seg-control button .long {
-  display: none;
-}
-
-.strip[data-compact='2'] .seg-control button .short,
-.strip[data-compact='3'] .seg-control button .short {
-  display: inline;
+/* A group of buttons that became a list (Choice, collapsed). As wide as its longest option. */
+select.select.choice {
+  flex: none;
+  max-width: 132px;
+  text-overflow: ellipsis;
 }
 
 .strip[data-compact='2'] .seg-control select.inside,
@@ -3507,7 +3486,13 @@ select.select.paintover {
   min-width: 0;
 }
 
-/* The window hint is shown whole or not at all: when it does not fit, the strip compacts and drops it. */
+/* A field that carries a dropped hint as its tip shows it for the keyboard too. */
+.strip .options .field.hinted[data-tip]:focus-within::after {
+  opacity: 1;
+  transition: opacity var(--dur-fast) linear var(--tip-delay);
+}
+
+/* The window hint is shown whole or not at all: when it does not fit, the strip compacts and the hint becomes the tip of the W and L fields. */
 .strip[data-strip='window'] .hint {
   flex: none;
 }

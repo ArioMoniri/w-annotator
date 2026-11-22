@@ -98,15 +98,25 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Crosshair | Hint: `Click to move all views to a point.` |
 | Pan | Hint: `Drag to move the image.` |
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
-| Window / Level | Preset select (the same list as the window menu in the status bar, 2.6; `Custom` when the window is no preset) · `W` number · `L` number · `Reset` (the Auto window) · hint `Ctrl-drag a box to set the window from it.` (`⌘-drag` on a Mac; the hint is shown whole or not at all). Ctrl-drag (⌘-drag) on a slice view draws a box, a dashed white line with a dark edge in the layer the scissors outline uses; on release the window becomes the 1st–99th percentile of the values under it on that slice. Esc drops the box. Nothing is written. On a trackpad a two-finger scroll changes the level (up and down) or the width (sideways) instead of the slice; Shift+scroll changes slice. |
-| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. · `Fill between slices` button. |
+| Window / Level | Preset select (the same list as the window menu in the status bar, 2.6; `Custom` when the window is no preset) · `W` number · `L` number · `Reset` (the Auto window) · hint `Ctrl-drag a box to set the window from it.` (`⌘-drag` on a Mac; the hint is shown whole or not at all: where it has no room it becomes the tooltip of the `W` and `L` fields, shown on hover and while either field has the focus). Ctrl-drag (⌘-drag) on a slice view draws a box, a dashed white line with a dark edge in the layer the scissors outline uses; on release the window becomes the 1st–99th percentile of the values under it on that slice. Esc drops the box. Nothing is written. On a trackpad a two-finger scroll changes the level (up and down) or the width (sideways) instead of the slice; Shift+scroll changes slice. |
+| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, then Paint over becomes one list with the same choices, so nothing is cut off. · `Fill between slices` button, with that one name at every width. |
 | Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1.2 mL between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, undo, redo or saving cancels with a toast. Scrolling, zoom and window work as usual. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
 | Threshold brush | Range dual slider + two numbers (image units) · Size slider + number · Paint over select (`Everything`, `Empty only`, `Only <segment>` for each other segment) |
 | Scissors | Shape `Rectangle / Circle / Freehand / Sphere` · Action `Erase inside / Erase outside / Fill inside` (no Erase outside for Sphere) · Depth `This slice / All slices` (not for Sphere) · Paint over select, only with Fill inside. Freehand: drag a loop, release to close it; where it crosses itself the even-odd rule decides. The outline being drawn is a dashed white line with a dark edge, in a layer over the view. Esc while dragging drops it. Erasing changes the active segment only. A cut that changed something not on screen answers with a toast and Undo: a cut through all slices, and Erase outside on one slice when part of what it erased was beyond the edge of the view. |
 | Fill | Action `Fill area / Remove island / Keep island` · Paint over select, only with Fill area · hint for the action. An island is a piece of the active segment joined through voxel faces, in 3D. |
 
-Where the strip is tight (compact level 2 and up) segmented buttons show a short label and keep the full one as their accessible name: `Rect`, `Free`, `Erase in`, `Erase out`, `Fill`, `Slice`, `All`, `Remove`, `Keep`. The chip names the paint over limit for tools that add voxels: `Tumour, inside Liver` or `Tumour, empty only`.
+**When the strip is tight.** The strip never scrolls, wraps or cuts a control off, and it never shortens a word: one control has one name at every width. It tightens in steps, each tried before the frame is painted, until its controls fit:
+
+| Step | What gives way |
+|---|---|
+| 1 | Hints and field labels. A hint that names a gesture (Window / Level) becomes a tooltip instead of going. |
+| 2 | Gaps close to 8, units go, and a segmented control with three or more options (Scissors shape and action, Fill action, the brush's Paint over) becomes a list: a `select` with the same accessible name and the same options in full. |
+| 3 | Every segmented control becomes a list, sliders go (the number fields stay), and the chip keeps only its swatch. |
+
+A list made this way shows the option in use, is at most 132 wide, and gives the keyboard back to the tool shortcuts after a choice. At 1024 wide the scissors strip reads `Freehand ▾ · Erase outside ▾ · This slice / All slices`. Do not add a control to the brush strip without removing one.
+
+The chip names the paint over limit for tools that add voxels: `Tumour, inside Liver` or `Tumour, empty only`.
 
 Alt-click on a slice view, with any tool, makes the segment under the cursor the active one. Its row scrolls into view and is tinted once (`--accent-soft`, 600 ms, as a new row). Hidden segments are not picked; nothing is painted.
 
@@ -593,7 +603,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Pan | Drag to move the image. |
 | Zoom | Drag up or down to zoom. · Fit |
 | Window / Level | Preset · Custom · Soft tissue · Abdomen · Liver · Pancreas · Lung · Bone · Brain · Stroke · Subdural · Auto · Full range · Mid range · Bright fluid · Dark detail · W · L · Reset · Ctrl-drag a box to set the window from it. (⌘-drag on a Mac) · toast when the box misses the image: Drag the box over the image to set the window from it. |
-| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices (short: Fill gaps) |
+| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices |
 | Paint over tooltip | Empty only keeps other segments as they are. (select: … Only paints inside one segment.) · list tooltip: Paint only inside one segment |
 | Fill preview | Preview: 1.2 mL between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
 | Eraser | Size · px · Shape · Circle · Sphere · Active segment only |

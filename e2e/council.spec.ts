@@ -326,3 +326,103 @@ for (const scheme of ['dark', 'light'] as const) {
     }
   });
 }
+
+/* ───────────────────────── options strip at narrow widths ───────────────────────── */
+
+const SHORTENED = ['Rect', 'Free', 'Erase in', 'Erase out', 'Fill', 'Slice', 'All', 'Remove', 'Keep', 'Fill gaps'];
+
+/** The words on show in the strip's controls: button text, and the option each list is on. */
+const stripWords = (page: Page) =>
+  page.locator('.strip .options').evaluate((el) => {
+    const shown = (e: Element) => (e as HTMLElement).offsetParent !== null;
+    const buttons = Array.from(el.querySelectorAll('button')).filter(shown).map((b) => (b as HTMLElement).innerText.trim());
+    const lists = Array.from(el.querySelectorAll('select')).filter(shown).flatMap((s) => Array.from(s.options).map((o) => o.text.trim()));
+    return [...buttons, ...lists];
+  });
+
+/** The options of one choice in the strip, by name, whether it is a group of buttons or a list. */
+async function optionsOf(page: Page, name: string): Promise<{ kind: 'group' | 'list'; options: string[]; chosen: string }> {
+  const group = page.getByRole('group', { name, exact: true });
+  if ((await group.count()) > 0) {
+    const buttons = group.getByRole('button');
+    const options: string[] = [];
+    for (const b of await buttons.all()) options.push((await b.getAttribute('aria-label')) ?? (await b.innerText()).trim());
+    return { kind: 'group', options, chosen: (await group.locator('[aria-pressed="true"]').innerText()).trim() };
+  }
+  const list = page.getByRole('combobox', { name, exact: true });
+  return {
+    kind: 'list',
+    options: await list.locator('option').allInnerTexts(),
+    chosen: await list.evaluate((el) => (el as HTMLSelectElement).selectedOptions[0].text),
+  };
+}
+
+for (const width of [1280, 1024]) {
+  test(`the scissors and fill strips keep whole words at ${width} wide`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1280 ? 800 : 640 });
+    await openPhantom(page);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(150);
+    for (const word of await stripWords(page)) expect(SHORTENED, `"${word}" in the scissors strip`).not.toContain(word);
+    expect((await optionsOf(page, 'Scissors shape')).options).toEqual(['Rectangle', 'Circle', 'Freehand', 'Sphere']);
+    expect((await optionsOf(page, 'Scissors action')).options).toEqual(['Erase inside', 'Erase outside', 'Fill inside']);
+    expect((await optionsOf(page, 'Scissors depth')).options).toEqual(['This slice', 'All slices']);
+
+    // Each choice still works, by the same names, and shows what is chosen.
+    await choose(page, 'Scissors shape', 'Freehand');
+    await choose(page, 'Scissors action', 'Erase outside');
+    await choose(page, 'Scissors depth', 'All slices');
+    expect(await page.evaluate(() => {
+      const s = window.__w.store.getState();
+      return [s.scissorsShape, s.scissorsAction, s.scissorsDepth];
+    })).toEqual(['freehand', 'outside', 'all']);
+    expect((await optionsOf(page, 'Scissors shape')).chosen).toBe('Freehand');
+    expect((await optionsOf(page, 'Scissors action')).chosen).toBe('Erase outside');
+    expect((await optionsOf(page, 'Scissors depth')).chosen).toBe('All slices');
+    // A list gives the keyboard back, so the tool keys still work after a choice.
+    await page.keyboard.press('f');
+    await expect(page.locator('.strip')).toHaveAttribute('data-strip', 'fill');
+    await page.waitForTimeout(150);
+    for (const word of await stripWords(page)) expect(SHORTENED, `"${word}" in the fill strip`).not.toContain(word);
+    expect((await optionsOf(page, 'Fill action')).options).toEqual(['Fill area', 'Remove island', 'Keep island']);
+  });
+
+  test(`Fill between slices has one name at ${width} wide`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1280 ? 800 : 640 });
+    await openPhantom(page);
+    await page.keyboard.press('b');
+    await page.waitForTimeout(150);
+    const fill = page.getByRole('button', { name: 'Fill between slices' });
+    await expect(fill).toBeVisible();
+    expect((await fill.innerText()).trim()).toBe('Fill between slices');
+    await expect(page.locator('.strip', { hasText: 'Fill gaps' })).toHaveCount(0);
+    // The paint over choices are all there, as buttons or as one list.
+    const over = await optionsOf(page, 'Paint over');
+    expect(over.options.slice(0, 2)).toEqual(['Everything', 'Empty only']);
+    await choose(page, 'Paint over', 'Empty only');
+    expect(await page.evaluate(() => window.__w.store.getState().paintOver)).toBe('empty');
+  });
+}
+
+test('at 1024 wide the window hint moves to a tooltip and is not lost', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openPhantom(page);
+  await page.keyboard.press('w');
+  const hint = `${process.platform === 'darwin' ? '⌘' : 'Ctrl'}-drag a box to set the window from it.`;
+  await expect(page.locator('.strip .hint')).toHaveText(hint);
+  await expect(page.locator('.strip .hint')).toBeVisible();
+  await expect(page.locator(`.strip [data-tip="${hint}"]`)).toHaveCount(0);
+
+  await page.setViewportSize({ width: 1024, height: 640 });
+  await expect(page.locator('.strip .hint')).toBeHidden();
+  const tipped = page.locator(`.strip [data-tip="${hint}"]`);
+  await expect(tipped).toHaveCount(1);
+  // Shown when the field is pointed at, and when the keyboard is in it.
+  const tipOpacity = () => tipped.evaluate((el) => getComputedStyle(el, '::after').opacity);
+  await tipped.hover();
+  await expect.poll(tipOpacity).toBe('1');
+  await page.mouse.move(5, 5);
+  await expect.poll(tipOpacity).toBe('0');
+  await page.getByLabel('Window width').focus();
+  await expect.poll(tipOpacity).toBe('1');
+});

@@ -467,6 +467,7 @@ for (const size of [
     await fits('scissors');
     await choose(page, 'Scissors shape', 'Sphere');
     await expect(page.getByRole('group', { name: 'Scissors depth' })).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Scissors depth' })).toHaveCount(0);
     await fits('scissors-sphere');
 
     await page.keyboard.press('f');

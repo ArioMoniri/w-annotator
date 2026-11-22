@@ -272,7 +272,8 @@ for (const size of [
     };
     await page.keyboard.press('b');
     await expect(page.locator('.segrow').first().getByTestId('segment-volume')).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Paint over' })).toBeVisible();
+    // Three buttons where there is room, one list with the same name and choices where there is not.
+    await expect(page.getByRole('group', { name: 'Paint over' }).or(page.getByRole('combobox', { name: 'Paint over' }))).toBeVisible();
     // Nothing in the brush strip is cut off, also with a wider system font than this machine's.
     const overflow = () =>
       page.evaluate(() => {

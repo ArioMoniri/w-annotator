@@ -64,7 +64,7 @@ These are the places where a change that looks harmless has caused real bugs.
 - **Opening or closing the sidebar and resizing the window keep the image at the same physical scale.** Maximising a view is the one exception. Tests assert both.
 - **Shortcuts are rebindable.** Register a new key in `src/state/shortcuts.ts`; do not add a raw key listener.
 - **Labels differ by platform.** A Mac shows `⌘` and `⌥` where Windows and Linux show `Ctrl` and `Alt`. Use the helpers in `src/ui/common.tsx`, and in tests expect the label for the platform the test runs on.
-- **The options strip must not overflow.** It compacts itself in steps and has a test at narrow widths. Add controls sparingly.
+- **The options strip must not overflow, and must not shorten words.** It tightens itself in steps and has tests at narrow widths: hints go first, then groups of buttons become lists with the same names. Add controls sparingly.
 - **Dialogs use the shared `Modal`,** which handles Tab, Shift+Tab and Esc on every platform.
 - **Rooms send display names and mask edits only.** Nothing else leaves the machine. There is no telemetry and the app holds no GitHub token.
 - **No real patient data,** anywhere: tests, screenshots, issues, the README. Fixtures are synthetic or from open datasets with attribution.
