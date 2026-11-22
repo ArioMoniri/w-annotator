@@ -6,14 +6,20 @@ import {
   assignView,
   clipSegment,
   formatOrder,
+  growthPlan,
   paneGrowth,
   paneRects,
   parseLayout,
   parseOrder,
   placeViews,
+  stepGrowth,
+  totalGrowth,
+  type Growth,
+  type ViewPlan,
   swapViews,
   type LayoutId,
   type Rect,
+  type ViewOrder,
 } from './layout';
 
 const SIZES: [number, number][] = [
@@ -246,5 +252,180 @@ describe('paneGrowth', () => {
     expect(paneGrowth({ w: 0, h: 300 }, { w: 400, h: 300 }, square)).toBe(1);
     expect(paneGrowth({ w: 400, h: 300 }, { w: 400, h: 0 }, square)).toBe(1);
     expect(paneGrowth({ w: 400, h: 300 }, { w: 800, h: 600 }, { w: 0, h: 100 })).toBe(1);
+  });
+});
+
+describe('growthPlan', () => {
+  const W = 1002;
+  const H = 602;
+  const size = (r: Rect) => ({ w: r.w, h: r.h });
+  const grid = paneRects('grid', W, H).map(size);
+  const focus = paneRects('focus', W, H).map(size);
+  const full = { w: W, h: H };
+
+  it('enlarges nothing in the layouts that have no large pane', () => {
+    for (const layout of ['grid', 'three', 'two', 'single'] as LayoutId[]) {
+      const plan = growthPlan(layout, DEFAULT_ORDER, null, W, H);
+      const panes = paneRects(layout, W, H).map(size);
+      expect(Object.keys(plan)).toEqual(DEFAULT_ORDER.slice(0, panes.length));
+      panes.forEach((pane, i) => expect(plan[DEFAULT_ORDER[i]]).toEqual({ home: pane, enlarge: {} }));
+    }
+  });
+
+  it('enlarges the view in the large pane from the pane it has in 2 × 2', () => {
+    const plan = growthPlan('focus', DEFAULT_ORDER, null, W, H);
+    expect(plan.axial).toEqual({ home: grid[0], enlarge: { large: { from: grid[0], to: focus[0] } } });
+    // The stacked views are not enlarged, and their images are sized as in 2 × 2.
+    expect(plan.sagittal).toEqual({ home: grid[1], enlarge: {} });
+    expect(plan.coronal).toEqual({ home: grid[2], enlarge: {} });
+    expect(plan.volume3d).toEqual({ home: grid[3], enlarge: {} });
+  });
+
+  it('follows the view order: whichever view is first is the large one', () => {
+    const order: ViewOrder = ['coronal', 'sagittal', 'axial', 'volume3d'];
+    const plan = growthPlan('focus', order, null, W, H);
+    expect(plan.coronal?.enlarge.large).toEqual({ from: grid[0], to: focus[0] });
+    expect(plan.axial?.enlarge).toEqual({});
+  });
+
+  it('enlarges a maximised view from the pane it has in the layout', () => {
+    expect(growthPlan('grid', DEFAULT_ORDER, 'coronal', W, H).coronal).toEqual({ home: grid[2], enlarge: { maximised: { from: grid[2], to: full } } });
+    const three = paneRects('three', W, H).map(size);
+    expect(growthPlan('three', DEFAULT_ORDER, 'sagittal', W, H).sagittal).toEqual({ home: three[1], enlarge: { maximised: { from: three[1], to: full } } });
+    // A stacked view of 1 large and 3 stacked grows from its small pane.
+    expect(growthPlan('focus', DEFAULT_ORDER, 'sagittal', W, H).sagittal).toEqual({ home: grid[1], enlarge: { maximised: { from: focus[1], to: full } } });
+  });
+
+  it('puts maximise on top of the large pane', () => {
+    const plan = growthPlan('focus', DEFAULT_ORDER, 'axial', W, H);
+    expect(plan.axial).toEqual({ home: grid[0], enlarge: { large: { from: grid[0], to: focus[0] }, maximised: { from: focus[0], to: full } } });
+  });
+
+  it('keeps the plan of the views a maximised one hides', () => {
+    const plan = growthPlan('focus', DEFAULT_ORDER, 'sagittal', W, H);
+    expect(plan.axial?.enlarge.large).toEqual({ from: grid[0], to: focus[0] });
+  });
+
+  it('does not enlarge a maximised view the layout has no pane for', () => {
+    expect(growthPlan('two', DEFAULT_ORDER, 'coronal', W, H).coronal).toEqual({ home: full, enlarge: { maximised: { from: full, to: full } } });
+  });
+
+  it('is empty for an empty area', () => {
+    expect(growthPlan('focus', DEFAULT_ORDER, null, 0, 600)).toEqual({});
+  });
+});
+
+describe('stepGrowth', () => {
+  const square = { w: 100, h: 100 };
+  const quad = { w: 500, h: 300 };
+  const large = { w: 750, h: 600 };
+  const full = { w: 1000, h: 600 };
+  const inLarge = { large: { from: quad, to: large } };
+  const maximised = { maximised: { from: quad, to: full } };
+  const both = { large: { from: quad, to: large }, maximised: { from: large, to: full } };
+
+  /** Walks a view through the states in turn, with the scale it would have on screen. */
+  function walk(steps: ViewPlan['enlarge'][], start: Growth = {}, image = square) {
+    let held = start;
+    let mmPerPx = 1;
+    const seen: number[] = [];
+    for (const want of steps) {
+      const step = stepGrowth(held, want, image);
+      held = step.held;
+      mmPerPx /= step.factor;
+      seen.push(mmPerPx);
+    }
+    return { held, mmPerPx, seen };
+  }
+
+  it('grows a view that enters the large pane by as much as its pane grew, and remembers it', () => {
+    expect(stepGrowth({}, inLarge, square)).toEqual({ held: { large: 2 }, factor: 2 });
+  });
+
+  it('shrinks it by the remembered amount when it leaves, whatever the panes are by then', () => {
+    expect(stepGrowth({ large: 2 }, {}, square)).toEqual({ held: {}, factor: 0.5 });
+    expect(stepGrowth({ large: 1.7 }, {}, square)).toEqual({ held: {}, factor: 1 / 1.7 });
+  });
+
+  it('changes nothing while the state stays, even when the panes change size', () => {
+    const resized = { large: { from: { w: 300, h: 200 }, to: { w: 900, h: 800 } } };
+    expect(stepGrowth({ large: 2 }, resized, square)).toEqual({ held: { large: 2 }, factor: 1 });
+    expect(stepGrowth({}, {}, square)).toEqual({ held: {}, factor: 1 });
+  });
+
+  it('grows a maximised view, and puts maximise on top of the large pane', () => {
+    expect(stepGrowth({}, maximised, square)).toEqual({ held: { maximised: 2 }, factor: 2 });
+    const tall = { w: 100, h: 50 };
+    const step = stepGrowth({ large: 1.5 }, both, tall);
+    expect(step.held.large).toBe(1.5);
+    expect(step.held.maximised).toBeCloseTo(1000 / 750, 12);
+    expect(step.factor).toBeCloseTo(1000 / 750, 12);
+  });
+
+  it('enters both at once for a view that is maximised as it comes into the large pane', () => {
+    const tall = { w: 100, h: 50 };
+    const step = stepGrowth({}, both, tall);
+    expect(step.held.large).toBe(1.5);
+    expect(step.factor).toBeCloseTo(2, 12);
+  });
+
+  it('returns to the starting scale after any round trip', () => {
+    const trips: ViewPlan['enlarge'][][] = [
+      [inLarge, {}],
+      [maximised, {}],
+      [inLarge, both, inLarge, {}],
+      [inLarge, both, {}],
+      [both, inLarge, {}],
+      [inLarge, {}, inLarge, {}, maximised, {}],
+      // Maximised in 2 × 2, the layout changed underneath to put it in the large pane, then restored and back.
+      [maximised, both, inLarge, {}],
+      // And the other way: maximised in the large pane, back to 2 × 2 underneath.
+      [inLarge, both, maximised, {}],
+    ];
+    for (const image of [square, { w: 100, h: 37 }, { w: 61, h: 100 }]) {
+      for (const trip of trips) {
+        const end = walk(trip, {}, image);
+        expect(end.held).toEqual({});
+        expect(end.mmPerPx).toBeCloseTo(1, 12);
+      }
+    }
+  });
+
+  it('leaves a maximised view as it is on screen when the layout changes underneath it', () => {
+    const under = walk([maximised, both]);
+    expect(under.seen[1]).toBe(under.seen[0]);
+    // Restored, it is as large as the large pane makes it.
+    expect(walk([maximised, both, inLarge]).mmPerPx).toBeCloseTo(walk([inLarge]).mmPerPx, 12);
+    const out = walk([inLarge, both, maximised]);
+    expect(out.seen[2]).toBe(out.seen[1]);
+  });
+
+  it('does not depend on a zoom of the user in between: only the remembered factor is undone', () => {
+    const into = stepGrowth({}, inLarge, square);
+    const out = stepGrowth(into.held, {}, square);
+    const zoomed = 0.37;
+    expect((zoomed / into.factor) / out.factor).toBeCloseTo(zoomed, 12);
+  });
+
+  it('gives the same result for a view fitted in the large pane as for one that came from 2 × 2', () => {
+    // Opened in 2 × 2: fitted to the quadrant, then enlarged.
+    const fromGrid = (100 / 300) / stepGrowth({}, inLarge, square).factor;
+    // Opened in the large pane: fitted to it, with the growth recorded.
+    const opened = stepGrowth({}, inLarge, square);
+    const fitted = 100 / 600;
+    expect(fitted).toBeCloseTo(fromGrid, 12);
+    expect(fitted / stepGrowth(opened.held, {}, square).factor).toBeCloseTo(100 / 300, 12);
+  });
+
+  it('counts an empty size as no growth', () => {
+    expect(stepGrowth({}, { large: { from: { w: 0, h: 0 }, to: large } }, square)).toEqual({ held: { large: 1 }, factor: 1 });
+  });
+});
+
+describe('totalGrowth', () => {
+  it('is the product of what is held, and one for nothing', () => {
+    expect(totalGrowth({})).toBe(1);
+    expect(totalGrowth({ large: 2 })).toBe(2);
+    expect(totalGrowth({ large: 2, maximised: 1.5 })).toBe(3);
   });
 });

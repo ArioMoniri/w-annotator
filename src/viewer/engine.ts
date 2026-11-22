@@ -18,7 +18,7 @@ import { cutsWithOutline, type ScissorsAction, type ScissorsDepth, type Scissors
 import { PREVIEW_DARK, PREVIEW_LIGHT } from '../mask/preview';
 import { hexToRgb } from './geometry';
 import { zoomAbout } from './gestures';
-import { paneGrowth } from './layout';
+import { paneGrowth, stepGrowth, type Growth, type ViewPlan } from './layout';
 import { LINE_CENTRE_GAP, LinkedLinesTool } from './linkedLines';
 
 const {
@@ -74,8 +74,13 @@ let maskLoaded = false;
 const drawnSize = new Map<string, { w: number; h: number }>();
 /** The views on screen now. */
 const onScreen = new Set<string>();
-/** How many times the image of a maximised view was enlarged, so that leaving maximise puts it back. */
-const enlarged = new Map<string, number>();
+/**
+ * How many times each view's image was enlarged for the large pane and for maximise, so that
+ * leaving either puts it back.
+ */
+const grown = new Map<string, Growth>();
+/** Which views are enlarged now, and the pane each is sized for, as the layout last gave it. */
+let plans: Partial<Record<string, ViewPlan>> = {};
 
 /** When the lines marking the other two planes are drawn. */
 export type LinesSetting = 'always' | 'hover' | 'crosshair';
@@ -161,7 +166,7 @@ export function mountViewports(els: ViewportElements): void {
   mounted = els;
   drawnSize.clear();
   onScreen.clear();
-  enlarged.clear();
+  grown.clear();
   lines.mode = 'Disabled';
   engine = new RenderingEngine(ENGINE_ID);
   const { ViewportType, OrientationAxis } = Enums;
@@ -495,14 +500,16 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   await setVolumesForViewports(e, [{ volumeId: IMAGE_VOLUME_ID }], [VOLUME3D_ID]);
   (e.getViewport(VOLUME3D_ID) as Types.IVolumeViewport).setProperties({ preset: 'CT-Bone' });
   imageLoaded = true;
-  enlarged.clear();
+  grown.clear();
   for (const id of ALL_IDS) {
     const vp = e.getViewport(id) as Types.IVolumeViewport;
     if (id !== VOLUME3D_ID) vp.resetCamera();
     // Fitted to the canvas as it is now. A view that is not on screen is fitted when it first appears.
     const size = canvasSize(vp);
-    if (size) drawnSize.set(id, size);
-    else drawnSize.delete(id);
+    if (size) {
+      drawnSize.set(id, size);
+      sizeForPlan(vp, id, size);
+    } else drawnSize.delete(id);
   }
   setVoi(voi.lower, voi.upper);
   if (!smoothPixels) setSmoothPixels(false);
@@ -1211,10 +1218,13 @@ function renderNow(): void {
  * which is half the view's height in millimetres, so a taller view would magnify the image.
  * A view that is not on screen is skipped and costs nothing; it is picked up here when it returns.
  *
- * The one exception is `maximised`, the view the user asked to see alone: its image grows
- * with its pane, and shrinks back by as much when the view is no longer the maximised one.
+ * The exceptions are in `next`, which the layout works out (`growthPlan`): the view in the
+ * large pane of "1 large and 3 stacked" and a maximised view. Their images grow with the pane,
+ * and shrink back by as much when the view leaves that state. Without `next` the last plan stands.
  */
-export function resizeViewports(maximised: string | null = null): void {
+export function resizeViewports(next: Partial<Record<string, ViewPlan>> = plans): void {
+  // Kept even before the viewer exists: the image that opens next is sized by it.
+  plans = next;
   if (!engine) return;
   // A frame that is still waiting makes Cornerstone skip the resize, so draw it first.
   renderNow();
@@ -1228,21 +1238,18 @@ export function resizeViewports(maximised: string | null = null): void {
       if (size) onScreen.add(id);
       else onScreen.delete(id);
     }
+    // A view that is off screen keeps what it holds; it is brought up to date when it returns.
     if (!size) continue;
     const last = drawnSize.get(id);
-    const grown = enlarged.get(id);
-    if (id !== maximised) enlarged.delete(id);
-    if (last && last.w === size.w && last.h === size.h) continue;
+    const sameSize = !!last && last.w === size.w && last.h === size.h;
     const scale = imageLoaded ? vp.getCamera().parallelScale : undefined;
-    let mmPerPx = last && scale ? (2 * scale) / last.h : null;
-    if (mmPerPx !== null && last) {
-      if (id !== maximised && grown) mmPerPx *= grown;
-      if (id === maximised && !grown) {
-        const growth = paneGrowth(last, size, imageExtent(vp));
-        enlarged.set(id, growth);
-        mmPerPx /= growth;
-      }
-    }
+    let mmPerPx: number | null = null;
+    if (last && scale) {
+      const step = stepGrowth(grown.get(id) ?? {}, plans[id]?.enlarge ?? {}, imageExtent(vp));
+      grown.set(id, step.held);
+      if (sameSize && step.factor === 1) continue;
+      mmPerPx = (2 * scale) / last.h / step.factor;
+    } else if (sameSize) continue;
     changed.push({ vp, id, size, mmPerPx });
   }
   if (changed.length) {
@@ -1250,13 +1257,29 @@ export function resizeViewports(maximised: string | null = null): void {
     for (const { vp, id, size, mmPerPx } of changed) {
       if (!imageLoaded) continue;
       if (mmPerPx !== null) vp.setCamera({ parallelScale: (mmPerPx * size.h) / 2 });
-      else fitKeepingSlice(vp, id);
+      else fitKeepingSlice(vp, id, size);
       drawnSize.set(id, size);
       vp.render();
     }
   }
   if (visibility && imageLoaded) csTools.utilities.triggerAnnotationRenderForViewportIds([...ORTHO_IDS]);
   renderNow();
+}
+
+/**
+ * Gives a view that was just fitted to its pane the size the plan asks for: fitted to its
+ * home pane, then enlarged for each state it is in. So an image opened in the large pane, or
+ * in a stacked one, is the same as one opened in 2 × 2 and moved there.
+ */
+function sizeForPlan(vp: Types.IVolumeViewport, id: string, size: { w: number; h: number }): void {
+  const plan = plans[id];
+  const image = imageExtent(vp);
+  const step = stepGrowth({}, plan?.enlarge ?? {}, image);
+  grown.set(id, step.held);
+  // From fitting this pane to fitting the home pane, and from there by the growth.
+  const by = (plan ? paneGrowth(plan.home, size, image) : 1) / step.factor;
+  const scale = vp.getCamera().parallelScale;
+  if (scale && Number.isFinite(by) && by > 0 && Math.abs(by - 1) > 1e-9) vp.setCamera({ parallelScale: scale * by });
 }
 
 /** Width and height, in millimetres, of what a view holds, as its camera sees it. */
@@ -1272,9 +1295,10 @@ function imageExtent(vp: Types.IVolumeViewport): { w: number; h: number } {
 }
 
 /** Fits a view that is on screen for the first time since the image was opened, without losing its slice. */
-function fitKeepingSlice(vp: Types.IVolumeViewport, id: string): void {
+function fitKeepingSlice(vp: Types.IVolumeViewport, id: string, size: { w: number; h: number }): void {
   const before = vp.getCamera();
   vp.resetCamera();
+  sizeForPlan(vp, id, size);
   if (id === VOLUME3D_ID) return;
   const cam = vp.getCamera();
   const n = cam.viewPlaneNormal!;

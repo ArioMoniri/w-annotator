@@ -61,7 +61,7 @@ These are the places where a change that looks harmless has caused real bugs.
 
 - **Every mask edit goes through the session's edit path** (`editMask` / `flushEdits` in `src/session.ts`). That one path feeds undo and redo, autosave and recovery, and room sync. A tool that writes voxels any other way will look fine alone and corrupt all three.
 - **Never change the image.** Orientation, laterality, spacing and voxel values are never altered for convenience. Display options change how the image is drawn, not its data.
-- **Opening or closing the sidebar and resizing the window keep the image at the same physical scale.** Maximising a view is the one exception. Tests assert both.
+- **Opening or closing the sidebar and resizing the window keep the image at the same physical scale.** Two views are the exception and show their image enlarged: a maximised view, and the view in the large pane of "1 large and 3 stacked". Each shrinks back by as much when it leaves. Tests assert all of it.
 - **Shortcuts are rebindable.** Register a new key in `src/state/shortcuts.ts`; do not add a raw key listener.
 - **Labels differ by platform.** A Mac shows `⌘` and `⌥` where Windows and Linux show `Ctrl` and `Alt`. Use the helpers in `src/ui/common.tsx`, and in tests expect the label for the platform the test runs on.
 - **The options strip must not overflow, and must not shorten words.** It tightens itself in steps and has tests at narrow widths: hints go first, then groups of buttons become lists with the same names. Add controls sparingly.

@@ -42,7 +42,7 @@ W Annotator shows a volume in axial, sagittal and coronal views with a 3D view o
 - Segments: add, rename, recolour, hide, lock, clear and delete. Each row shows the volume in mL.
 - Segment operations: grow, shrink, smooth, fill holes, keep the largest island, remove small islands, split islands into separate segments, and combine with another segment.
 - Viewing: crosshair, pan, zoom, a ruler, mask opacity and an outline-only view. The zoom in the status bar is a button: zoom in, zoom out, fit or actual size.
-- Window: the window in the status bar opens the presets. For CT: soft tissue, abdomen, liver, pancreas, lung, bone and more. For MR they are worked out from the image. You can save your own, set the window from a box drawn on the image, and change brightness and contrast with keys or a two-finger scroll.
+- Window: the window in the status bar opens the presets. For CT: soft tissue, abdomen, liver, two for the pancreas, lung, bone and more. For MR they are worked out from the image. You can save your own, set the window from a box drawn on the image, and change brightness and contrast with keys or a two-finger scroll.
 - Layouts: 2×2, one large view with three beside it, three across, two across or a single view. Any pane can show any view, and lines link the planes.
 - Files: a list of the open image and up to four masks. One mask is edited; the others show as outlines for comparison.
 - Mouse and trackpad: two-finger scroll moves through slices, pinch zooms about the pointer, and the settings let you change both.

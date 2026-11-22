@@ -54,10 +54,15 @@ describe('the CT presets', () => {
   it('has the abdominal windows, next to each other', () => {
     expect(by('Abdomen')).toEqual({ name: 'Abdomen', w: 350, l: 50 });
     expect(by('Liver')).toEqual({ name: 'Liver', w: 150, l: 30 });
-    expect(by('Pancreas')).toEqual({ name: 'Pancreas', w: 150, l: 65 });
-    const at = ['Abdomen', 'Liver', 'Pancreas'].map((n) => CT_PRESETS.findIndex((p) => p.name === n));
-    expect(at[1] - at[0]).toBe(1);
-    expect(at[2] - at[1]).toBe(1);
+    const at = ['Abdomen', 'Liver', 'Pancreas', 'Pancreas, narrow'].map((n) => CT_PRESETS.findIndex((p) => p.name === n));
+    expect(at[0]).toBeGreaterThanOrEqual(0);
+    for (let i = 1; i < at.length; i++) expect(at[i] - at[i - 1]).toBe(1);
+  });
+  it('shows the pancreas on the window the pancreas studies publish, and keeps the narrow one beside it', () => {
+    // Marin et al., Radiology 2010, doi:10.1148/radiol.10091819: soft-tissue window, width 350 HU, level 40 HU.
+    expect(by('Pancreas')).toEqual({ name: 'Pancreas', w: 350, l: 40 });
+    // Chosen by this project, not published.
+    expect(by('Pancreas, narrow')).toEqual({ name: 'Pancreas, narrow', w: 150, l: 65 });
   });
   it('keeps the windows that were there', () => {
     expect(by('Soft tissue')).toMatchObject({ w: 400, l: 40 });
@@ -105,7 +110,8 @@ describe('the list of windows to choose from', () => {
   it('names the window in use, or none', () => {
     const list = windowChoices(ct, [], 'ct');
     expect(matchChoice(list, toVoi(1500, -600))?.name).toBe('Lung');
-    expect(matchChoice(list, toVoi(150, 65))?.name).toBe('Pancreas');
+    expect(matchChoice(list, toVoi(350, 40))?.name).toBe('Pancreas');
+    expect(matchChoice(list, toVoi(150, 65))?.name).toBe('Pancreas, narrow');
     expect(matchChoice(list, toVoi(1501, -600))).toBeNull();
     expect(matchChoice(windowChoices(mr, [], 'mr'), { lower: 60, upper: 1900 })?.name).toBe('Bright fluid');
   });
@@ -117,6 +123,14 @@ describe('stepping through presets', () => {
     expect(stepChoice(list, toVoi(400, 40), 1)?.name).toBe('Abdomen');
     expect(stepChoice(list, toVoi(350, 50), -1)?.name).toBe('Soft tissue');
     expect(stepChoice(list, toVoi(200, 75), 1)?.name).toBe('Mine');
+  });
+  it('passes through both pancreas windows between Liver and Lung', () => {
+    expect(stepChoice(list, toVoi(150, 30), 1)?.name).toBe('Pancreas');
+    expect(stepChoice(list, toVoi(350, 40), 1)?.name).toBe('Pancreas, narrow');
+    expect(stepChoice(list, toVoi(150, 65), 1)?.name).toBe('Lung');
+    expect(stepChoice(list, toVoi(1500, -600), -1)?.name).toBe('Pancreas, narrow');
+    expect(stepChoice(list, toVoi(150, 65), -1)?.name).toBe('Pancreas');
+    expect(stepChoice(list, toVoi(350, 40), -1)?.name).toBe('Liver');
   });
   it('wraps at both ends', () => {
     expect(stepChoice(list, { lower: -1000, upper: 3000 }, 1)?.name).toBe('Soft tissue');
