@@ -186,12 +186,20 @@ interface Known extends RosterEntry {
   ed: Uint8Array;
 }
 
+/** An invite made on this device: the key that checks a newcomer's proof, how many more people it lets in, and who came in. */
+interface Bind {
+  key: string;
+  left: number;
+  used: string[];
+}
+
 interface Stored {
   v: 1;
   host: HostKeys;
   roster: SignedRoster | null;
-  epochs: [number, string][];
-  binds: [string, string][];
+  /** Epoch, room key, and 1 when the key came from the host itself. */
+  epochs: [number, string, number?][];
+  binds: [string, Bind][];
 }
 
 export class RoomKeys {
@@ -202,10 +210,12 @@ export class RoomKeys {
   roster: SignedRoster | null = null;
   private readonly room: string;
   private readonly epochs = new Map<number, Uint8Array>();
+  /** Epochs whose key came from the host itself (on the host: all of them). Another member's word for a key is taken only until the host's arrives. */
+  private readonly sure = new Set<number>();
   private known = new Map<number, Known>();
   private readonly pairs = new Map<string, Uint8Array | null>();
-  /** Host only: for each invite made here, the key that checks a newcomer's proof. */
-  private readonly binds = new Map<string, string>();
+  /** Host only: the invites made here. */
+  private readonly binds = new Map<string, Bind>();
   /** Senders no list has named. True once the host's own list has been seen not to name them. */
   private readonly unknown = new Map<number, boolean>();
 
@@ -226,6 +236,7 @@ export class RoomKeys {
   static host(room: string, seed: Uint8Array): RoomKeys {
     const keys = new RoomKeys(room, seed, { k: b64encode(publicKey(seed)), x: b64encode(xPublic(seed)) });
     keys.epochs.set(1, crypto.getRandomValues(new Uint8Array(32)));
+    keys.sure.add(1);
     keys.sign(1, 1, [{ k: keys.k, x: keys.x, since: 1 }]);
     return keys;
   }
@@ -242,11 +253,16 @@ export class RoomKeys {
       const keys = new RoomKeys(room, seed, s.host);
       const roster = parseRoster(s.roster);
       if (!roster || !keys.accept(roster)) return null;
-      for (const [epoch, text] of s.epochs.slice(0, MAX_EPOCHS)) {
+      for (const [epoch, text, sure] of s.epochs.slice(0, MAX_EPOCHS)) {
         const key = typeof text === 'string' ? b64decode(text) : null;
-        if (isEpoch(epoch) && key?.length === 32) keys.epochs.set(epoch, key);
+        if (!isEpoch(epoch) || key?.length !== 32) continue;
+        keys.epochs.set(epoch, key);
+        if (sure === 1 || keys.isHost) keys.sure.add(epoch);
       }
-      for (const [id, bind] of Array.isArray(s.binds) ? s.binds.slice(0, 256) : []) if (typeof id === 'string' && isKeyText(bind)) keys.binds.set(id, bind);
+      for (const [id, bind] of Array.isArray(s.binds) ? s.binds.slice(0, 256) : []) {
+        if (typeof id !== 'string' || !bind || !isKeyText(bind.key) || typeof bind.left !== 'number' || !Array.isArray(bind.used)) continue;
+        keys.binds.set(id, { key: bind.key, left: bind.left, used: bind.used.filter(isKeyText).slice(0, 64) });
+      }
       return keys.epochs.size > 0 ? keys : null;
     } catch {
       return null;
@@ -255,7 +271,7 @@ export class RoomKeys {
 
   /** Everything needed to come back to the room, as text. It holds secrets: see `SECURITY.md` on where it is kept. */
   dump(): string {
-    const stored: Stored = { v: 1, host: this.host, roster: this.roster, epochs: [...this.epochs].map(([e, key]) => [e, b64encode(key)]), binds: [...this.binds] };
+    const stored: Stored = { v: 1, host: this.host, roster: this.roster, epochs: [...this.epochs].map(([e, key]) => [e, b64encode(key), this.sure.has(e) ? 1 : 0]), binds: [...this.binds] };
     return JSON.stringify(stored);
   }
 
@@ -342,7 +358,10 @@ export class RoomKeys {
     // Someone who was removed signs nothing after the epoch they left in.
     if (sender.until !== undefined && h.epoch > sender.until) return { plain: null, need: false, digest };
     if (!verify(sig, signedInput(this.room, h.epoch, h.kind, h.from, hash), sender.ed)) return { plain: null, need: false, digest };
-    return { plain: open(key, groupAad(this.room, h.epoch, h.kind, h.from), body), need: false, digest };
+    const plain = open(key, groupAad(this.room, h.epoch, h.kind, h.from), body);
+    // Signed by a member, yet it does not open: if this device has the room key only on another member's
+    // word, the key may be the wrong one. The host's own copy settles it.
+    return { plain, need: plain === null && !this.sure.has(h.epoch), digest };
   }
 
   /** A sender nobody has named yet may be someone the host let in a moment ago. The host itself knows. */
@@ -362,9 +381,18 @@ export class RoomKeys {
 
   /* ── coming in ── */
 
-  /** Host: remembers the key that checks proofs for an invite made here. */
-  addInvite(id: string, bindKey: Uint8Array): void {
-    this.binds.set(id, b64encode(bindKey));
+  /**
+   * Host: remembers the key that checks proofs for an invite made here, and how many people the
+   * invite is for (0 for any number). The relay counts uses too, but its count is not relied on:
+   * the host lets in no more people on one link than the link was made for.
+   */
+  addInvite(id: string, bindKey: Uint8Array, uses = 1): void {
+    this.binds.set(id, { key: b64encode(bindKey), left: uses > 0 ? uses : Number.MAX_SAFE_INTEGER, used: [] });
+  }
+
+  /** Host: an invite that was switched off lets nobody else in. */
+  dropInvite(id: string): void {
+    this.binds.delete(id);
   }
 
   /** Newcomer: asks the host to be let in, with proof of holding the link. */
@@ -380,10 +408,14 @@ export class RoomKeys {
   admit(from: number, meta: Meta, relay: { key: string; xkey: string | null } | undefined): boolean {
     if (!this.isHost || !this.roster || meta.t !== 'join' || !isKeyText(meta.k) || !isKeyText(meta.x) || typeof meta.inv !== 'string' || typeof meta.mac !== 'string') return false;
     if (memberId(b64decode(meta.k)!) !== from || !relay || relay.key !== meta.k || relay.xkey !== meta.x) return false;
-    const bind = b64decode(this.binds.get(meta.inv) ?? '');
-    if (!bind || bind.length !== 32 || !sameText(joinMac(bind, this.room, meta.k, meta.x, this.k), meta.mac)) return false;
+    const invite = this.binds.get(meta.inv);
+    const bind = b64decode(invite?.key ?? '');
+    if (!invite || !bind || bind.length !== 32 || !sameText(joinMac(bind, this.room, meta.k, meta.x, this.k), meta.mac)) return false;
     const there = this.known.get(from);
     if (there) return there.until === undefined && there.k === meta.k && there.x === meta.x;
+    if (invite.left < 1) return false;
+    invite.left--;
+    invite.used.push(meta.k);
     this.sign(this.roster.e, this.roster.n + 1, [...this.roster.m, { k: meta.k, x: meta.x, since: this.epoch }]);
     return true;
   }
@@ -401,7 +433,11 @@ export class RoomKeys {
       const drop = new Set(former.slice(0, former.length - MAX_FORMER));
       m = m.filter((entry) => !drop.has(entry));
     }
+    // The link a removed person came in through lets nobody in again: they still know its secret.
+    const keysGone = new Set(m.filter((entry) => entry.until === old).map((entry) => entry.k));
+    for (const [id, invite] of this.binds) if (invite.used.some((k) => keysGone.has(k))) this.binds.delete(id);
     this.epochs.set(old + 1, crypto.getRandomValues(new Uint8Array(32)));
+    this.sure.add(old + 1);
     if (this.epochs.size > MAX_EPOCHS) this.epochs.delete(Math.min(...this.epochs.keys()));
     this.sign(old + 1, this.roster.n + 1, m);
   }
@@ -442,8 +478,13 @@ export class RoomKeys {
     for (const [text, value] of given) {
       const epoch = Number(text);
       const key = typeof value === 'string' ? b64decode(value) : null;
-      // A key already held is never replaced, and none is taken for an epoch the host has not reached.
-      if (!isEpoch(epoch) || epoch > this.roster!.e || !key || key.length !== 32 || this.epochs.has(epoch)) continue;
+      // None is taken for an epoch the host has not reached. A key already held is replaced only by the host's own.
+      if (!isEpoch(epoch) || epoch > this.roster!.e || !key || key.length !== 32) continue;
+      const fromHost = from === this.hostId;
+      const held = this.epochs.get(epoch);
+      if (held && (!fromHost || this.sure.has(epoch))) continue;
+      if (fromHost) this.sure.add(epoch);
+      if (held && held.every((b, i) => b === key[i])) continue;
       this.epochs.set(epoch, key);
       learned = true;
     }

@@ -20,7 +20,8 @@ function carry(from: RoomKeys, kind: number, to: number, plain: Uint8Array) {
 function room(guests: number[]): { host: RoomKeys; members: RoomKeys[] } {
   const host = RoomKeys.host(ROOM, seed(1));
   const invite = inviteKeys(SECRET);
-  host.addInvite(invite.id, invite.bindKey);
+  // One link for everyone in these tests.
+  host.addInvite(invite.id, invite.bindKey, 0);
   const wrapped = wrapInvite(invite.wrapKey, { k: host.k, x: host.x, kind: 'shared' });
   const members = guests.map((n) => {
     const content = openInvite(invite.wrapKey, wrapped)!;
@@ -95,6 +96,46 @@ describe('the invite', () => {
     expect(host.roster!.n).toBe(n);
     // Only the host admits.
     expect(guest.admit(guest.self, meta, { key: guest.k, xkey: guest.x })).toBe(false);
+  });
+
+  it('lets in as many people as the link was made for, whatever the room server allows', () => {
+    const host = RoomKeys.host(ROOM, seed(1));
+    const invite = inviteKeys(SECRET);
+    host.addInvite(invite.id, invite.bindKey);
+    const join = (n: number) => {
+      const g = RoomKeys.guest(ROOM, seed(n), { k: host.k, x: host.x });
+      return { g, ok: host.admit(g.self, g.joinMeta(SECRET), { key: g.k, xkey: g.x }) };
+    };
+    expect(join(2).ok).toBe(true);
+    // The link is spent. Someone else who got hold of it, let through by the room server, is not let in by the host.
+    expect(join(3).ok).toBe(false);
+    // The first person asking again is still a member.
+    expect(join(2).ok).toBe(true);
+    // A link for any number of people.
+    const many = inviteKeys(new Uint8Array(16).fill(7));
+    host.addInvite(many.id, many.bindKey, 0);
+    const again = RoomKeys.load(ROOM, seed(1), host.dump())!;
+    for (const n of [4, 5, 6]) {
+      const g = RoomKeys.guest(ROOM, seed(n), { k: host.k, x: host.x });
+      expect(again.admit(g.self, g.joinMeta(new Uint8Array(16).fill(7)), { key: g.k, xkey: g.x })).toBe(true);
+    }
+    // Switched off by the host.
+    again.dropInvite(many.id);
+    const late = RoomKeys.guest(ROOM, seed(8), { k: host.k, x: host.x });
+    expect(again.admit(late.self, late.joinMeta(new Uint8Array(16).fill(7)), { key: late.k, xkey: late.x })).toBe(false);
+  });
+
+  it('does not let a removed person back in through the link they came with', () => {
+    const host = RoomKeys.host(ROOM, seed(1));
+    const invite = inviteKeys(SECRET);
+    host.addInvite(invite.id, invite.bindKey, 0);
+    const first = RoomKeys.guest(ROOM, seed(2), { k: host.k, x: host.x });
+    expect(host.admit(first.self, first.joinMeta(SECRET), { key: first.k, xkey: first.x })).toBe(true);
+    host.rotate([first.self]);
+    // The same key again, and a new key made for the purpose: they still know the link's secret.
+    expect(host.admit(first.self, first.joinMeta(SECRET), { key: first.k, xkey: first.x })).toBe(false);
+    const second = RoomKeys.guest(ROOM, seed(3), { k: host.k, x: host.x });
+    expect(host.admit(second.self, second.joinMeta(SECRET), { key: second.k, xkey: second.x })).toBe(false);
   });
 });
 
@@ -213,9 +254,32 @@ describe('a new key when someone is removed', () => {
     expect(b.take(a.self, { t: 'keys', r: fake.roster, k: { 3: b64encode(seed(5)) } })).toBeNull();
     const without: SignedRoster = { ...host.roster!, m: host.roster!.m.filter((m) => m.k !== b.k) };
     expect(b.take(host.self, { t: 'keys', r: without, k: {} })).toBeNull();
-    // A key this device already holds is never replaced.
+    // A key this device already holds is never replaced on another member's word.
     expect(b.take(a.self, { ...a.keysFor(b.self)!, k: { 2: b64encode(seed(5)) } })).toBe('same');
     expect(b.open(f.header, f.payload).plain).not.toBeNull();
+  });
+
+  it('takes a member\'s word for a key only until the host\'s own arrives', () => {
+    const { host, members: [a, b] } = room([2, 3]);
+    host.rotate([]);
+    a.take(host.self, host.keysFor(a.self)!);
+    // B was away. A hands it the new list with a wrong key for the new epoch.
+    expect(b.take(a.self, { ...a.keysFor(b.self)!, k: { 2: b64encode(seed(5)) } })).toBe('new');
+    const f = carry(host, FrameKind.Patch, 0, text('new epoch'));
+    // The host's edit is signed and does not open: the key is in doubt, so the edit waits instead of being left out.
+    expect(b.open(f.header, f.payload)).toMatchObject({ plain: null, need: true });
+    expect(b.take(host.self, host.keysFor(b.self)!)).toBe('new');
+    expect(b.open(f.header, f.payload).plain).not.toBeNull();
+    // With the host's key, a signed frame that does not open is simply a bad frame.
+    const bad = carry(a, FrameKind.Patch, 0, text('x'));
+    const garbled = bad.payload.slice();
+    garbled[14] ^= 1;
+    const resealed = host.open(bad.header, garbled);
+    expect(resealed).toMatchObject({ plain: null, need: false });
+    // And the host's key survives being stored.
+    const again = RoomKeys.load(ROOM, seed(3), b.dump())!;
+    expect(again.take(a.self, { ...a.keysFor(b.self)!, k: { 2: b64encode(seed(5)) } })).toBe('same');
+    expect(again.open(f.header, f.payload).plain).not.toBeNull();
   });
 });
 

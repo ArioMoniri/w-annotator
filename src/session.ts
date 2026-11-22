@@ -2095,8 +2095,8 @@ export async function createInvite(ttl = 86_400): Promise<string | null> {
   if (!r || r.role !== 'host' || !mine) return null;
   const secret = makeInviteSecret();
   const keys = inviteKeys(secret);
-  // The host remembers how to check the proof of whoever comes in with this link.
-  mine.addInvite(keys.id, keys.bindKey);
+  // The host remembers how to check the proof of whoever comes in with this link, and that it is for one person.
+  mine.addInvite(keys.id, keys.bindKey, 1);
   rememberThis(r);
   const answer = await r.client.request({
     t: 'invite-add',
@@ -2125,7 +2125,11 @@ export async function listInvites(): Promise<InviteRow[]> {
 export async function revokeInvite(id: string): Promise<boolean> {
   const r = room;
   if (!r || r.role !== 'host') return false;
-  return (await r.client.request({ t: 'invite-revoke', id })).t === 'ok';
+  if ((await r.client.request({ t: 'invite-revoke', id })).t !== 'ok') return false;
+  // The host's app lets nobody in through it either, whatever the room server does from here on.
+  r.client.keys?.dropInvite(id);
+  rememberThis(r);
+  return true;
 }
 
 // Closing the window is a clean exit: the relay hears a proper goodbye, so the guests of a
@@ -2224,13 +2228,16 @@ function onWelcome(r: RoomCtx, w: Welcome, first: boolean): void {
     settle(r, closeMessage(4408, 'invite already used', { host: null, kind: null }));
     return;
   }
-  if (!keys.ready) {
-    // In the room server's list, but the host has not let this device in yet. The host does that itself,
-    // with proof that this device holds the link, and hands over the keys; until then nothing can be read.
+  if (!keys.ready || keys.epoch < w.room.epoch) {
+    // Either the host has not let this device in yet: it does that itself, with proof that this device
+    // holds the link, and hands over the keys. Or the room moved to a new key while this device was away,
+    // and the host or someone who stayed hands it over. Until then nothing new can be read, so nothing
+    // is merged or sent; work on this device goes on and is merged afterwards.
+    const text = keys.ready ? WAITING_FOR_NEW_KEY : WAITING_FOR_KEYS;
     r.pending = { w, first };
-    patchRoom({ status: 'online', kind: r.kind, role: r.role, selfId: r.selfId, hostAway: w.room.state === 'host-away', veil: null, note: WAITING_FOR_KEYS });
+    patchRoom({ status: 'online', kind: r.kind, role: r.role, selfId: r.selfId, hostAway: w.room.state === 'host-away', veil: null, note: text });
     syncPeople(r);
-    set({ busy: WAITING_FOR_KEYS });
+    if (!keys.ready) set({ busy: text });
     settle(r, true);
     return;
   }
@@ -2238,18 +2245,19 @@ function onWelcome(r: RoomCtx, w: Welcome, first: boolean): void {
 }
 
 const WAITING_FOR_KEYS = 'Waiting for the host to let you in…';
+const WAITING_FOR_NEW_KEY = "Waiting for the room's new key…";
 
 /** The keys arrived or changed: keep them, carry on with a sign-in that waited for them, fetch edits that did. */
 function onRoomKeys(r: RoomCtx, replay: boolean): void {
   rememberThis(r);
   const pending = r.pending;
-  if (pending && r.client.keys?.ready) {
+  if (pending && r.client.keys?.ready && r.client.keys.epoch >= pending.w.room.epoch) {
     r.pending = null;
     if (get().busy === WAITING_FOR_KEYS) set({ busy: null });
     enterWithKeys(r, pending.w, pending.first);
     return;
   }
-  if (r.forked) return;
+  if (r.forked || pending) return;
   // Whoever was just let in has not heard this device's name yet.
   sayHi(r);
   if (replay) r.client.send({ t: 'replay', after: r.log.head });
