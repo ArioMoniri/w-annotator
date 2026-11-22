@@ -143,6 +143,8 @@ export function NumberField(props: {
   wide?: boolean;
   min?: number;
   max?: number;
+  /** What one press of an arrow key adds or takes; 1 unless given. */
+  step?: number;
   onCommit: (v: number) => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -175,8 +177,9 @@ export function NumberField(props: {
           (e.target as HTMLInputElement).blur();
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
-          const step = (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
-          ref.current!.value = String(Number(ref.current!.value || props.value) + step);
+          const step = (props.step ?? 1) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+          // Rounded, so a step of 0.01 does not leave 0.30000000000000004 in the field.
+          ref.current!.value = String(Number((Number(ref.current!.value || props.value) + step).toFixed(6)));
           commit();
         } else if (e.key === 'Escape') {
           ref.current!.value = String(props.value);

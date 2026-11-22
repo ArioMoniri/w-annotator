@@ -4,7 +4,7 @@ import { applyFillPreview, cancelFillPreview, fillBetweenSlices, setBrushSize, s
 import { paintOverLabel } from '../mask/paintOver';
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { useSettings } from '../state/settings';
-import { matchChoice, windowChoices } from '../viewer/window';
+import { matchChoice, windowChoices, windowFields, windowFromFields, windowStep } from '../viewer/window';
 import { applyWindowChoice } from '../windowing';
 import { BRUSH_MAX } from '../mask/brush';
 import { Choice, MOD, NumberField, Slider, useKeyHint } from './common';
@@ -127,9 +127,13 @@ function WindowFields() {
   const asked = useStore((s) => s.windowSet);
   const custom = useSettings((s) => s.windowPresets);
   if (!voi || !image) return null;
-  const w = Math.round(voi.upper - voi.lower);
-  const l = Math.round((voi.upper + voi.lower) / 2);
-  const apply = (nw: number, nl: number) => setVoi(nl - Math.max(1, nw) / 2, nl + Math.max(1, nw) / 2);
+  // Whole numbers on CT; finer on an image with a narrow range, such as one scaled 0 to 1.
+  const step = windowStep(image.range);
+  const { w, l } = windowFields(voi, step);
+  const apply = (nw: number, nl: number) => {
+    const next = windowFromFields(nw, nl, step);
+    setVoi(next.lower, next.upper);
+  };
   const choices = windowChoices(image, custom, asked ?? (image.ct ? 'ct' : 'mr'));
   const current = matchChoice(choices, voi)?.name ?? '';
   return (
@@ -157,9 +161,9 @@ function WindowFields() {
       </div>
       <div className="field">
         <span className="label">W</span>
-        <NumberField label="Window width" wide value={w} min={1} onCommit={(v) => apply(v, l)} />
+        <NumberField label="Window width" wide value={w} min={step} step={step} onCommit={(v) => apply(v, l)} />
         <span className="label">L</span>
-        <NumberField label="Window level" wide value={l} onCommit={(v) => apply(w, v)} />
+        <NumberField label="Window level" wide value={l} step={step} onCommit={(v) => apply(w, v)} />
       </div>
       <button className="btn secondary" onClick={() => setVoi(image.auto.lower, image.auto.upper)}>
         Reset

@@ -16,6 +16,9 @@ import {
   stepChoice,
   toVoi,
   windowChoices,
+  windowFields,
+  windowFromFields,
+  windowStep,
   withPreset,
 } from './window';
 
@@ -341,5 +344,47 @@ describe('actual size', () => {
   });
   it('changes nothing when the view is not known', () => {
     expect(actualSizeFactor(0, [1, 1])).toBe(1);
+  });
+});
+
+describe('typing a window', () => {
+  it('steps in whole numbers on images whose values are whole numbers apart', () => {
+    expect(windowStep([-1024, 3071])).toBe(1);
+    expect(windowStep([0, 255])).toBe(1);
+    expect(windowStep([0, 150])).toBe(1);
+  });
+
+  it('steps finer on an image with a narrow range, such as one scaled 0 to 1', () => {
+    expect(windowStep([0, 1])).toBe(0.01);
+    expect(windowStep([0, 4.5])).toBe(0.01);
+    expect(windowStep([-0.02, 0.02])).toBe(0.0001);
+    expect(windowStep([0, 50])).toBe(0.1);
+  });
+
+  it('falls back to 1 when the range says nothing', () => {
+    expect(windowStep([0, 0])).toBe(1);
+    expect(windowStep([NaN, 1])).toBe(1);
+    expect(windowStep([0, Infinity])).toBe(1);
+  });
+
+  it('shows width and level to the step, without stray digits', () => {
+    const step = windowStep([0, 1]);
+    expect(windowFields({ lower: 0.2, upper: 0.7 }, step)).toEqual({ w: 0.5, l: 0.45 });
+    expect(windowFields({ lower: 0.1, upper: 0.30000000000000004 }, step)).toEqual({ w: 0.2, l: 0.2 });
+    expect(windowFields({ lower: -160, upper: 240.4 }, 1)).toEqual({ w: 400, l: 40 });
+  });
+
+  it('sets a width under 1 on a 0 to 1 image', () => {
+    const step = windowStep([0, 1]);
+    const voi = windowFromFields(0.05, 0.5, step);
+    expect(voi.lower).toBeCloseTo(0.475, 10);
+    expect(voi.upper).toBeCloseTo(0.525, 10);
+    expect(windowFields(voi, step)).toEqual({ w: 0.05, l: 0.5 });
+  });
+
+  it('never makes a window narrower than one step', () => {
+    expect(windowFromFields(0, 0.5, 0.01)).toEqual({ lower: 0.495, upper: 0.505 });
+    expect(windowFromFields(-3, 40, 1)).toEqual({ lower: 39.5, upper: 40.5 });
+    expect(windowFromFields(0.2, 40, 1)).toEqual({ lower: 39.5, upper: 40.5 });
   });
 });

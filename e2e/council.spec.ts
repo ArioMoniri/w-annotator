@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { formatVoxels } from '../src/mask/ops';
-import { choose, clickVoxel, countVoxels, drag, maskDump, maskVoxels, openPhantom, trace, voxelOnPage } from './helpers';
+import { choose, clickVoxel, countVoxels, drag, maskDump, maskVoxels, openPhantom, skipTour, trace, voxelOnPage } from './helpers';
 
 /** How a toast writes a number of voxels of the phantom, whose voxels are 1 mm each way. */
 const size = (voxels: number) => formatVoxels(voxels, [1, 1, 1]);
@@ -162,4 +162,68 @@ test('Remove island on a segment in one piece says that the whole segment went',
   await expect(toast).toBeVisible();
   await toast.getByRole('button', { name: 'Undo' }).click();
   await expect.poll(() => maskDump(page)).toBe(before);
+});
+
+/** Opens a small image whose values run from 0 to 1, as a normalised MR or a probability map does. */
+async function openUnitImage(page: Page): Promise<void> {
+  await skipTour(page);
+  await page.goto('/');
+  await page.waitForFunction(() => '__w' in window);
+  await page.evaluate(async () => {
+    const n = 24;
+    const img = new Float32Array(n * n * n);
+    for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) img[(z * n + y) * n + x] = Math.max(0, 1 - Math.hypot(x - 12, y - 12, z - 12) / 12);
+    const buf = new ArrayBuffer(352 + img.byteLength);
+    const v = new DataView(buf);
+    v.setInt32(0, 348, true);
+    v.setInt16(40, 3, true);
+    [n, n, n].forEach((d, i) => v.setInt16(42 + i * 2, d, true));
+    v.setInt16(70, 16, true);
+    v.setInt16(72, 32, true);
+    v.setFloat32(76, 1, true);
+    [1, 1, 1].forEach((s, i) => v.setFloat32(80 + i * 4, s, true));
+    v.setFloat32(108, 352, true);
+    v.setFloat32(112, 1, true);
+    v.setInt16(254, 1, true);
+    [
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+    ].forEach((row, r) => row.forEach((x, c) => v.setFloat32(280 + r * 16 + c * 4, x, true)));
+    new Uint8Array(buf, 344, 4).set([0x6e, 0x2b, 0x31, 0]);
+    new Uint8Array(buf, 352).set(new Uint8Array(img.buffer));
+    await window.__w.session.openFiles([{ name: 'unit_mr.nii', bytes: new Uint8Array(buf) }]);
+  });
+  await page.locator('[data-view="axial"] canvas').first().waitFor();
+  await page.waitForTimeout(500);
+}
+
+test('the Window / Level strip sets a width under 1 on an image scaled 0 to 1', async ({ page }) => {
+  await openUnitImage(page);
+  expect(await page.evaluate(() => window.__w.store.getState().image.range)).toEqual([0, 1]);
+  await page.keyboard.press('w');
+  const width = page.getByLabel('Window width');
+  const level = page.getByLabel('Window level');
+  await level.fill('0.5');
+  await level.press('Enter');
+  await width.fill('0.2');
+  await width.press('Enter');
+  const voi = () => page.evaluate(() => window.__w.store.getState().voi as { lower: number; upper: number });
+  await expect.poll(async () => (await voi()).lower).toBeCloseTo(0.4, 6);
+  expect((await voi()).upper).toBeCloseTo(0.6, 6);
+  await expect(width).toHaveValue('0.2');
+  await expect(level).toHaveValue('0.5');
+  await expect(page.getByTestId('status-window')).toHaveText(/W\s*0\.2\s*L\s*0\.5/);
+
+  // The arrow keys move by a step that suits the image, not by 1.
+  await width.focus();
+  await width.press('ArrowUp');
+  await expect(width).toHaveValue('0.21');
+  await width.press('Shift+ArrowDown');
+  await expect(width).toHaveValue('0.11');
+  await expect.poll(async () => (await voi()).upper - (await voi()).lower).toBeCloseTo(0.11, 6);
+  // Nothing narrower than one step.
+  await width.fill('0');
+  await width.press('Enter');
+  await expect(width).toHaveValue('0.01');
 });

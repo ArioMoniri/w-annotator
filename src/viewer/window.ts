@@ -67,6 +67,36 @@ export function formatWindow(voi: Voi): { w: string; l: string } {
   return { w: text(width(voi)), l: text(level(voi)) };
 }
 
+/**
+ * The smallest change of width or level worth typing for an image, from the span of its
+ * values: 1 where values are whole numbers apart (CT, most MR), a hundredth of the span,
+ * rounded down to a power of ten, where the span is narrow (an image scaled 0 to 1 gives 0.01).
+ */
+export function windowStep(range: readonly [number, number]): number {
+  const size = range[1] - range[0];
+  if (!Number.isFinite(size) || size <= 0) return 1;
+  // Written as a decimal, so 0.0001 is exactly what 0.0001 parses to.
+  return Math.min(1, Number(`1e${Math.floor(Math.log10(size / 100))}`));
+}
+
+/** A number rounded to a step, without the stray digits binary fractions leave. */
+function toStep(value: number, step: number): number {
+  const digits = Math.max(0, -Math.floor(Math.log10(step)));
+  const rounded = Number((Math.round(value / step) * step).toFixed(digits));
+  return rounded === 0 ? 0 : rounded;
+}
+
+/** Width and level as numbers for the fields they are typed in, to the image's step. */
+export function windowFields(voi: Voi, step: number): { w: number; l: number } {
+  return { w: toStep(width(voi), step), l: toStep(level(voi), step) };
+}
+
+/** The window for a typed width and level. It is never narrower than one step. */
+export function windowFromFields(w: number, l: number, step: number): Voi {
+  const wide = Math.max(step, toStep(w, step));
+  return { lower: l - wide / 2, upper: l + wide / 2 };
+}
+
 /** True when two windows read the same on screen. */
 export function sameWindow(a: Voi, b: Voi): boolean {
   if (width(a) >= FINE && width(b) >= FINE) return Math.round(width(a)) === Math.round(width(b)) && Math.round(level(a)) === Math.round(level(b));
