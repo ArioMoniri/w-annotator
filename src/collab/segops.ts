@@ -4,7 +4,7 @@
  * for the same segment the later one wins.
  */
 
-import type { Meta, SegmentInfo } from './protocol';
+import { cleanText, type Meta, type SegmentInfo } from './protocol';
 
 /** A segment as the room knows it. Whether it is shown is each person's own setting. */
 export type SharedSegment = Omit<SegmentInfo, 'visible'>;
@@ -47,7 +47,8 @@ export function parseSegOp(meta: Meta): SegOp | null {
   if (meta.op === 'del') return isIndex(meta.index) ? { op: 'del', index: meta.index } : null;
   if (meta.op !== 'set' || !meta.seg || typeof meta.seg !== 'object') return null;
   const s = meta.seg as Record<string, unknown>;
-  const name = typeof s.name === 'string' ? s.name.trim().slice(0, 64) : '';
+  // Names come from other people: no control characters, nothing that hides or reorders letters.
+  const name = typeof s.name === 'string' ? cleanText(s.name, 64) : '';
   if (!isIndex(s.index) || !name || typeof s.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(s.color)) return null;
   return { op: 'set', seg: { index: s.index, name, color: s.color, locked: !!s.locked } };
 }

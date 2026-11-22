@@ -76,6 +76,20 @@ export function applyPatch(buf: Uint8Array, patch: Patch, side: 'before' | 'afte
   }
 }
 
+/**
+ * True when every run of the patch lies inside a mask of `length` voxels and the values
+ * match the runs. Checked before a patch from someone else is written anywhere, so a bad
+ * run at the end cannot leave the runs before it half applied.
+ */
+export function patchFits(patch: Patch, length: number): boolean {
+  let total = 0;
+  for (let r = 0; r < patch.starts.length; r++) {
+    if (patch.starts[r] + patch.lengths[r] > length) return false;
+    total += patch.lengths[r];
+  }
+  return total === patch.after.length;
+}
+
 export function patchVoxelCount(patch: Patch): number {
   return patch.after.length;
 }

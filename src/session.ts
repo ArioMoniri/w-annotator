@@ -1,4 +1,4 @@
-import { gunzip, gzip } from 'fflate';
+import { gzip } from 'fflate';
 import {
   autoWindow,
   baseName,
@@ -39,6 +39,7 @@ import {
 import { cleanPaintOver, eraseRule, strokeRule, writableValues, type PaintOver } from './mask/paintOver';
 import {
   applyPatch,
+  patchFits,
   applyPatchWhereUnchanged,
   decodePatch,
   diffMask,
@@ -51,10 +52,11 @@ import {
 import { segmentAt } from './mask/pick';
 import { FillPreview } from './mask/preview';
 import { cut, sliceRange, viewMap, type Cut, type Point } from './mask/scissors';
-import { RoomClient, type JoinMode, type TextMessage } from './collab/client';
+import { CLOSE_MISFIT, RoomClient, parseRoster, type JoinMode, type TextMessage } from './collab/client';
 import { makeRoomKey, unwrapRoomKey, wrapRoomKey } from './collab/crypto';
 import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane, type Axis } from './collab/hostview';
 import { inviteKeys, makeInviteSecret, makeSeed, memberId, publicKey } from './collab/identity';
+import { ReplayGuard } from './collab/guard';
 import { OpLog } from './collab/oplog';
 import {
   FrameKind,
@@ -79,7 +81,7 @@ import {
 } from './collab/protocol';
 import { forgetRoom, rememberRoom, savedRooms } from './collab/rooms';
 import { applySegOp, parseSegOp, segmentOps, type SegOp } from './collab/segops';
-import { PartAssembler, TokenBucket, slabRanges, splitParts } from './collab/transfer';
+import { PartAssembler, SLAB_SLICES, TokenBucket, gunzipExactly, maxPacked, slabRanges, splitParts } from './collab/transfer';
 import { conflictPatch, mergeMasks, mergeSummary, type Conflicts } from './mask/merge';
 import { fingerprint } from './mask/recovery';
 import * as engine from './viewer/engine';
@@ -1552,8 +1554,6 @@ const DTYPES: Record<string, new (length: number) => ScalarArray> = {
 
 const gz = (data: Uint8Array) =>
   new Promise<Uint8Array>((resolve, reject) => gzip(data, { level: 1 }, (err, out) => (err ? reject(err) : resolve(out))));
-const gunz = (data: Uint8Array) =>
-  new Promise<Uint8Array>((resolve, reject) => gunzip(data, (err, out) => (err ? reject(err) : resolve(out))));
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function bytesOf(d: ScalarArray): Uint8Array {
@@ -1570,12 +1570,33 @@ const SAVE_OFF = "Saving is off in this room. The mask is kept on the host's com
 const WHOLE_MASK_OFF = "This works on the whole mask, which stays on the host's computer.";
 
 /** One edit in a room's order. `none` holds the place of an edit that could not be read. */
-type RoomOp = { k: 'patch'; patch: Patch } | { k: 'seg'; op: SegOp } | { k: 'none' };
+type RoomOp = ({ k: 'patch'; patch: Patch } | { k: 'seg'; op: SegOp } | { k: 'none' }) & {
+  /** Who made the edit, the tag of their visit and its number in that visit: what tells a repeat from a new edit. */
+  sig?: [from: number, tag: string, n: number];
+};
+
+/** Edits kept while the mask is still on its way. Past this the transfer starts again rather than fill the memory. */
+const QUEUE_LIMIT_BYTES = 64 << 20;
+const QUEUE_LIMIT_FRAMES = 4096;
+/** A member sending the image to several people at once would slow every one of them. */
+const MAX_TRANSFERS = 2;
+/** Sent and not yet reported as received, per transfer, when the receiver reports. Well under the relay's queue of 16 MiB. */
+const TRANSFER_WINDOW = 4 << 20;
+/** A receiver that reports nothing for this long has gone. */
+const TRANSFER_STALL_MS = 20_000;
+
+/** A number nobody else can guess, for matching an answer to its question. */
+function randomId(): number {
+  const [a, b] = crypto.getRandomValues(new Uint32Array(2));
+  return (a & 0x1fffff) * 2 ** 32 + b;
+}
 
 interface SyncBegin {
   head: number;
   segments: SegmentInfo[];
-  slabs: number;
+  dims: [number, number, number];
+  /** The sender's list of edits already in the mask (`ReplayGuard`). */
+  seen: unknown;
 }
 
 /** Getting the mask, and the image when it is not open yet, from another member. */
@@ -1588,11 +1609,35 @@ interface SyncJob {
   begin: SyncBegin | null;
   imageMeta: { dims: [number, number, number]; spacing: [number, number, number]; origin: [number, number, number]; direction: number[] } | null;
   imageData: ScalarArray | null;
+  dtype: string | null;
   theirs: Uint8Array | null;
   parts: PartAssembler;
-  done: number;
+  /** Slabs that have arrived, as `i<z0>` for the image and `m<z0>` for the mask, and how many there must be. */
+  got: Set<string>;
+  want: number;
+  /** Packed bytes received. */
+  received: number;
+  /** True when the sender waits to hear how much has arrived before sending more. */
+  flow: boolean;
   work: Promise<void>;
   timer: ReturnType<typeof setTimeout> | null;
+}
+
+/** The image slabs of a transfer that was cut, so the next try only fetches the rest. */
+interface PartialImage {
+  meta: NonNullable<SyncJob['imageMeta']>;
+  dtype: string;
+  data: ScalarArray;
+  got: Set<number>;
+}
+
+/** One transfer this device is sending. */
+interface Serving {
+  rid: unknown;
+  sent: number;
+  acked: number;
+  ackedAt: number;
+  cancelled: boolean;
 }
 
 interface RoomCtx {
@@ -1625,7 +1670,15 @@ interface RoomCtx {
   ready: boolean;
   offline: boolean;
   queued: { seq: number; op: RoomOp; settles?: number }[];
+  queuedBytes: number;
+  /** The highest sequence number the relay has shown this device. */
+  topSeq: number;
+  /** A tag for this visit to the room; with an edit's number it tells a repeat from a new edit. */
+  tag: string;
+  guard: ReplayGuard;
   sync: SyncJob | null;
+  partial: PartialImage | null;
+  serving: Map<number, Serving>;
   roster: Member[];
   names: Map<number, string>;
   greeted: Set<number>;
@@ -1642,7 +1695,8 @@ interface RoomCtx {
   buckets: Map<number, TokenBucket>;
   /* Guest of a view-through-host room. */
   have: Set<string>;
-  asked: Map<string, number>;
+  asked: Map<string, { at: number; q: number }>;
+  describeQ: number;
   askBucket: TokenBucket;
   pump: ReturnType<typeof setInterval> | null;
   lostTimer: ReturnType<typeof setTimeout> | null;
@@ -1650,7 +1704,7 @@ interface RoomCtx {
 }
 
 /** What is left of a shared-copy room after leaving it, so coming back merges instead of replacing. */
-let kept: { id: string; session: string | null; synced: Uint8Array; head: number; offlineSegs: Set<number> } | null = null;
+let kept: { id: string; session: string | null; synced: Uint8Array; head: number; offlineSegs: Set<number>; guard: ReplayGuard } | null = null;
 /** My voxels the last merge put aside, waiting for "Use mine" or "Keep the room's". */
 let conflicts: Conflicts | null = null;
 let nextRid = 1;
@@ -1728,6 +1782,8 @@ export async function joinRoom(name: string, invite: string): Promise<true | str
     key: (seed && known && b64decode(known.key)) || null,
     mode: { t: 'redeem', secret: parsed.secret },
     name,
+    // Only shared-copy rooms are remembered, and a room never changes its kind or its host.
+    known: seed && known ? { kind: 'shared', host: known.role === 'host' } : undefined,
   });
 }
 
@@ -1739,7 +1795,7 @@ export async function rejoinRoom(name: string, id: string): Promise<true | strin
   if (!known || !seed || !key) return 'This room is no longer on this device. Ask the host for a new invite link.';
   const blocked = joinBlocked(id);
   if (blocked) return blocked;
-  return enterRoom({ server: known.server, shareServer: known.server, hosting: false, id, seed, key, mode: { t: 'auth' }, name });
+  return enterRoom({ server: known.server, shareServer: known.server, hosting: false, id, seed, key, mode: { t: 'auth' }, name, known: { kind: 'shared', host: known.role === 'host' } });
 }
 
 export function forgetSavedRoom(id: string): void {
@@ -1763,20 +1819,29 @@ interface EnterOptions {
   key: Uint8Array | null;
   mode: JoinMode;
   name: string;
+  known?: { kind?: RoomKind; host?: boolean };
 }
 
 function enterRoom(o: EnterOptions): Promise<true | string> {
   return new Promise((resolve) => {
     const prior = kept && kept.id === o.id && mask && kept.synced.length === mask.data.length ? kept : null;
     kept = null;
-    const client = new RoomClient(o.server, o.id, o.seed, o.mode, o.key, {
-      onStatus: (status) => r === room && onRoomStatus(r, status),
-      onWelcome: (msg, first) => r === room && onWelcome(r, msg, first),
-      onText: (msg) => r === room && onRoomText(r, msg),
-      onFrame: (header, meta, body) => r === room && onRoomFrame(r, header, meta, body),
-      onEnded: (code, reason) => r === room && onRoomEnded(r, code, reason),
-      members: () => r.roster.filter((m) => m.role !== 'host').map((m) => ({ key: m.key, role: m.role as 'editor' | 'viewer' })),
-    });
+    const client = new RoomClient(
+      o.server,
+      o.id,
+      o.seed,
+      o.mode,
+      o.key,
+      {
+        onStatus: (status) => r === room && onRoomStatus(r, status),
+        onWelcome: (msg, first) => r === room && onWelcome(r, msg, first),
+        onText: (msg) => r === room && onRoomText(r, msg),
+        onFrame: (header, meta, body) => r === room && onRoomFrame(r, header, meta, body),
+        onEnded: (code, reason) => r === room && onRoomEnded(r, code, reason),
+        members: () => r.roster.filter((m) => m.role !== 'host').map((m) => ({ key: m.key, role: m.role as 'editor' | 'viewer' })),
+      },
+      o.known,
+    );
     const r: RoomCtx = {
       client,
       id: o.id,
@@ -1793,7 +1858,7 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
       welcomed: false,
       name: o.name,
       log: new OpLog<RoomOp>({
-        confirm: (op) => confirmOp(r, op),
+        confirm: (op, _own, shown) => confirmOp(r, op, shown),
         reapply: (op) => reapplyOp(r, op),
         replay: (after) => client.send({ t: 'replay', after }),
       }),
@@ -1805,7 +1870,13 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
       ready: false,
       offline: false,
       queued: [],
+      queuedBytes: 0,
+      topSeq: 0,
+      tag: b64encode(crypto.getRandomValues(new Uint8Array(9))),
+      guard: prior?.guard ?? new ReplayGuard(),
       sync: null,
+      partial: null,
+      serving: new Map(),
       roster: [],
       names: new Map(),
       greeted: new Set(),
@@ -1819,6 +1890,7 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
       buckets: new Map(),
       have: new Set(),
       asked: new Map(),
+      describeQ: 0,
       // The relay allows a guest 30 requests at once and 600 a minute; stay under it.
       askBucket: new TokenBucket(24, 9, performance.now()),
       pump: null,
@@ -1848,11 +1920,14 @@ function teardown(r: RoomCtx, opts: { keep?: boolean; wipe?: boolean } = {}): vo
   if (r.pump) clearInterval(r.pump);
   if (r.lostTimer) clearTimeout(r.lostTimer);
   if (r.sync?.timer) clearTimeout(r.sync.timer);
+  for (const s of r.serving.values()) s.cancelled = true;
+  r.serving.clear();
+  r.partial = null;
   const base = r.base ?? r.synced;
   if (opts.keep && r.kind === 'shared' && base && image && r.session) {
     // Edits the room has not numbered are simply part of my mask again.
     for (const op of r.log.unconfirmed()) noteOfflineSeg(r, op);
-    kept = { id: r.id, session: r.session, synced: base, head: r.base ? r.baseHead : r.log.head, offlineSegs: r.offlineSegs };
+    kept = { id: r.id, session: r.session, synced: base, head: r.base ? r.baseHead : r.log.head, offlineSegs: r.offlineSegs, guard: r.guard };
   }
   if (room === r) room = null;
   conflicts = null;
@@ -1967,9 +2042,16 @@ function onRoomStatus(r: RoomCtx, status: 'connecting' | 'online' | 'offline'): 
   r.ready = false;
   r.catching = null;
   if (r.sync?.timer) clearTimeout(r.sync.timer);
-  if (r.sync) set({ busy: null, progress: null });
+  if (r.sync) {
+    // The image slabs that arrived are kept, so the next try fetches only the rest.
+    stashPartial(r, r.sync);
+    set({ busy: null, progress: null });
+  }
   r.sync = null;
   r.queued = [];
+  r.queuedBytes = 0;
+  for (const s of r.serving.values()) s.cancelled = true;
+  r.serving.clear();
   if (isGuestView()) {
     // Without the host there is nothing to look at: blank now, and let go if they do not come back.
     patchRoom({ veil: waitingText(r) });
@@ -2019,6 +2101,7 @@ function onWelcome(r: RoomCtx, w: Welcome, first: boolean): void {
   }
   const remade = r.session !== null && r.session !== w.room.session;
   r.session = w.room.session;
+  r.topSeq = remade ? w.room.head : Math.max(r.topSeq, w.room.head);
   r.quietUntil = performance.now() + 3000;
   patchRoom({ status: 'online', kind: r.kind, role: r.role, selfId: r.selfId, hostAway: w.room.state === 'host-away', veil: null, note: null });
   syncPeople(r);
@@ -2061,6 +2144,8 @@ function onRoomEnded(r: RoomCtx, code: number, reason: string): void {
       : wasIn && r.role === 'host' && code === 4410
         ? 'The room ended while you were disconnected. Start a new room to carry on together.'
         : closeMessage(code, reason, { host: hostName(r), kind: wasIn ? r.kind : null });
+  // A guest of a view-through-host room is wiped even when the room server's answer made no sense.
+  if (code === CLOSE_MISFIT && !guest && r.kind === 'host-view' && r.role !== 'host') wipeGuestCopy();
   // The membership is over: nothing to come back to.
   const gone = [4401, 4403, 4410].includes(code);
   teardown(r, { wipe: guest, keep: !gone });
@@ -2073,11 +2158,12 @@ function onRoomEnded(r: RoomCtx, code: number, reason: string): void {
 function onRoomText(r: RoomCtx, msg: TextMessage): void {
   switch (msg.t) {
     case 'ack':
+      if (Number.isSafeInteger(msg.seq)) r.topSeq = Math.max(r.topSeq, Number(msg.seq));
       r.log.ack(Number(msg.cid), Number(msg.seq));
       break;
     case 'roster': {
       const before = new Set(r.roster.map((m) => m.id));
-      r.roster = Array.isArray(msg.members) ? (msg.members as Member[]) : r.roster;
+      r.roster = parseRoster(msg.members) ?? r.roster;
       syncPeople(r);
       // Someone new needs to hear my name.
       if (r.roster.some((m) => !before.has(m.id))) sayHi(r);
@@ -2143,13 +2229,15 @@ function quietCatchUp(r: RoomCtx): void {
 
 function sayHi(r: RoomCtx): void {
   const names = r.kind === 'host-view' && r.role === 'host' ? { names: [...r.names] } : {};
-  r.client.sendFrame(FrameKind.Presence, { t: 'hi', name: r.name, ...names });
+  // The host says which kind of room it made: the others only have the room server's word for it.
+  const kind = r.role === 'host' ? { kind: r.kind } : {};
+  r.client.sendFrame(FrameKind.Presence, { t: 'hi', name: r.name, ...names, ...kind });
 }
 
 function syncPeople(r: RoomCtx): void {
   const all = new Map(r.names);
   all.set(r.selfId, r.name);
-  const shown = displayNames(r.roster.map((m) => m.id), all);
+  const shown = displayNames(r.roster.map((m) => m.id), all, hostOf(r)?.id);
   const old = new Map(get().peers.map((p) => [p.id, p]));
   const peers: Peer[] = r.roster
     .filter((m) => m.id !== r.selfId && m.online)
@@ -2168,17 +2256,24 @@ function learnName(r: RoomCtx, id: number, value: unknown): boolean {
 function onPresence(r: RoomCtx, from: number, meta: Meta): void {
   if (meta.t === 'cursor') {
     const cursor =
-      typeof meta.vp === 'string' && Array.isArray(meta.w) && meta.w.length === 3
-        ? { vp: meta.vp as ViewId, w: meta.w.map(Number) as [number, number, number], r: typeof meta.r === 'number' ? meta.r : undefined }
+      (engine.ORTHO_IDS as readonly unknown[]).includes(meta.vp) && isNumbers(meta.w, 3)
+        ? { vp: meta.vp as ViewId, w: meta.w as [number, number, number], r: typeof meta.r === 'number' && meta.r > 0 && meta.r <= 500 ? meta.r : undefined }
         : undefined;
     set((s) => ({ peers: s.peers.map((p) => (p.id === from ? { ...p, cursor } : p)) }));
     return;
   }
   if (meta.t !== 'hi') return;
+  const fromHost = from === hostOf(r)?.id;
+  if (fromHost && r.role !== 'host' && (meta.kind === 'shared' || meta.kind === 'host-view') && meta.kind !== r.kind) {
+    // The host made another kind of room than the room server said. Nothing it said can be relied on.
+    forgetRoom(r.id);
+    r.client.leaveAsMisfit();
+    return;
+  }
   let changed = learnName(r, from, meta.name);
   // In a view-through-host room guests only hear the host, who passes the other names on.
-  if (Array.isArray(meta.names) && from === hostOf(r)?.id) {
-    for (const pair of meta.names) if (Array.isArray(pair)) changed = learnName(r, Number(pair[0]), pair[1]) || changed;
+  if (Array.isArray(meta.names) && fromHost) {
+    for (const pair of meta.names.slice(0, 64)) if (Array.isArray(pair)) changed = learnName(r, Number(pair[0]), pair[1]) || changed;
   }
   if (!changed) return;
   syncPeople(r);
@@ -2214,7 +2309,7 @@ export function shareCursor(vp: ViewId | null, w?: [number, number, number]): vo
   lastCursor = now;
   const s = get();
   const painting = s.tool === 'brush' || s.tool === 'eraser' || s.tool === 'threshold';
-  room.client.sendFrame(FrameKind.Presence, { t: 'cursor', vp, w, r: painting ? currentBrushRadius() : undefined });
+  room.client.sendFrame(FrameKind.Presence, { t: 'cursor', vp, w, r: painting ? currentBrushRadius() : undefined }, undefined, { droppable: true });
 }
 
 /* ── edits in order ── */
@@ -2234,30 +2329,33 @@ function sendOp(r: RoomCtx, op: RoomOp, extra: Meta = {}): void {
     return;
   }
   const cid = r.log.local(op);
-  if (op.k === 'patch') r.client.sendFrame(FrameKind.Patch, { c: cid, ...extra }, encodePatch(op.patch), { seq: cid });
-  else r.client.sendFrame(FrameKind.SegOp, { c: cid, ...extra, ...op.op }, undefined, { seq: cid });
+  // `s` and `c` tell everyone this edit from a repeat of it (see `ReplayGuard`).
+  op.sig = [r.selfId, r.tag, cid];
+  if (op.k === 'patch') r.client.sendFrame(FrameKind.Patch, { c: cid, s: r.tag, ...extra }, encodePatch(op.patch), { seq: cid });
+  else r.client.sendFrame(FrameKind.SegOp, { c: cid, s: r.tag, ...extra, ...op.op }, undefined, { seq: cid });
 }
 
-function decodeOp(kind: number, meta: Meta | null, body: Uint8Array): RoomOp {
+function decodeOp(kind: number, meta: Meta | null, body: Uint8Array, from: number): RoomOp {
+  const sig: RoomOp['sig'] = meta && typeof meta.s === 'string' && typeof meta.c === 'number' ? [from, meta.s, meta.c] : undefined;
   try {
-    if (meta && kind === FrameKind.Patch) return { k: 'patch', patch: decodePatch(body) };
+    if (meta && kind === FrameKind.Patch) return { k: 'patch', patch: decodePatch(body), sig };
     const op = meta && kind === FrameKind.SegOp ? parseSegOp(meta) : null;
-    if (op) return { k: 'seg', op };
+    if (op) return { k: 'seg', op, sig };
   } catch {
     /* not a patch */
   }
   return { k: 'none' };
 }
 
-function confirmOp(r: RoomCtx, op: RoomOp): void {
+function confirmOp(r: RoomCtx, op: RoomOp, shown: boolean): void {
+  // The room server sending an old edit again as a new one: left out, by everyone alike.
+  if (op.sig && !r.guard.fresh(...op.sig)) return;
   if (op.k === 'patch') {
-    try {
-      if (r.synced) applyPatch(r.synced, op.patch, 'after');
-    } catch {
-      /* a patch for another mask */
-    }
-    if (r.catching === null) applyRemotePatch(op.patch);
-  } else if (op.k === 'seg') applyRemoteSeg(r, op.op, true);
+    // Checked whole before any of it is written: a run outside the mask must not leave the others half applied.
+    if (!patchFits(op.patch, r.synced?.length ?? mask?.data.length ?? 0)) return;
+    if (r.synced) applyPatch(r.synced, op.patch, 'after');
+    if (r.catching === null && !shown) applyRemotePatch(op.patch);
+  } else if (op.k === 'seg' && !shown) applyRemoteSeg(r, op.op, true);
 }
 
 function reapplyOp(r: RoomCtx, op: RoomOp): void {
@@ -2310,17 +2408,27 @@ function onRoomFrame(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8A
       hostTakesGuestEdit(r, h, meta, body);
       return;
     }
-    const op = decodeOp(h.kind, meta, body);
+    const op = decodeOp(h.kind, meta, body, h.from);
+    r.topSeq = Math.max(r.topSeq, h.seq);
     // My own edit coming back: from the host of a view-through-host room, or in a replay.
     const origin = meta && Array.isArray(meta.o) ? meta.o : null;
     const settles = origin ? (origin[0] === r.selfId ? Number(origin[1]) : undefined) : meta && h.from === r.selfId ? Number(meta.c) : undefined;
-    if (!r.ready && r.catching === null) r.queued.push({ seq: h.seq, op, settles });
-    else r.log.remote(h.seq, op, settles);
+    if (!r.ready && r.catching === null) {
+      r.queued.push({ seq: h.seq, op, settles });
+      r.queuedBytes += op.k === 'patch' ? 64 + op.patch.after.length + op.patch.starts.length * 8 : 256;
+      if (r.queued.length > QUEUE_LIMIT_FRAMES || r.queuedBytes > QUEUE_LIMIT_BYTES) {
+        // More edits than can be held while the mask is on its way: start again from a newer mask.
+        r.queued = [];
+        r.queuedBytes = 0;
+        if (r.sync) startSync(r, r.sync.merge);
+        else if (isGuestView()) guestEnter(r, false);
+      }
+    } else r.log.remote(h.seq, op, settles);
     return;
   }
   if (!meta) return;
   if (h.kind === FrameKind.Presence) onPresence(r, h.from, meta);
-  else if (h.kind === FrameKind.SyncRequest) void serveSync(r, h.from, meta);
+  else if (h.kind === FrameKind.SyncRequest) void serveSync(r, h.from, meta).catch((err) => console.error(err));
   else if (h.kind === FrameKind.SyncSlab || h.kind === FrameKind.ImageSlab) onSyncFrame(r, h, meta, body);
   else if (h.kind === FrameKind.SliceRequest) serveSlice(r, h.from, meta);
   else if (h.kind === FrameKind.Slice) onSlice(r, h.from, meta, body);
@@ -2329,6 +2437,7 @@ function onRoomFrame(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8A
 function drainQueue(r: RoomCtx): void {
   const queue = r.queued;
   r.queued = [];
+  r.queuedBytes = 0;
   for (const f of queue) r.log.remote(f.seq, f.op, f.settles);
 }
 
@@ -2418,16 +2527,45 @@ export function keepRooms(): void {
 function startSync(r: RoomCtx, merge: SyncJob['merge']): void {
   r.ready = false;
   r.catching = null;
-  if (r.sync?.timer) clearTimeout(r.sync.timer);
-  r.sync = { rid: 0, source: 0, tried: new Set(), merge, begin: null, imageMeta: null, imageData: null, theirs: null, parts: new PartAssembler(), done: 0, work: Promise.resolve(), timer: null };
-  if (merge === 'new') set({ busy: image ? 'Getting the mask from the room…' : 'Getting the image from the room…', progress: 0 });
+  if (r.sync) {
+    if (r.sync.timer) clearTimeout(r.sync.timer);
+    stashPartial(r, r.sync);
+  }
+  r.sync = {
+    rid: 0,
+    source: 0,
+    tried: new Set(),
+    merge,
+    begin: null,
+    imageMeta: null,
+    imageData: null,
+    dtype: null,
+    theirs: null,
+    parts: new PartAssembler(),
+    got: new Set(),
+    want: 0,
+    received: 0,
+    flow: false,
+    work: Promise.resolve(),
+    timer: null,
+  };
+  if (merge === 'new') set({ busy: image ? 'Getting the mask from the room…' : 'Getting the image from the room…', progress: r.partial ? null : 0 });
   askForSync(r);
+}
+
+/** Keeps the image slabs a transfer has brought so far. The image never changes, so they stay good. */
+function stashPartial(r: RoomCtx, job: SyncJob): void {
+  if (!job.imageData || !job.imageMeta || !job.dtype) return;
+  const got = new Set<number>();
+  for (const key of job.got) if (key.startsWith('i')) got.add(Number(key.slice(1)));
+  if (got.size > 0) r.partial = { meta: job.imageMeta, dtype: job.dtype, data: job.imageData, got };
 }
 
 function askForSync(r: RoomCtx): void {
   const job = r.sync;
   if (!job) return;
   if (job.timer) clearTimeout(job.timer);
+  stashPartial(r, job);
   const others = r.roster.filter((m) => m.id !== r.selfId && m.online);
   // The host first; then whoever else is there.
   others.sort((a, b) => Number(b.role === 'host') - Number(a.role === 'host') || a.id - b.id);
@@ -2444,10 +2582,18 @@ function askForSync(r: RoomCtx): void {
     patchRoom({ note: 'Waiting for someone in the room to merge with.' });
     return;
   }
-  Object.assign(job, { rid: nextRid++, source: source.id, begin: null, imageData: null, theirs: null, parts: new PartAssembler(), done: 0 });
+  // A number nobody can guess: an answer recorded from an earlier transfer cannot be passed off as this one's.
+  Object.assign(job, { rid: randomId(), source: source.id, begin: null, imageMeta: null, imageData: null, dtype: null, theirs: null, parts: new PartAssembler(), got: new Set(), want: 0, received: 0, flow: false });
   job.tried.add(source.id);
   patchRoom({ note: null });
-  r.client.sendFrame(FrameKind.SyncRequest, { rid: job.rid, image: !image, fp: image ? fingerprint(image) : null }, undefined, { to: source.id });
+  r.client.sendFrame(
+    FrameKind.SyncRequest,
+    // `flow`: this device reports what has arrived, so the sender can wait for a slow connection.
+    // `skip`: image slabs an earlier, interrupted transfer already brought.
+    { rid: job.rid, image: !image, fp: image ? fingerprint(image) : null, flow: 1, ...(!image && r.partial ? { skip: [...r.partial.got] } : {}) },
+    undefined,
+    { to: source.id },
+  );
   // Someone who does not answer is skipped.
   job.timer = setTimeout(() => r.sync === job && askForSync(r), 5000);
 }
@@ -2455,37 +2601,72 @@ function askForSync(r: RoomCtx): void {
 /** Sends the room's mask, and the image when asked, to a member who is joining or coming back. */
 async function serveSync(r: RoomCtx, to: number, meta: Meta): Promise<void> {
   const rid = meta.rid;
+  if (meta.t === 'ack') {
+    // The receiver says how much has arrived.
+    const s = r.serving.get(to);
+    if (s && s.rid === rid && typeof meta.n === 'number' && meta.n > s.acked) {
+      s.acked = Math.min(meta.n, s.sent);
+      s.ackedAt = performance.now();
+    }
+    return;
+  }
   const reply = (kind: FrameKind, m: Meta, body?: Uint8Array) => r.client.sendFrame(kind, { rid, ...m }, body, { to });
   if (r.kind !== 'shared' || !image || !mask || !r.ready || !r.synced) return void reply(FrameKind.SyncSlab, { t: 'no' });
   if (typeof meta.fp === 'string' && meta.fp !== fingerprint(image)) return void reply(FrameKind.SyncSlab, { t: 'different' });
+  // One transfer for each person, and few at a time: asking again replaces the earlier request instead of adding to it.
+  const earlier = r.serving.get(to);
+  if (earlier) earlier.cancelled = true;
+  r.serving.delete(to);
+  if (r.serving.size >= MAX_TRANSFERS) return void reply(FrameKind.SyncSlab, { t: 'no' });
+  const me: Serving = { rid, sent: 0, acked: 0, ackedAt: performance.now(), cancelled: false };
+  r.serving.set(to, me);
+  try {
+    await sendSync(r, me, meta, reply);
+  } finally {
+    if (r.serving.get(to) === me) r.serving.delete(to);
+  }
+}
+
+async function sendSync(r: RoomCtx, me: Serving, meta: Meta, reply: (kind: FrameKind, m: Meta, body?: Uint8Array) => boolean): Promise<void> {
+  if (!image || !r.synced) return;
   flushEdits();
   const vol = image;
   const depth = vol.dims[2];
   const withImage = meta.image === true;
+  const flow = meta.flow === 1;
+  const skip = new Set<unknown>(withImage && Array.isArray(meta.skip) ? meta.skip.slice(0, 4096) : []);
   const ranges = slabRanges(depth);
   reply(FrameKind.SyncSlab, {
     t: 'begin',
     head: r.log.head,
     segments: get().segments.map(sharedSegment),
     dims: vol.dims,
-    slabs: ranges.length * (withImage ? 2 : 1),
+    slabs: ranges.length * (withImage ? 2 : 1) - skip.size,
     // No name, path or tags: the grid and the voxels are all a copy needs.
     image: withImage ? { dims: vol.dims, spacing: vol.spacing, origin: vol.origin, direction: Array.from(vol.direction), dtype: vol.data.constructor.name } : null,
+    ...(flow ? { flow: 1 } : {}),
+    // Which edits the mask already holds, so the receiver can tell a repeat from a new one.
+    seen: r.guard.dump(),
   });
-  // Half of what the relay allows a connection, so edits and cursors still fit.
-  const bytes = new TokenBucket(8 << 20, 8 << 20, performance.now());
-  const messages = new TokenBucket(60, 60, performance.now());
+  const gone = () => me.cancelled || room !== r || !r.client.open;
   const send = async (kind: FrameKind, source: Uint8Array, m: Meta): Promise<boolean> => {
     const parts = splitParts(await gz(source));
     for (let i = 0; i < parts.length; i++) {
+      let blocked = 0;
       for (;;) {
-        const wait = Math.max(bytes.wait(parts[i].length, performance.now()), messages.wait(1, performance.now()), r.client.backlog > 4 << 20 ? 30 : 0);
-        if (wait <= 0) break;
-        await sleep(wait);
+        if (gone()) return false;
+        const now = performance.now();
+        // The connection's own pace keeps under the relay's limits; here only wait for what is still queued,
+        // and for the receiver, so a slow connection on their side is not flooded.
+        const waitingForReceiver = flow && me.sent - me.acked > TRANSFER_WINDOW;
+        if (!waitingForReceiver && r.client.backlog <= 2 << 20) break;
+        if (waitingForReceiver) {
+          blocked ||= now;
+          if (now - Math.max(blocked, me.ackedAt) > TRANSFER_STALL_MS) return false;
+        }
+        await sleep(15);
       }
-      if (room !== r || !r.client.open) return false;
-      bytes.spend(parts[i].length, performance.now());
-      messages.spend(1, performance.now());
+      me.sent += parts[i].length;
       reply(kind, { ...m, part: i, parts: parts.length }, parts[i]);
     }
     return true;
@@ -2494,14 +2675,17 @@ async function serveSync(r: RoomCtx, to: number, meta: Meta): Promise<void> {
   const sliceVoxels = vol.dims[0] * vol.dims[1];
   if (withImage) {
     const all = bytesOf(vol.data);
-    for (const [z0, z1] of ranges) if (!(await send(FrameKind.ImageSlab, all.subarray(z0 * sliceBytes, z1 * sliceBytes), { z0 }))) return;
+    for (const [z0, z1] of ranges) {
+      if (skip.has(z0)) continue;
+      if (!(await send(FrameKind.ImageSlab, all.subarray(z0 * sliceBytes, z1 * sliceBytes), { z0 }))) return;
+    }
   }
   // Read slab by slab from the confirmed mask. An edit that lands meanwhile also reaches the
   // receiver as an ordered edit after `head`, and applying it twice gives the same voxels.
   for (const [z0, z1] of ranges) {
     if (!r.synced || !(await send(FrameKind.SyncSlab, r.synced.slice(z0 * sliceVoxels, z1 * sliceVoxels), { t: 'slab', z0 }))) return;
   }
-  reply(FrameKind.SyncSlab, { t: 'end' });
+  if (!gone()) reply(FrameKind.SyncSlab, { t: 'end' });
 }
 
 function onSyncFrame(r: RoomCtx, h: FrameHeader, meta: Meta, body: Uint8Array): void {
@@ -2509,9 +2693,10 @@ function onSyncFrame(r: RoomCtx, h: FrameHeader, meta: Meta, body: Uint8Array): 
   if (!job || meta.rid !== job.rid || h.from !== job.source) return;
   if (job.timer) clearTimeout(job.timer);
   job.timer = setTimeout(() => r.sync === job && askForSync(r), 5000);
+  const rid = job.rid;
   // One after another: unpacking a slab takes a moment, and `end` must come last.
   job.work = job.work
-    .then(() => (r.sync === job && room === r ? handleSync(r, job, h.kind, meta, body) : undefined))
+    .then(() => (r.sync === job && job.rid === rid && room === r ? handleSync(r, job, h.kind, meta, body) : undefined))
     .catch((err) => {
       if (r.sync !== job) return;
       teardown(r, { keep: true });
@@ -2529,20 +2714,31 @@ async function handleSync(r: RoomCtx, job: SyncJob, kind: number, meta: Meta, bo
     set({ busy: null, progress: null });
     toast('error', text);
   };
+  // What this member sent cannot be right: ask the next one instead of taking it.
+  const elsewhere = () => askForSync(r);
   if (kind === FrameKind.ImageSlab || meta.t === 'slab') {
     const forImage = kind === FrameKind.ImageSlab;
     const target = forImage ? job.imageData && bytesOf(job.imageData) : job.theirs;
     const z0 = Number(meta.z0);
-    if (!job.begin || !target || !Number.isInteger(z0) || z0 < 0) return;
-    const whole = job.parts.push(`${forImage ? 'i' : 'm'}${z0}`, Number(meta.part), Number(meta.parts), body);
+    if (!job.begin || !target) return;
+    const depth = job.begin.dims[2];
+    if (!Number.isInteger(z0) || z0 < 0 || z0 >= depth || z0 % SLAB_SLICES !== 0) return elsewhere();
+    const sliceBytes = target.length / depth;
+    const raw = Math.min(SLAB_SLICES, depth - z0) * sliceBytes;
+    const key = `${forImage ? 'i' : 'm'}${z0}`;
+    job.received += body.length;
+    // Tell the sender what has arrived, so it sends no faster than this connection takes.
+    if (job.flow) r.client.sendFrame(FrameKind.SyncRequest, { rid: job.rid, t: 'ack', n: job.received }, undefined, { to: job.source });
+    // A packed slab cannot be much larger than the slab; anything more is not one.
+    const whole = job.parts.push(key, Number(meta.part), Number(meta.parts), body, maxPacked(raw));
     if (!whole) return;
-    const raw = await gunz(whole);
-    const depth = job.imageMeta?.dims[2] ?? image?.dims[2] ?? 1;
-    const offset = z0 * (target.length / depth);
-    if (offset + raw.length > target.length) throw new Error('A slab does not fit the volume');
-    target.set(raw, offset);
-    job.done++;
-    if (job.merge === 'new') set({ progress: Math.min(1, job.done / job.begin.slabs) });
+    const slab = gunzipExactly(whole, raw);
+    if (!slab) return elsewhere();
+    target.set(slab, z0 * sliceBytes);
+    job.got.add(key);
+    if (job.merge === 'new') set({ progress: Math.min(1, job.got.size / job.want) });
+    // Unpacking is done here, a slab at a time; let the screen draw in between.
+    await sleep(0);
     return;
   }
   if (meta.t === 'no') {
@@ -2553,25 +2749,43 @@ async function handleSync(r: RoomCtx, job: SyncJob, kind: number, meta: Meta, bo
   }
   if (meta.t === 'different') return refuse('This room uses a different image. Close yours to join.');
   if (meta.t === 'begin') {
-    if (!isDims(meta.dims)) throw new Error('The room sent no grid');
-    const voxels = meta.dims[0] * meta.dims[1] * meta.dims[2];
-    if (image && !meta.dims.every((n, i) => n === image!.dims[i])) return refuse('This room uses a different image. Close yours to join.');
+    // One `begin` for each request: a second would set aside what has arrived.
+    if (job.begin) return;
+    if (!isDims(meta.dims)) return elsewhere();
+    const dims = meta.dims;
+    const voxels = dims[0] * dims[1] * dims[2];
+    if (image && !dims.every((n, i) => n === image!.dims[i])) return refuse('This room uses a different image. Close yours to join.');
+    // The mask on its way cannot be newer than the newest edit the relay has shown this device.
+    const head = Number(meta.head) || 0;
+    if (!Number.isSafeInteger(head) || head < 0 || head > r.topSeq) return elsewhere();
+    const slabCount = slabRanges(dims[2]).length;
     const im = meta.image as Record<string, unknown> | null;
     if (!image) {
       const Ctor = im && typeof im.dtype === 'string' ? DTYPES[im.dtype] : undefined;
-      if (!im || !Ctor || !isNumbers(im.spacing, 3) || !isNumbers(im.origin, 3) || !isNumbers(im.direction, 9)) return askForSync(r);
+      if (!im || !Ctor || !isNumbers(im.spacing, 3) || !isNumbers(im.origin, 3) || !isNumbers(im.direction, 9)) return elsewhere();
       if (voxels * Ctor.prototype.BYTES_PER_ELEMENT > ROOM_IMAGE_LIMIT) return refuse('This image is too large to share in a room (limit 2 GB).');
-      job.imageData = new Ctor(voxels);
-      job.imageMeta = { dims: meta.dims, spacing: im.spacing as [number, number, number], origin: im.origin as [number, number, number], direction: im.direction };
-    }
+      job.imageMeta = { dims, spacing: im.spacing as [number, number, number], origin: im.origin as [number, number, number], direction: im.direction };
+      job.dtype = im.dtype as string;
+      // What an interrupted transfer of the same image already brought is kept.
+      const partial = r.partial && r.partial.dtype === job.dtype && JSON.stringify(r.partial.meta) === JSON.stringify(job.imageMeta) ? r.partial : null;
+      job.imageData = partial?.data ?? new Ctor(voxels);
+      for (const z0 of partial?.got ?? []) job.got.add(`i${z0}`);
+    } else if (voxels > ROOM_IMAGE_LIMIT) return elsewhere();
+    r.partial = null;
     job.theirs = new Uint8Array(voxels);
+    job.want = slabCount * (image ? 1 : 2);
+    job.flow = meta.flow === 1;
     const segments = (Array.isArray(meta.segments) ? meta.segments : [])
+      .slice(0, 255)
       .map((seg) => parseSegOp({ op: 'set', seg }))
       .flatMap((op) => (op?.op === 'set' ? [{ ...op.seg, visible: true }] : []));
-    job.begin = { head: Number(meta.head) || 0, segments, slabs: Math.max(1, Number(meta.slabs) || 1) };
+    job.begin = { head, segments, dims, seen: meta.seen };
+    if (job.merge === 'new') set({ progress: Math.min(1, job.got.size / job.want) });
     return;
   }
   if (meta.t !== 'end' || !job.begin || !job.theirs) return;
+  // Every slab must be here. A transfer with holes in it would open as an image with blank slices.
+  if (job.got.size < job.want) return elsewhere();
   if (job.timer) clearTimeout(job.timer);
   r.sync = null;
   const begin = job.begin;
@@ -2581,6 +2795,7 @@ async function handleSync(r: RoomCtx, job: SyncJob, kind: number, meta: Meta, bo
   }
   if (!image || !mask || !shadow || mask.data.length !== job.theirs.length) throw new Error('No image for the room mask');
   r.log.reset(begin.head);
+  r.guard.load(begin.seen);
   if (job.merge !== 'new') {
     finishCatchUp(r, job.merge === 'three' ? r.synced : null, job.theirs, begin.segments);
     return;
@@ -2610,11 +2825,13 @@ const AXES: Axis[] = [0, 1, 2];
 /** Host: answers a guest with the room's shape, or with one plane windowed down to 8 bits and its labels. */
 function serveSlice(r: RoomCtx, to: number, meta: Meta): void {
   if (r.kind !== 'host-view' || r.role !== 'host' || !image || !mask || !r.ready) return;
+  // The guest's own number comes back with the answer, so an old answer cannot stand in for a new one.
+  const q = typeof meta.q === 'number' ? { q: meta.q } : {};
   if (meta.t === 'describe') {
     flushEdits();
     r.client.sendFrame(
       FrameKind.Slice,
-      { t: 'room', dims: image.dims, spacing: image.spacing, origin: image.origin, direction: Array.from(image.direction), segments: get().segments.map(sharedSegment), head: r.log.head },
+      { t: 'room', dims: image.dims, spacing: image.spacing, origin: image.origin, direction: Array.from(image.direction), segments: get().segments.map(sharedSegment), head: r.log.head, seen: r.guard.dump(), ...q },
       undefined,
       { to },
     );
@@ -2631,7 +2848,7 @@ function serveSlice(r: RoomCtx, to: number, meta: Meta): void {
   const voi = get().voi ?? { lower: 0, upper: 1 };
   const picture = windowTo8(readPlane(image.data, image.dims, axis, index), voi.lower, voi.upper);
   const labels = readPlane(mask.data as Uint8Array, image.dims, axis, index);
-  if (!r.client.sendFrame(FrameKind.Slice, { t: 'slice', axis, index }, encodeSlice(picture, labels), { to })) return;
+  if (!r.client.sendFrame(FrameKind.Slice, { t: 'slice', axis, index, ...q }, encodeSlice(picture, labels), { to })) return;
   let seen = r.seen.get(to);
   if (!seen) r.seen.set(to, (seen = new Set()));
   if (!seen.has(sliceKey(axis, index))) {
@@ -2643,8 +2860,11 @@ function serveSlice(r: RoomCtx, to: number, meta: Meta): void {
 /** Host: a guest's edit arrives for the host alone; the host applies it and passes it on as its own, in order. */
 function hostTakesGuestEdit(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8Array): void {
   if (!r.ready || !mask) return;
-  const op = decodeOp(h.kind, meta, body);
+  const op = decodeOp(h.kind, meta, body, h.from);
   if (op.k === 'none' || (op.k === 'seg' && op.op.op === 'window')) return;
+  // The same edit sent again by the room server, or one that reaches outside the mask.
+  if (op.sig && !r.guard.fresh(...op.sig)) return;
+  if (op.k === 'patch' && !patchFits(op.patch, mask.data.length)) return;
   if (op.k === 'patch') applyRemotePatch(op.patch);
   else {
     applyRemoteSeg(r, op.op, true);
@@ -2659,9 +2879,11 @@ function guestEnter(r: RoomCtx, away: boolean): void {
   r.have.clear();
   r.asked.clear();
   r.queued = [];
+  r.queuedBytes = 0;
   patchRoom({ veil: away ? waitingText(r) : null });
   if (!image) set({ busy: 'Joining the room…' });
-  const ask = () => r.client.sendFrame(FrameKind.SliceRequest, { t: 'describe' });
+  r.describeQ = randomId();
+  const ask = () => r.client.sendFrame(FrameKind.SliceRequest, { t: 'describe', q: r.describeQ });
   ask();
   if (r.pump) clearInterval(r.pump);
   r.pump = setInterval(() => (r.ready ? wantSlices(r) : ask()), 400);
@@ -2670,13 +2892,15 @@ function guestEnter(r: RoomCtx, away: boolean): void {
 function onSlice(r: RoomCtx, from: number, meta: Meta, body: Uint8Array): void {
   if (!isGuestView() || from !== hostOf(r)?.id) return;
   if (meta.t === 'room') {
-    if (r.ready) return;
+    if (r.ready || (meta.q !== undefined && meta.q !== r.describeQ)) return;
     r.work = r.work.then(() => (room === r && !r.ready ? guestOpen(r, meta) : undefined)).catch((err) => unexpected(err, 'the room'));
     return;
   }
   const axis = meta.axis as Axis;
   const index = Number(meta.index);
   if (meta.t !== 'slice' || !r.ready || !image || !mask || !shadow || !AXES.includes(axis) || !Number.isInteger(index) || index < 0 || index >= image.dims[axis]) return;
+  // An answer to a question this device did not ask, or asked before the window changed: not the plane as it is now.
+  if (meta.q !== undefined && r.asked.get(sliceKey(axis, index))?.q !== meta.q) return;
   const got = decodeSlice(body, planeLength(image.dims, axis));
   if (!got) return;
   writePlane(image.data, image.dims, axis, index, got.image);
@@ -2712,11 +2936,13 @@ async function guestOpen(r: RoomCtx, meta: Meta): Promise<void> {
   }
   if (room !== r || !image) return;
   const segments = (Array.isArray(meta.segments) ? meta.segments : [])
+    .slice(0, 255)
     .map((seg) => parseSegOp({ op: 'set', seg }))
     .flatMap((op) => (op?.op === 'set' ? [{ ...op.seg, visible: true }] : []));
   set({ segments, activeSegment: segments.some((x) => x.index === get().activeSegment) ? get().activeSegment : (segments[0]?.index ?? 0), maskName: null, dirty: false, busy: null });
   pushSegments();
   r.log.reset(Number(meta.head) || 0);
+  r.guard.load(meta.seen);
   r.ready = true;
   drainQueue(r);
   wantSlices(r);
@@ -2735,10 +2961,11 @@ function wantSlices(r: RoomCtx): void {
     for (const index of withNeighbours(indicesForPlane(image, axis, plane.point, plane.normal), image.dims[axis])) {
       const key = sliceKey(axis, index);
       // Asked and not answered within three seconds: ask again.
-      if (r.have.has(key) || now - (r.asked.get(key) ?? -Infinity) < 3000) continue;
+      if (r.have.has(key) || now - (r.asked.get(key)?.at ?? -Infinity) < 3000) continue;
       if (!r.askBucket.take(1, now)) return;
-      r.asked.set(key, now);
-      r.client.sendFrame(FrameKind.SliceRequest, { axis, index });
+      const q = randomId();
+      r.asked.set(key, { at: now, q });
+      r.client.sendFrame(FrameKind.SliceRequest, { axis, index, q });
     }
   }
 }
