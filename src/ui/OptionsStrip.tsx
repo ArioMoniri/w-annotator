@@ -1,14 +1,17 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { activeSegmentInfo, useStore } from '../state/store';
 import { applyFillPreview, cancelFillPreview, fillBetweenSlices, setBrushSize, setPaintOver, setToolOption, setVoi } from '../session';
 import { paintOverLabel } from '../mask/paintOver';
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { useSettings } from '../state/settings';
-import { matchChoice, windowChoices, windowSetFor } from '../viewer/window';
+import { matchChoice, windowChoices, windowFields, windowFromFields, windowSetFor, windowStep } from '../viewer/window';
 import { applyWindowChoice } from '../windowing';
 import { BRUSH_MAX } from '../mask/brush';
 import { Choice, MOD, NumberField, Slider, useKeyHint } from './common';
 import { TOOLS } from './ToolRail';
+
+/** The tightest step of the strip. */
+const COMPACT_MAX = 3;
 
 const SHAPES = [
   { value: 'circle' as const, label: 'Circle' },
@@ -29,12 +32,12 @@ function SizeField() {
   );
 }
 
-function ShapeField() {
+function ShapeField({ list = false }: { list?: boolean }) {
   const shape = useStore((s) => s.brushShape);
   return (
     <div className="field">
       <span className="label">Shape</span>
-      <Choice label="Brush shape" value={shape} options={SHAPES} onChange={(brushShape) => setToolOption({ brushShape })} />
+      <Choice label="Brush shape" value={shape} options={SHAPES} collapsed={list} onChange={(brushShape) => setToolOption({ brushShape })} />
     </div>
   );
 }
@@ -44,7 +47,8 @@ const PAINT_INSIDE_TIP = 'Paint only inside one segment';
 
 /**
  * What painting may write over. In the brush strip it is two buttons and a list of
- * segments; where the strip is fuller it is one list with the same choices.
+ * segments; where the strip is fuller or the window narrower it is one list with the
+ * same choices.
  */
 function PaintOverField({ list = false }: { list?: boolean }) {
   const paintOver = useStore((s) => s.paintOver);
@@ -121,15 +125,21 @@ function ThresholdField() {
   );
 }
 
-function WindowFields() {
+const WINDOW_HINT = `${MOD}-drag a box to set the window from it.`;
+
+function WindowFields({ hintAsTip }: { hintAsTip: boolean }) {
   const voi = useStore((s) => s.voi);
   const image = useStore((s) => s.image);
   const asked = useStore((s) => s.windowSet);
   const custom = useSettings((s) => s.windowPresets);
   if (!voi || !image) return null;
-  const w = Math.round(voi.upper - voi.lower);
-  const l = Math.round((voi.upper + voi.lower) / 2);
-  const apply = (nw: number, nl: number) => setVoi(nl - Math.max(1, nw) / 2, nl + Math.max(1, nw) / 2);
+  // Whole numbers on CT; finer on an image with a narrow range, such as one scaled 0 to 1.
+  const step = windowStep(image.range);
+  const { w, l } = windowFields(voi, step);
+  const apply = (nw: number, nl: number) => {
+    const next = windowFromFields(nw, nl, step);
+    setVoi(next.lower, next.upper);
+  };
   const choices = windowChoices(image, custom, windowSetFor(image, asked));
   const current = matchChoice(choices, voi)?.name ?? '';
   return (
@@ -155,16 +165,17 @@ function WindowFields() {
           ))}
         </select>
       </div>
-      <div className="field">
+      {/* Where the hint has no room it is the tip of these fields, for the pointer and for the keyboard. */}
+      <div className="field hinted" data-tip={hintAsTip ? WINDOW_HINT : undefined} data-tip-side="bottom" data-tip-align="end">
         <span className="label">W</span>
-        <NumberField label="Window width" wide value={w} min={1} onCommit={(v) => apply(v, l)} />
+        <NumberField label="Window width" wide value={w} min={step} step={step} onCommit={(v) => apply(v, l)} />
         <span className="label">L</span>
-        <NumberField label="Window level" wide value={l} onCommit={(v) => apply(w, v)} />
+        <NumberField label="Window level" wide value={l} step={step} onCommit={(v) => apply(w, v)} />
       </div>
       <button className="btn secondary" onClick={() => setVoi(image.auto.lower, image.auto.upper)}>
         Reset
       </button>
-      <span className="hint">{MOD}-drag a box to set the window from it.</span>
+      <span className="hint">{WINDOW_HINT}</span>
     </>
   );
 }
@@ -182,30 +193,36 @@ export function OptionsStrip() {
   // The chip names the limit only for tools that add to a segment.
   const adds = tool === 'brush' || tool === 'threshold' || (tool === 'scissors' && scissorsAction === 'fill') || (tool === 'fill' && fillAction === 'fill');
   const chip = useStore((s) => paintOverLabel(adds ? s.paintOver : 'all', s.segments, s.activeSegment));
+  const segmentCount = useStore((s) => s.segments.length);
   const name = TOOLS.find((t) => t.id === tool)?.name ?? '';
   const key = useKeyHint();
 
-  // The strip tightens itself step by step until its controls fit, so it holds
-  // up with any window width, system font or segment name.
+  // The strip tightens itself step by step until its controls fit, so it holds up with any
+  // window width, system font or segment name. Each step is tried in the page before it is
+  // painted: 1 drops hints and field labels, 2 closes the gaps and turns the longer groups
+  // of buttons into lists, 3 turns every group into a list and drops the sliders. Words are
+  // never shortened.
+  const stripRef = useRef<HTMLDivElement>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
-  const [compact, setCompact] = useState(0);
+  const [width, setWidth] = useState(0);
+  const [fit, setFit] = useState({ key: '', level: 0 });
+  const fitKey = [tool, scissorsShape, scissorsAction, fillAction, paintOver, chip, previewing, segmentCount, width].join('|');
+  const compact = fit.key === fitKey ? fit.level : 0;
   useLayoutEffect(() => {
     const el = optionsRef.current;
     if (!el) return;
-    const fit = () => {
-      let level = 0;
-      el.parentElement!.dataset.compact = '0';
-      while (level < 3 && el.scrollWidth > el.clientWidth) {
-        level++;
-        el.parentElement!.dataset.compact = String(level);
-      }
-      setCompact(level);
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(el.parentElement!);
+    if (compact < COMPACT_MAX && el.scrollWidth > el.clientWidth) setFit({ key: fitKey, level: compact + 1 });
+    else if (fit.key !== fitKey) setFit({ key: fitKey, level: compact });
+  }, [fitKey, compact, fit.key]);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth));
+    observer.observe(el);
     return () => observer.disconnect();
-  }, [tool, scissorsShape, scissorsAction, fillAction, paintOver, chip, previewing]);
+  }, []);
+  /** A group of buttons with this many options is a list at the current step. */
+  const asList = (options: number) => compact >= 3 || (compact >= 2 && options >= 3);
 
   let body;
   switch (tool) {
@@ -226,7 +243,7 @@ export function OptionsStrip() {
       );
       break;
     case 'window':
-      body = <WindowFields />;
+      body = <WindowFields hintAsTip={compact >= 1} />;
       break;
     case 'measure':
       body = (
@@ -242,8 +259,8 @@ export function OptionsStrip() {
       body = (
         <>
           <SizeField />
-          <ShapeField />
-          <PaintOverField />
+          <ShapeField list={asList(2)} />
+          <PaintOverField list={asList(3)} />
           <span className="hint">Shift-drag erases.</span>
           <button
             className="btn secondary"
@@ -253,8 +270,7 @@ export function OptionsStrip() {
             data-tip-align="end"
             onClick={fillBetweenSlices}
           >
-            <span className="long">Fill between slices</span>
-            <span className="short">Fill gaps</span>
+            Fill between slices
           </button>
         </>
       );
@@ -263,7 +279,7 @@ export function OptionsStrip() {
       body = (
         <>
           <SizeField />
-          <ShapeField />
+          <ShapeField list={asList(2)} />
         </>
       );
       break;
@@ -284,10 +300,11 @@ export function OptionsStrip() {
             <Choice
               label="Scissors shape"
               value={scissorsShape}
+              collapsed={asList(4)}
               options={[
-                { value: 'rectangle', label: 'Rectangle', short: 'Rect' },
+                { value: 'rectangle', label: 'Rectangle' },
                 { value: 'circle', label: 'Circle' },
-                { value: 'freehand', label: 'Freehand', short: 'Free' },
+                { value: 'freehand', label: 'Freehand' },
                 { value: 'sphere', label: 'Sphere' },
               ]}
               onChange={(v) => setToolOption({ scissorsShape: v })}
@@ -298,10 +315,11 @@ export function OptionsStrip() {
             <Choice
               label="Scissors action"
               value={scissorsAction}
+              collapsed={asList(3)}
               options={[
-                { value: 'erase' as const, label: 'Erase inside', short: 'Erase in' },
-                { value: 'outside' as const, label: 'Erase outside', short: 'Erase out' },
-                { value: 'fill' as const, label: 'Fill inside', short: 'Fill' },
+                { value: 'erase' as const, label: 'Erase inside' },
+                { value: 'outside' as const, label: 'Erase outside' },
+                { value: 'fill' as const, label: 'Fill inside' },
               ].filter((o) => scissorsShape !== 'sphere' || o.value !== 'outside')}
               onChange={(v) => setToolOption({ scissorsAction: v })}
             />
@@ -312,9 +330,10 @@ export function OptionsStrip() {
               <Choice
                 label="Scissors depth"
                 value={scissorsDepth}
+                collapsed={asList(2)}
                 options={[
-                  { value: 'slice', label: 'This slice', short: 'Slice' },
-                  { value: 'all', label: 'All slices', short: 'All' },
+                  { value: 'slice', label: 'This slice' },
+                  { value: 'all', label: 'All slices' },
                 ]}
                 onChange={(v) => setToolOption({ scissorsDepth: v })}
               />
@@ -332,10 +351,11 @@ export function OptionsStrip() {
             <Choice
               label="Fill action"
               value={fillAction}
+              collapsed={asList(3)}
               options={[
-                { value: 'fill', label: 'Fill area', short: 'Fill' },
-                { value: 'remove', label: 'Remove island', short: 'Remove' },
-                { value: 'keep', label: 'Keep island', short: 'Keep' },
+                { value: 'fill', label: 'Fill area' },
+                { value: 'remove', label: 'Remove island' },
+                { value: 'keep', label: 'Keep island' },
               ]}
               onChange={(v) => setToolOption({ fillAction: v })}
             />
@@ -345,7 +365,7 @@ export function OptionsStrip() {
             {fillAction === 'fill'
               ? 'Click an enclosed area to fill it on this slice.'
               : fillAction === 'remove'
-                ? 'Click a separate piece of the segment to remove it.'
+                ? 'Click a piece of the segment to remove it. A segment in one piece is removed whole.'
                 : 'Click the piece of the segment to keep. The rest is removed.'}
           </span>
         </>
@@ -357,7 +377,7 @@ export function OptionsStrip() {
     body = (
       <>
         <span className="hint keep" role="status">
-          Preview: {preview.count.toLocaleString('en-US')} voxels between {preview.view} slices.
+          Preview: {preview.size} between {preview.view} slices.
         </span>
         <button className="btn primary" data-tip="Apply  Enter" data-tip-side="bottom" onClick={applyFillPreview}>
           Apply
@@ -370,7 +390,7 @@ export function OptionsStrip() {
   }
 
   return (
-    <div className="strip" data-strip={tool} data-compact={compact} data-tour="options">
+    <div className="strip" data-strip={tool} data-compact={compact} data-tour="options" ref={stripRef}>
       <span className="toolname">{name}</span>
       <div className="options" key={preview ? 'preview' : tool} ref={optionsRef}>
         {body}

@@ -22,8 +22,7 @@ test.afterEach(async () => {
 });
 
 const maskAt = (page: Page, index: number) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate((i) => ((window as any).__w.session.getMask().data as Uint8Array)[i], index);
+  page.evaluate((i) => (window.__w.session.getMask().data as Uint8Array)[i], index);
 
 /** `u32 n`, then `(u32 start, u32 length)` per run, then the values: a patch as it travels. */
 function patchBytes(runs: [start: number, length: number][], value: number): Uint8Array {

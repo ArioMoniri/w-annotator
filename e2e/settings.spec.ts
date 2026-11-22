@@ -287,10 +287,12 @@ test('Help names the sample data, its licence and where it comes from', async ({
   await launch(page);
   await page.keyboard.press('Control+,');
   await page.getByRole('tab', { name: 'Help' }).click();
-  await expect(page.getByText('Sample data: LUNA16 / LIDC-IDRI, CC BY 4.0')).toBeVisible();
+  // The two sources have different licences (public/sample/ATTRIBUTION.md), and each is named with its own.
+  await expect(page.getByText('Sample data: LUNA16 (CC BY 4.0), a subset of LIDC-IDRI (CC BY 3.0)')).toBeVisible();
   await expect(page.getByRole('link', { name: 'LUNA16' })).toHaveAttribute('href', 'https://luna16.grand-challenge.org/');
   await expect(page.getByRole('link', { name: 'LIDC-IDRI' })).toHaveAttribute('href', 'https://www.cancerimagingarchive.net/collection/lidc-idri/');
   await expect(page.getByRole('link', { name: 'CC BY 4.0' })).toHaveAttribute('href', 'https://creativecommons.org/licenses/by/4.0/');
+  await expect(page.getByRole('link', { name: 'CC BY 3.0' })).toHaveAttribute('href', 'https://creativecommons.org/licenses/by/3.0/');
   // A link opens in the browser, not in place of the app.
   await page.context().route('https://creativecommons.org/**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>licence</title>' }));
   const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', { name: 'CC BY 4.0' }).click()]);

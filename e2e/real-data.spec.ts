@@ -1,6 +1,6 @@
 /**
- * Real-data checks. Skipped unless W_REALDATA_DIR points at a folder that holds
- * a cases.json manifest:
+ * Real-data checks. playwright.config.ts leaves this file out of a run unless
+ * W_REALDATA_DIR is set. It must point at a folder that holds a cases.json manifest:
  *
  *   [{ "name": "picai-10964", "image": ["picai/10964/x_t2w.mha"], "mask": ["picai/10964/x_lesion.nii.gz"] }]
  *
@@ -27,16 +27,15 @@ interface Case {
 }
 const cases: Case[] = manifest && existsSync(manifest) ? (JSON.parse(readFileSync(manifest, 'utf8')) as Case[]) : [];
 
-const SKIP = 'Set W_REALDATA_DIR to a folder with cases.json to run the real-data checks.';
-if (cases.length === 0) test('real data checks', () => test.skip(true, SKIP));
+// Asked for and not there is an error, never a quiet pass.
+if (cases.length === 0) throw new Error('W_REALDATA_DIR must be a folder with a cases.json that lists at least one case.');
 test.use({ viewport: { width: 1440, height: 900 }, ...(process.env.W_REALDATA_URL ? { baseURL: process.env.W_REALDATA_URL } : {}) });
 test.setTimeout(240_000);
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 const abs = (rel: string[]) => rel.map((p) => join(DIR, p));
 
 async function idle(page: Page): Promise<void> {
-  await page.waitForFunction(() => (window as any).__w.store.getState().busy === null, null, { timeout: 180_000 });
+  await page.waitForFunction(() => window.__w.store.getState().busy === null, null, { timeout: 180_000 });
 }
 
 async function openImage(page: Page, files: string[]): Promise<number> {
@@ -46,7 +45,7 @@ async function openImage(page: Page, files: string[]): Promise<number> {
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open image', exact: true }).click();
   await (await chooser).setFiles(files);
-  await page.waitForFunction(() => (window as any).__w.store.getState().image !== null, null, { timeout: 180_000 });
+  await page.waitForFunction(() => window.__w.store.getState().image !== null, null, { timeout: 180_000 });
   await idle(page);
   await page.locator('[data-view="axial"] canvas').first().waitFor();
   return Date.now() - started;
@@ -57,39 +56,39 @@ async function openMask(page: Page, files: string[]): Promise<void> {
   await page.locator('.filebtn').click();
   await page.getByRole('menuitem', { name: /Open mask/ }).click();
   await (await chooser).setFiles(files);
-  await page.waitForFunction(() => (window as any).__w.store.getState().maskName !== null, null, { timeout: 180_000 });
+  await page.waitForFunction(() => window.__w.store.getState().maskName !== null, null, { timeout: 180_000 });
   await idle(page);
   await page.waitForTimeout(500);
 }
 
 const state = (page: Page) =>
   page.evaluate(() => {
-    const s = (window as any).__w.store.getState();
-    return { toasts: s.toasts as { kind: string; text: string }[], segments: s.segments.map((x: any) => x.index) as number[], range: s.image.range as [number, number] };
+    const s = window.__w.store.getState();
+    return { toasts: s.toasts as { kind: string; text: string }[], segments: s.segments.map((x: { index: number }) => x.index) as number[], range: s.image.range as [number, number] };
   });
 
 const geometry = (page: Page, which: 'image' | 'mask') =>
   page.evaluate((which) => {
-    const v = which === 'mask' ? (window as any).__w.session.getMask() : (window as any).__w.session.getImage();
+    const v = which === 'mask' ? window.__w.session.getMask() : window.__w.session.getImage();
     return { dims: v.dims as number[], spacing: v.spacing as number[], origin: v.origin as number[], direction: v.direction as number[] };
   }, which);
 
 const maskHash = (page: Page) =>
   page.evaluate(async () => {
-    const h = await crypto.subtle.digest('SHA-256', (window as any).__w.session.getMask().data);
+    const h = await crypto.subtle.digest('SHA-256', window.__w.session.getMask().data);
     return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
   });
 
 const imageHash = (page: Page) =>
   page.evaluate(async () => {
-    const d = (window as any).__w.session.getImage().data;
+    const d = window.__w.session.getImage().data;
     const h = await crypto.subtle.digest('SHA-256', new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
     return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
   });
 
 async function maskBytes(page: Page): Promise<Buffer> {
   const b64 = await page.evaluate(() => {
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    const d = window.__w.session.getMask().data as Uint8Array;
     let s = '';
     for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode(...d.subarray(i, i + 0x8000));
     return btoa(s);
@@ -100,15 +99,15 @@ async function maskBytes(page: Page): Promise<Buffer> {
 /** Keeps a copy of the mask in the page so later edits can be diffed against it. */
 const remember = (page: Page, key: string) =>
   page.evaluate((key) => {
-    (window as any)[key] = (window as any).__w.session.getMask().data.slice();
+    (window as unknown as Record<string, Uint8Array>)[key] = window.__w.session.getMask().data.slice();
   }, key);
 
 /** Voxels that differ from the remembered copy, with their bounding box in voxel indices. */
 const changedSince = (page: Page, key: string) =>
   page.evaluate((key) => {
-    const m = (window as any).__w.session.getMask();
+    const m = window.__w.session.getMask();
     const d = m.data as Uint8Array;
-    const o = (window as any)[key] as Uint8Array;
+    const o = (window as unknown as Record<string, Uint8Array>)[key];
     const [nx, ny] = m.dims as number[];
     const lo = [Infinity, Infinity, Infinity];
     const hi = [-1, -1, -1];
@@ -277,7 +276,7 @@ for (const c of cases) {
       const span = range[1] - range[0];
       const [lo, hi] = range[0] < 0 ? [range[0], -1] : [Math.round(range[0] + span * 0.35), Math.round(range[0] + span * 0.9)];
       await page.keyboard.press('t');
-      await page.evaluate((r) => (window as any).__w.session.setToolOption({ threshold: r }), [lo, hi]);
+      await page.evaluate((r) => window.__w.session.setToolOption({ threshold: r }), [lo, hi]);
       const stroke: [[number, number], [number, number]][] = [
         [[-120, -100], [120, -100]],
         [[-120, 0], [120, 0]],
@@ -286,9 +285,9 @@ for (const c of cases) {
       await remember(page, '__start');
       for (const [from, to] of stroke) await drag(page, 'axial', from, to);
       const result = await page.evaluate(([lo, hi]) => {
-        const m = (window as any).__w.session.getMask().data as Uint8Array;
-        const o = (window as any).__start as Uint8Array;
-        const im = (window as any).__w.session.getImage().data as ArrayLike<number>;
+        const m = window.__w.session.getMask().data as Uint8Array;
+        const o = (window as unknown as Record<string, Uint8Array>).__start;
+        const im = window.__w.session.getImage().data as ArrayLike<number>;
         let painted = 0;
         let outside = 0;
         for (let i = 0; i < m.length; i++) {
@@ -299,14 +298,14 @@ for (const c of cases) {
         return { painted, outside };
       }, [lo, hi]);
       // What a plain brush covers on the same strokes, to know how much was in range.
-      await page.evaluate(() => (window as any).__w.session.undo());
+      await page.evaluate(() => window.__w.session.undo());
       await page.keyboard.press('b');
       await remember(page, '__plain');
       for (const [from, to] of stroke) await drag(page, 'axial', from, to);
       const expected = await page.evaluate(([lo, hi]) => {
-        const m = (window as any).__w.session.getMask().data as Uint8Array;
-        const o = (window as any).__plain as Uint8Array;
-        const im = (window as any).__w.session.getImage().data as ArrayLike<number>;
+        const m = window.__w.session.getMask().data as Uint8Array;
+        const o = (window as unknown as Record<string, Uint8Array>).__plain;
+        const im = window.__w.session.getImage().data as ArrayLike<number>;
         let n = 0;
         for (let i = 0; i < m.length; i++) if (m[i] !== o[i] && im[i] >= lo && im[i] <= hi) n++;
         return n;
@@ -317,7 +316,7 @@ for (const c of cases) {
 
     test('crosshair click moves the other views to that point', async ({ page }) => {
       await openImage(page, abs(c.image));
-      const slices = () => page.evaluate(() => JSON.stringify((window as any).__w.store.getState().slices));
+      const slices = () => page.evaluate(() => JSON.stringify(window.__w.store.getState().slices));
       const before = JSON.parse(await slices()) as Record<string, { index: number }>;
       const box = (await page.locator('[data-view="axial"]').boundingBox())!;
       await page.keyboard.press('c');
@@ -352,7 +351,7 @@ for (const c of cases) {
       await guest.getByRole('button', { name: 'Join', exact: true }).click();
       await guest.waitForFunction(
         () => {
-          const s = (window as any).__w.store.getState();
+          const s = window.__w.store.getState();
           return s.image !== null && s.busy === null && s.maskName !== null;
         },
         null,

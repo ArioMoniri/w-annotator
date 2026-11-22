@@ -229,8 +229,8 @@ function Help({ go }: { go: (section: SettingsSection) => void }) {
         Free for non-commercial use. © Ariorad Moniri.
         <br />
         <span>
-          Sample data: <External href={SAMPLE_SOURCES.luna16}>LUNA16</External> / <External href={SAMPLE_SOURCES.lidc}>LIDC-IDRI</External>,{' '}
-          <External href={SAMPLE_SOURCES.licence}>CC BY 4.0</External>
+          Sample data: <External href={SAMPLE_SOURCES.luna16}>LUNA16</External> (<External href={SAMPLE_SOURCES.licence}>CC BY 4.0</External>), a subset of{' '}
+          <External href={SAMPLE_SOURCES.lidc}>LIDC-IDRI</External> (<External href={SAMPLE_SOURCES.licenceLidc}>CC BY 3.0</External>)
         </span>
       </p>
     </>

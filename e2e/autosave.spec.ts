@@ -1,14 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { drag, openPhantom } from './helpers';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-const voxels = (page: Page): Promise<number[]> => page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array));
+const voxels = (page: Page): Promise<number[]> => page.evaluate(() => Array.from(window.__w.session.getMask().data as Uint8Array));
 
 const copies = (page: Page): Promise<{ key: string; savedAt: number }[]> =>
   page.evaluate(async () => {
-    await (window as any).__w.recovery.settled();
-    return (window as any).__w.recovery.copies();
+    await window.__w.recovery.settled();
+    return window.__w.recovery.copies();
   });
 
 /** Paint a stroke and wait until its recovery copy has been written. */
@@ -107,7 +105,7 @@ test('saving the mask removes the recovery copy', async ({ page }) => {
 test("closing with Don't save removes the recovery copy", async ({ page }) => {
   await openPhantom(page);
   await paintAndWaitForCopy(page);
-  await page.evaluate(() => (window as any).__w.session.closeImage());
+  await page.evaluate(() => window.__w.session.closeImage());
   await page.getByRole('button', { name: "Don't save" }).click();
   await expect(page.getByRole('heading', { name: 'Drop an image and a mask' })).toBeVisible();
   expect(await copies(page)).toEqual([]);
@@ -119,7 +117,7 @@ test('turning autosave off removes copies and stops making them', async ({ page 
   await paintAndWaitForCopy(page);
   expect(await copies(page)).toHaveLength(1);
 
-  await page.evaluate(() => (window as any).__w.settings.setSetting('autosave', false));
+  await page.evaluate(() => window.__w.settings.setSetting('autosave', false));
   await expect(page.getByText('Autosave is off. Recovery copies were removed.')).toBeVisible();
   await expect(page.getByTestId('recovery-note')).toHaveCount(0);
   expect(await copies(page)).toEqual([]);
@@ -140,7 +138,7 @@ test('turning autosave off removes copies and stops making them', async ({ page 
   expect(await copies(page)).toEqual([]);
 
   // Back on, the unsaved edits are covered again.
-  await page.evaluate(() => (window as any).__w.settings.setSetting('autosave', true));
+  await page.evaluate(() => window.__w.settings.setSetting('autosave', true));
   await expect(page.getByTestId('recovery-note')).toBeVisible({ timeout: 10_000 });
   expect(await copies(page)).toHaveLength(1);
 });

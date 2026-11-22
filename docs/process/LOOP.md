@@ -7,12 +7,14 @@ The loop that moves the current goal (`GOAL.md`) to done. Run one pass with `/it
 | Field | Value |
 | --- | --- |
 | Goal | W Annotator v1 (see `GOAL.md`) |
-| Iteration | 0 of 5 |
-| Step | plan |
-| Last watchdog result | none yet |
-| Blocked on | nothing |
+| Iteration | 3 of 5 |
+| Step | fix (step 7), then gate (step 8) |
+| Last watchdog result | FAIL on 0.1.2, 2026-11-22 (`docs/reviews/0.1.2-council.md`): process and claims, not the test suites |
+| Blocked on | A second watchdog and council run on 0.1.3, which holds the fixes of all three branches |
 
 The orchestrator keeps this table current.
+
+0.1.0, 0.1.1 and 0.1.2 were released without rows in the log below and without a recorded gate. The rows for them were written on 2026-11-22 from the changelog, the CI history and the reviews in `docs/reviews/`; what could not be recovered says so.
 
 ## Entry criteria
 
@@ -70,4 +72,6 @@ Append one row per iteration. Do not edit or delete earlier rows.
 
 | Iter | Date | Slice (criteria / changes) | Checks (lint, types, unit, e2e, cargo) | Council | Tester (bugs: crit/high/med/low) | Watchdog | Carried over | Next |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-|  |  |  |  |  |  |  |  |  |
+| 1 | 2026-11-19 to 2026-11-20 | Release 0.1.1: trackpad, layouts, reference lines, Files section and several masks, Open with, drop overlay (`CHANGELOG.md`). Written up afterwards. | CI green on `main` at the release. Local runs: not recorded | An earlier review is in `docs/reviews/iter1.md`. No council verdict recorded for 0.1.1 | `docs/reviews/iter1-tester.md`; none recorded for 0.1.1 | not run | No acceptance criterion was updated in `GOAL.md` | 0.1.2 |
+| 2 | 2026-11-21 | Release 0.1.2: window presets and menu, zoom menu, two kinds of room with encrypted traffic, freehand scissors, erase outside, islands, paint over, fill preview, split, smooth pixels (`CHANGELOG.md`). Written up afterwards. | CI green on `main` at `6a9f410` (run 44939691847, nine jobs). Release workflow passed (run 44922414843) | not run before release | not run before release | not run before release | No gate record; `GOAL.md` still said "not started" for every criterion | Review of what shipped |
+| 3 | 2026-11-22 | Review of 0.1.2 (`docs/reviews/0.1.2-council.md`), then its fixes on three branches: `fix/council-0-1-2` (S1, S2, S4, S6, S7, S10 to S15, M3, M4 docs, N1, N12), `fix/polish-0-1-3` (S5 and polish), `fix/rooms-hardening` (M1, M2, S3, S8, S9) | Review, on `main`: typecheck and lint clean; unit 998 passed; cargo passed; e2e 208 passed and 1 failed in a run that ran out of memory (passed 3 of 3 alone); `webkit:check` and desktop e2e not run. On `fix/council-0-1-2` (Linux, 2026-11-22): typecheck and lint clean; unit 1014 passed in 51 files; e2e 226 passed, 0 failed, 0 skipped, in one run in Chromium; `webkit:check` 45 passed in WebKitGTK; cargo not run (no Rust changed); desktop e2e, macOS and Windows not verified. With the three branches together, as 0.1.3 (Linux, 2026-11-22): typecheck and lint clean; unit 1056 passed in 52 files; e2e 242 passed, 0 failed, 0 skipped, in one run in Chromium, and one more test added after it passed alone; `webkit:check` 45 passed; `cargo fmt --check` and clippy clean; `cargo test --workspace` 160 passed, 0 ignored | CHANGES REQUIRED: radiologist, annotator and UX each APPROVE WITH CHANGES. One reviewer took the roles in turn, so they were not independent | 0 / 2 / 6 / 6 | FAIL (scope against `GOAL.md`, one green e2e run not obtained, definition of done, unverified claims, docs) | M1 and M2 (rooms), S5; a second watchdog and council run | Merge the three branches, run the gate again, then decide on 0.1.3 |

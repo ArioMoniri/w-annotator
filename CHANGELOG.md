@@ -6,8 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-22
+
+### Added
+
+- "Open the sample" on the start screen, for anyone who skipped the welcome tour.
+
 ### Changed
 
+- Messages about a cut, a fill or removed islands give the amount in mL or mm³, like the measurements, where some counted voxels. The fill preview does the same.
+- The options strip keeps whole words in a narrow window. Where there is no room, a group of buttons becomes a list with the same choices; "Fill between slices" has that one name at every width.
+- The MR window that was called "Soft tissue" is now "Mid range". Soft tissue is a CT window with a fixed meaning; the MR one is worked out from the image. The window itself is the same.
+- The Pancreas preset (W 150, L 65) is described as what it is: a narrow window chosen for a contrast-enhanced pancreas, not a standard preset. Its numbers are unchanged.
+- The hint under "Remove island" says that a segment in one piece is removed whole.
 - Joining a shared-copy room with a full-size scan: the sender waits for the receiver, so a slow connection is no longer flooded and dropped; a transfer cut by a lost connection picks up with the image slabs it already has; one person can no longer make the host send the image many times at once.
 - Large edits in a room (a whole segment cleared, a cut through all slices) are sent at a pace the room server accepts. Before, an edit of more than about 20 MB closed the connection, again on every retry.
 - Confirming a large edit of your own no longer rewrites the whole edit once per piece.
@@ -15,6 +26,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Undo on a message could undo a newer step than the one the message was about. The button now goes as soon as another edit, an undo or a redo is made.
+- A message no longer disappears while the pointer is on it or while it has keyboard focus.
+- Undo or redo during a fill preview left the preview on screen, and Apply then found nothing to fill. Undo and redo now cancel the preview first.
+- "Erase outside" on one slice said nothing when it removed parts that were out of view in a zoomed-in view. It now says how much, with Undo.
+- "Remove island" on a segment in one piece says that all of it was removed.
+- The Window / Level strip could not set a width under 1, which made it useless on images scaled 0 to 1. The smallest width and the arrow-key step now follow the image's range.
+- In a narrow window the hint about Ctrl-drag (⌘-drag) for a window from a box disappeared. It is now the tooltip of the W and L fields.
+- Low contrast: the W and L numbers beside a preset and the segment number were hard to read on a selected or pointed-at row.
+- The view name and the slice counter were hard to read over a bright image. Each now has a small dark backing.
+- The README and Settings → Help gave CC BY 4.0 for both sources of the sample. LIDC-IDRI is CC BY 3.0.
 - A guest of a view-through-host room whose own connection dropped was told after 15 seconds that the host had ended the session, and could not come back without a new link. The guest is now told "Offline. Reconnecting…", stays a member and is retried for as long as it takes. What was shown is cleared from memory after 15 seconds and fetched again on return.
 - A guest of a view-through-host room got window presets and threshold limits worked out from an empty image, and Hounsfield presets for grey levels. A guest now has one window (Full range), threshold limits from 0 to 255, the value under the cursor labelled Grey, and the host's window shown in the status bar to read. The mask is named Room mask, and the 3D pane says that the 3D view stays on the host's computer.
 - The host of a shared-copy room is asked before leaving and told what it means, Leave room no longer looks like Delete room, and the others are told that the host left and that they can keep working.
@@ -169,7 +190,8 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ArioMoniri/w-annotator/releases/tag/v0.1.0

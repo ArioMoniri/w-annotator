@@ -726,6 +726,11 @@ export function formatVolume(ml: number): string {
   return `${ml.toFixed(1)} mL`;
 }
 
+/** How much `voxels` voxels of the given size are, as `formatVolume` writes it. */
+export function formatVoxels(voxels: number, spacing: ArrayLike<number>): string {
+  return formatVolume((voxels * spacing[0] * spacing[1] * spacing[2]) / 1000);
+}
+
 /** A measured value with at most `digits` decimals and no trailing zeros. */
 export function formatValue(value: number, digits = 2): string {
   return Number.isFinite(value) ? String(Number(value.toFixed(digits))) : '';

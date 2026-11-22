@@ -108,8 +108,7 @@ async function openScan(page: Page): Promise<void> {
       new Uint8Array(buf, 352).set(new Uint8Array(data.buffer));
       return new Uint8Array(buf);
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (window as any).__w.session.openFiles([
+    await window.__w.session.openFiles([
       { name: 'scale_ct.nii', bytes: nifti(img, 4, 16) },
       { name: 'scale_seg.nii', bytes: nifti(msk, 2, 8) },
     ]);
@@ -121,8 +120,7 @@ async function openScan(page: Page): Promise<void> {
 /** A fingerprint of the image or the mask as the page holds it, to compare two people's copies. */
 async function checksum(page: Page, which: 'image' | 'mask'): Promise<string> {
   return page.evaluate((which) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     const data = (which === 'image' ? s.getImage() : s.getMask()).data as Int16Array | Uint8Array;
     const words = new Uint32Array(data.buffer, data.byteOffset, data.byteLength >> 2);
     let h = 0x811c9dc5;
@@ -133,8 +131,7 @@ async function checksum(page: Page, which: 'image' | 'mask'): Promise<string> {
 
 const voxels = (page: Page, label: number) =>
   page.evaluate((label) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    const d = window.__w.session.getMask().data as Uint8Array;
     let n = 0;
     for (let i = 0; i < d.length; i++) if (d[i] === label) n++;
     return n;
@@ -223,8 +220,7 @@ function sampler(pids: () => (number | null)[]): { stop(): number[] } {
 }
 
 const progressOf = (page: Page) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate(() => (window as any).__w.store.getState().progress as number | null);
+  page.evaluate(() => window.__w.store.getState().progress as number | null);
 
 /** Records every progress value the page shows, so a test can tell a moving bar from a stuck one. */
 async function watchProgress(page: Page): Promise<void> {
@@ -243,22 +239,19 @@ async function watchProgress(page: Page): Promise<void> {
  */
 async function bigEdit(from: Page, to: Page, label: number): Promise<{ secondsToMakeTheEdit: number; secondsUntilTheOtherHasIt: number }> {
   const last = await from.evaluate((label) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    const d = window.__w.session.getMask().data as Uint8Array;
     for (let i = d.length - 1; i >= 0; i--) if (d[i] === label) return i;
     return -1;
   }, label);
   expect(last).toBeGreaterThan(0);
   const arrived = to.evaluate(async (last) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    const d = window.__w.session.getMask().data as Uint8Array;
     while (d[last] !== 0) await new Promise((r) => setTimeout(r, 4));
     return Date.now();
   }, last);
   const made = await from.evaluate((label) => {
     const t0 = Date.now();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__w.session.clearSegment(label);
+    window.__w.session.clearSegment(label);
     return { t0, t1: Date.now() };
   }, label);
   const at = await arrived;
@@ -268,8 +261,7 @@ async function bigEdit(from: Page, to: Page, label: number): Promise<{ secondsTo
 const inRoom = async (page: Page) => {
   await expect(page.locator('[data-view="axial"] canvas').first()).toBeVisible({ timeout: 600_000 });
   await expect(page.locator('.segrow')).toHaveCount(3, { timeout: 600_000 });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await expect.poll(() => page.evaluate(() => (window as any).__w.store.getState().busy), { timeout: 600_000 }).toBeNull();
+  await expect.poll(() => page.evaluate(() => window.__w.store.getState().busy), { timeout: 600_000 }).toBeNull();
 };
 
 /* ───────────────────────── shared copy ───────────────────────── */
@@ -421,8 +413,7 @@ test('view through host: the first slice and each scroll arrive quickly, and no 
   // A voxel of the spine, off the planes the other two views show, so only its own slice fills it in.
   const probe = (page: Page, k: number) =>
     page.evaluate((k) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = (window as any).__w.session.getMask();
+      const m = window.__w.session.getMask();
       return m ? ((m.data as Uint8Array)[(k * 512 + 380) * 512 + 250] as number) : 0;
     }, k);
   await expect.poll(() => probe(guest, 150), { timeout: 120_000, intervals: [50] }).toBe(3);
@@ -432,8 +423,7 @@ test('view through host: the first slice and each scroll arrive quickly, and no 
   const latencies: number[] = [];
   for (const k of [140, 128, 116, 104, 92, 164, 176, 188, 200, 212]) {
     const ms = await guest.evaluate(async (k) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
+      const w = window.__w;
       const vol = w.session.getMask();
       const at = (k * 512 + 380) * 512 + 250;
       const t0 = performance.now();

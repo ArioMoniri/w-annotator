@@ -129,10 +129,8 @@ test('a rename and a new segment made at the same moment both survive', async ({
   await expect(guest.locator('.segrow')).toHaveCount(2);
 
   await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    host.evaluate(() => (window as any).__w.session.patchSegment(1, { name: 'Liver' })),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    guest.evaluate(() => (window as any).__w.session.addSegment()),
+    host.evaluate(() => window.__w.session.patchSegment(1, { name: 'Liver' })),
+    guest.evaluate(() => window.__w.session.addSegment()),
   ]);
   for (const page of [host, guest]) {
     await expect(page.locator('.segrow')).toHaveCount(3);
@@ -581,8 +579,7 @@ test("a view-through-host guest is shown grey levels and the host's window, not 
   await joinRoom(guest, 'Ario', link);
   await expect.poll(() => imageValue(guest, [24, 24, 24])).toBeGreaterThan(0);
   const numbers = (text: string | null) => /W\s*(\S+)\s*L\s*(\S+)/.exec(text ?? '')?.slice(1, 3).join(' ');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const state = () => guest.evaluate(() => (window as any).__w.store.getState());
+  const state = () => guest.evaluate(() => window.__w.store.getState());
 
   // The window in the guest's status bar is the host's, to read; the guest has no preset menu of their own.
   const hostWindow = numbers(await host.getByTestId('status-window').textContent());

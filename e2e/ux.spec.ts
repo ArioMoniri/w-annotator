@@ -187,13 +187,11 @@ test('a file that cannot be parsed is named, with what to do', async ({ page }) 
   await page.goto('/');
   await page.waitForFunction(() => '__w' in window);
   await page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (window as any).__w.session.openFiles([{ name: 'broken_scan.nii', bytes: new Uint8Array(400).fill(7) }]);
+    await window.__w.session.openFiles([{ name: 'broken_scan.nii', bytes: new Uint8Array(400).fill(7) }]);
   });
   await expect(page.getByRole('alert')).toHaveText("Can't read broken_scan.nii. The file may be damaged or incomplete.");
   await page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (window as any).__w.session.openFiles([{ name: 'notes.txt', bytes: new Uint8Array(400).fill(65) }]);
+    await window.__w.session.openFiles([{ name: 'notes.txt', bytes: new Uint8Array(400).fill(65) }]);
   });
   await expect(page.getByRole('alert').last()).toContainText("Can't open notes.txt.");
 });
@@ -201,8 +199,7 @@ test('a file that cannot be parsed is named, with what to do', async ({ page }) 
 test('the same message raised twice shows one toast', async ({ page }) => {
   await openPhantom(page);
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     s.setTool('brush');
     s.patchSegment(1, { locked: true });
     s.fillBetweenSlices();
@@ -257,8 +254,7 @@ test('the reduce-motion setting turns transitions off', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-reduce-motion', 'true');
   const fast = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dur-fast').trim());
   expect(fast).toBe('0ms');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.store.setState({ roomModal: 'start' }));
+  await page.evaluate(() => window.__w.store.setState({ roomModal: 'start' }));
   await page.getByRole('button', { name: 'Start', exact: true }).waitFor();
 });
 

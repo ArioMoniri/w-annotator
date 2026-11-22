@@ -127,6 +127,38 @@ export function ellipseOutline(centre: Point, edge: Point, sides = 72): Point[] 
   });
 }
 
+/**
+ * How many voxels of a segment, within the depths of a cut, have their centre outside a view
+ * of `size` pixels. Counted before and after a cut, the difference is what the cut changed
+ * where nobody could see it.
+ */
+export function offScreen(mask: Uint8Array, dims: ArrayLike<number>, c: Pick<Cut, 'map' | 'depth' | 'label'>, size: readonly [number, number]): number {
+  const nx = dims[0];
+  const ny = dims[1];
+  const nz = dims[2];
+  const { x, y, depth } = c.map;
+  let count = 0;
+  for (let k = 0; k < nz; k++) {
+    for (let j = 0; j < ny; j++) {
+      const base = (j + k * ny) * nx;
+      const px = x[0] + x[2] * j + x[3] * k;
+      const py = y[0] + y[2] * j + y[3] * k;
+      const pd = depth[0] + depth[2] * j + depth[3] * k;
+      for (let i = 0; i < nx; i++) {
+        if (mask[base + i] !== c.label) continue;
+        if (c.depth) {
+          const d = pd + depth[1] * i;
+          if (d < c.depth[0] || d >= c.depth[1]) continue;
+        }
+        const sx = px + x[1] * i;
+        const sy = py + y[1] * i;
+        if (sx < 0 || sy < 0 || sx >= size[0] || sy >= size[1]) count++;
+      }
+    }
+  }
+  return count;
+}
+
 const TINY = 1e-9;
 
 /** Erases or fills with an outline. Returns how many voxels changed. */

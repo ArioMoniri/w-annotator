@@ -149,6 +149,8 @@ export function NumberField(props: {
   wide?: boolean;
   min?: number;
   max?: number;
+  /** What one press of an arrow key adds or takes; 1 unless given. */
+  step?: number;
   onCommit: (v: number) => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -181,8 +183,9 @@ export function NumberField(props: {
           (e.target as HTMLInputElement).blur();
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
-          const step = (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
-          ref.current!.value = String(Number(ref.current!.value || props.value) + step);
+          const step = (props.step ?? 1) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+          // Rounded, so a step of 0.01 does not leave 0.30000000000000004 in the field.
+          ref.current!.value = String(Number((Number(ref.current!.value || props.value) + step).toFixed(6)));
           commit();
         } else if (e.key === 'Escape') {
           ref.current!.value = String(props.value);
@@ -193,27 +196,45 @@ export function NumberField(props: {
   );
 }
 
+/**
+ * One choice out of a few. A row of buttons where there is room; with `collapsed`, a list
+ * with the same name and the same options, so no label ever has to be shortened.
+ */
 export function Choice<T extends string>(props: {
   value: T;
-  /** `short` is shown in place of `label` where space is tight; the button keeps `label` as its name. */
-  options: { value: T; label: string; short?: string }[];
+  options: { value: T; label: string }[];
   label: string;
   /** Id of a visible label, used in place of `label` when there is one. */
   labelledBy?: string;
+  collapsed?: boolean;
   onChange: (v: T) => void;
 }) {
+  const name = { 'aria-label': props.labelledBy ? undefined : props.label, 'aria-labelledby': props.labelledBy };
+  if (props.collapsed) {
+    return (
+      <select
+        className="select choice"
+        {...name}
+        value={props.value}
+        onChange={(e) => {
+          props.onChange(e.target.value as T);
+          // Give the keyboard back to the tool shortcuts.
+          e.target.blur();
+        }}
+      >
+        {props.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
   return (
-    <div className="seg-control" role="group" aria-label={props.labelledBy ? undefined : props.label} aria-labelledby={props.labelledBy}>
+    <div className="seg-control" role="group" {...name}>
       {props.options.map((o) => (
-        <button key={o.value} aria-pressed={o.value === props.value} aria-label={o.short ? o.label : undefined} onClick={() => props.onChange(o.value)}>
-          {o.short ? (
-            <>
-              <span className="long">{o.label}</span>
-              <span className="short">{o.short}</span>
-            </>
-          ) : (
-            o.label
-          )}
+        <button key={o.value} aria-pressed={o.value === props.value} onClick={() => props.onChange(o.value)}>
+          {o.label}
         </button>
       ))}
     </div>

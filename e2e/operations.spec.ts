@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
+import { formatVoxels } from '../src/mask/ops';
 import { copiedText, drag, maskVoxels, openPhantom, tab } from './helpers';
 
 const dump = (page: Page) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
+  page.evaluate(() => Array.from(window.__w.session.getMask().data as Uint8Array).join(''));
 
 async function openMenu(page: Page, segment: string): Promise<void> {
   await page.locator('.segrow', { hasText: segment }).hover();
@@ -16,8 +16,7 @@ async function voxelUnder(page: Page, dx: number, dy: number): Promise<[number, 
   await page.mouse.move(box.x + box.width / 2 + dx - 3, box.y + box.height / 2 + dy);
   await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
   await page.waitForTimeout(80);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return page.evaluate(() => (window as any).__w.store.getState().hover.ijk as [number, number, number]);
+  return page.evaluate(() => window.__w.store.getState().hover.ijk as [number, number, number]);
 }
 
 /** Where a voxel column sits in the axial view, as an offset in pixels from its centre. */
@@ -100,7 +99,7 @@ test('keep largest island removes a stray painted blob', async ({ page }) => {
 
   await openMenu(page, 'Segment 1');
   await page.getByRole('menuitem', { name: 'Keep largest island' }).click();
-  await expect(page.locator('.toast')).toContainText(`Removed ${painted - voxels} voxels outside the largest island of Segment 1`);
+  await expect(page.locator('.toast')).toContainText(`Removed ${formatVoxels(painted - voxels, [1, 1, 1])} outside the largest island of Segment 1`);
   expect(await maskVoxels(page, 1)).toBe(voxels);
 
   await page.keyboard.press('Control+z');
@@ -137,7 +136,7 @@ test('fill holes closes a cavity erased inside a segment', async ({ page }) => {
 
   await openMenu(page, 'Segment 1');
   await page.getByRole('menuitem', { name: 'Fill holes' }).click();
-  await expect(page.locator('.toast')).toContainText(`Filled ${voxels - hollow} voxels in Segment 1`);
+  await expect(page.locator('.toast')).toContainText(`Filled ${formatVoxels(voxels - hollow, [1, 1, 1])} in Segment 1`);
   expect(await maskVoxels(page, 1)).toBe(voxels);
 
   await openMenu(page, 'Segment 1');
@@ -330,7 +329,8 @@ for (const size of [
     };
     await page.keyboard.press('b');
     await expect(page.locator('.segrow').first().getByTestId('segment-volume')).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Paint over' })).toBeVisible();
+    // Three buttons where there is room, one list with the same name and choices where there is not.
+    await expect(page.getByRole('group', { name: 'Paint over' }).or(page.getByRole('combobox', { name: 'Paint over' }))).toBeVisible();
     // Nothing in the brush strip is cut off, also with a wider system font than this machine's.
     const overflow = () =>
       page.evaluate(() => {

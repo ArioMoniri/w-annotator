@@ -53,8 +53,7 @@ export async function openPhantom(page: Page, withMask = true, peak = 300): Prom
     };
     const files = [{ name: 'phantom_ct.nii', bytes: nifti(img, 4, 16) }];
     if (withMask) files.push({ name: 'phantom_seg.nii', bytes: nifti(msk, 2, 8) });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (window as any).__w.session.openFiles(files);
+    await window.__w.session.openFiles(files);
   }, { withMask, peak });
   await page.locator('[data-view="axial"] canvas').first().waitFor();
   await page.waitForTimeout(800);
@@ -62,8 +61,7 @@ export async function openPhantom(page: Page, withMask = true, peak = 300): Prom
 
 export async function maskVoxels(page: Page, label?: number): Promise<number> {
   return page.evaluate((label) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    const d = window.__w.session.getMask().data as Uint8Array;
     let n = 0;
     for (let i = 0; i < d.length; i++) if (label === undefined ? d[i] !== 0 : d[i] === label) n++;
     return n;
@@ -118,8 +116,7 @@ export const SEGMENT_2: [number, number, number] = [17, 27, 23];
 export async function pixelAt(page: Page, view: string, ijk: [number, number, number]): Promise<[number, number, number]> {
   return page.evaluate(
     ({ view, ijk }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
+      const w = window.__w;
       const vol = w.session.getMask();
       const d = vol.direction as number[];
       const world = [0, 1, 2].map(
@@ -164,8 +161,7 @@ export const isTinted = (rgb: [number, number, number]): boolean => Math.max(...
 /** Moves every view to a voxel. */
 export async function jumpToVoxel(page: Page, ijk: [number, number, number]): Promise<void> {
   await page.evaluate((ijk) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const vol = w.session.getMask();
     const d = vol.direction as number[];
     const s = vol.spacing as number[];
@@ -195,6 +191,66 @@ export async function tabOnPage(page: Page, back = false): Promise<void> {
   await page.keyboard.press(`${mac ? 'Alt+' : ''}${back ? 'Shift+' : ''}Tab`);
 }
 
+/* ───────────────────────── pointing at voxels ───────────────────────── */
+
+export type Voxel = [number, number, number];
+
+/** How many voxels of the 48³ phantom mask pass `keep`, written as the body of a function of (value, x, y, z). */
+export const countVoxels = (page: Page, keep: string): Promise<number> =>
+  page.evaluate((keep) => {
+    const d = window.__w.session.getMask().data as Uint8Array;
+    const test = new Function('v', 'x', 'y', 'z', `return ${keep}`) as (v: number, x: number, y: number, z: number) => boolean;
+    let n = 0;
+    for (let z = 0; z < 48; z++) for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) if (test(d[x + y * 48 + z * 2304], x, y, z)) n++;
+    return n;
+  }, keep);
+
+/** Where a voxel position (fractions allowed) is on the page, in a slice view. */
+export async function voxelOnPage(page: Page, view: string, ijk: Voxel): Promise<[number, number]> {
+  return page.evaluate(
+    ({ view, ijk }) => {
+      const w = window.__w;
+      const vol = w.session.getMask();
+      const d = vol.direction as number[];
+      const world = [0, 1, 2].map((r) => vol.origin[r] + d[r] * vol.spacing[0] * ijk[0] + d[3 + r] * vol.spacing[1] * ijk[1] + d[6 + r] * vol.spacing[2] * ijk[2]);
+      const [x, y] = w.engine.worldToCanvas(view, world) as [number, number];
+      const rect = document.querySelector(`[data-view="${view}"] canvas`)!.getBoundingClientRect();
+      return [rect.left + x, rect.top + y] as [number, number];
+    },
+    { view, ijk },
+  );
+}
+
+/** Presses at the first voxel position, drags through the rest and releases. */
+export async function trace(page: Page, view: string, path: Voxel[], release = true): Promise<void> {
+  const points: [number, number][] = [];
+  for (const p of path) points.push(await voxelOnPage(page, view, p));
+  await page.mouse.move(...points[0]);
+  await page.mouse.down();
+  for (const p of points.slice(1)) await page.mouse.move(...p, { steps: 6 });
+  if (!release) return;
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+}
+
+export async function clickVoxel(page: Page, view: string, at: Voxel, modifiers: ('Alt' | 'Shift')[] = []): Promise<void> {
+  const [x, y] = await voxelOnPage(page, view, at);
+  for (const m of modifiers) await page.keyboard.down(m);
+  await page.mouse.click(x, y);
+  for (const m of modifiers) await page.keyboard.up(m);
+  await page.waitForTimeout(300);
+}
+
+/**
+ * Picks one option of a choice in the options strip by its name. Where the strip has room the
+ * choice is a group of buttons; where it has not, it is a list with the same name and options.
+ */
+export async function choose(page: Page, name: string, option: string): Promise<void> {
+  const group = page.getByRole('group', { name, exact: true });
+  if ((await group.count()) > 0) await group.getByRole('button', { name: option, exact: true }).click();
+  else await page.getByRole('combobox', { name, exact: true }).selectOption({ label: option });
+}
+
 /* ───────────────────────── rooms ───────────────────────── */
 
 /** What an invite link looks like: the room server, a room id, and the secret after `#`, which no server sees. */
@@ -213,8 +269,7 @@ export async function startRoom(page: Page, name: string, kind: 'Shared copy' | 
 
 /** Another single-use link from the host's room menu. */
 export async function anotherLink(host: Page, ttlSeconds?: number): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return host.evaluate((ttl) => (window as any).__w.session.createInvite(ttl), ttlSeconds);
+  return host.evaluate((ttl) => window.__w.session.createInvite(ttl), ttlSeconds);
 }
 
 /** Fills in the join form and submits it. Does not wait for the outcome. */
@@ -242,8 +297,7 @@ export async function joinRoom(page: Page, name: string, link: string): Promise<
 
 /** The whole mask as a string, to compare two people's masks voxel for voxel. */
 export async function maskDump(page: Page): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
+  return page.evaluate(() => Array.from(window.__w.session.getMask().data as Uint8Array).join(''));
 }
 
 /**
@@ -300,8 +354,7 @@ export function watchRoomTraffic(page: Page): { bytes: number; kinds: Record<num
 /** The value the app holds for one voxel of the image. */
 export async function imageValue(page: Page, ijk: [number, number, number]): Promise<number> {
   return page.evaluate((ijk) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const vol = (window as any).__w.session.getImage();
+    const vol = window.__w.session.getImage();
     return vol.data[(ijk[2] * vol.dims[1] + ijk[1]) * vol.dims[0] + ijk[0]] as number;
   }, ijk);
 }
@@ -309,8 +362,7 @@ export async function imageValue(page: Page, ijk: [number, number, number]): Pro
 /** One stored slice of the mask as a string. */
 export async function sliceDump(page: Page, k: number): Promise<string> {
   return page.evaluate((k) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const vol = (window as any).__w.session.getMask();
+    const vol = window.__w.session.getMask();
     const n = vol.dims[0] * vol.dims[1];
     return Array.from((vol.data as Uint8Array).subarray(k * n, (k + 1) * n)).join('');
   }, k);

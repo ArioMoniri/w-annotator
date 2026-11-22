@@ -1,4 +1,5 @@
 import { Layers } from 'lucide-react';
+import { openSample } from '../session';
 import { set } from '../state/store';
 import { pickDicomFolder, pickImage } from './files';
 import { RecoveryWaiting } from './RecoveryBar';
@@ -24,6 +25,10 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
       <div className="links">
         <button className="btn text" data-tour="join" onClick={() => set({ roomModal: 'join' })}>
           Join a room
+        </button>
+        {/* The way back to the sample for someone who skipped the tour: it opens the scan, not the tour. */}
+        <button className="btn text" onClick={() => void openSample()}>
+          Open the sample
         </button>
         <button className="btn text" data-tour="settings" onClick={() => set({ settings: 'profile' })}>
           Settings
