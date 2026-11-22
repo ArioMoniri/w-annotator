@@ -8,6 +8,7 @@ mod associations;
 mod batch;
 mod dump;
 mod files;
+mod hosted_rooms;
 mod hosting;
 mod recovery;
 mod testing;
@@ -87,8 +88,19 @@ fn take_paths(app: &AppHandle, paths: &[PathBuf], gather: bool) {
 }
 
 #[tauri::command]
-async fn host_room(host: State<'_, Host>, port: Option<u16>) -> Result<HostInfo, String> {
-    host.start(port)
+async fn host_room(
+    app: AppHandle,
+    host: State<'_, Host>,
+    port: Option<u16>,
+) -> Result<HostInfo, String> {
+    // Rooms hosted here are kept in the app's own data folder, so they are
+    // there again after the app was closed. Without that folder they are not kept.
+    let store = app
+        .path()
+        .app_local_data_dir()
+        .ok()
+        .map(|dir| dir.join(hosted_rooms::FOLDER));
+    host.start(port, store.as_deref())
         .await
         .map_err(|e| format!("Could not start hosting: {e}"))
 }
@@ -427,6 +439,11 @@ pub fn run() {
         .expect("error while building W Annotator");
 
     app.run(|_app, _event| {
+        // Rooms hosted here are written one last time, so someone who joined a
+        // moment ago is still a member when the room is opened again.
+        if let tauri::RunEvent::Exit = &_event {
+            tauri::async_runtime::block_on(_app.state::<Host>().keep_now());
+        }
         // macOS delivers "Open with" and double-clicked files as an event, at
         // launch and while running, and sometimes one selection in several events.
         #[cfg(any(target_os = "macos", target_os = "ios"))]

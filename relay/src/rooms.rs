@@ -11,9 +11,10 @@ use bytes::{Bytes, BytesMut};
 use serde_json::{json, Map, Value};
 use tokio::sync::{mpsc, Notify};
 
-use crate::auth::{b64, member_id, proof_input, random, KEY_LEN};
+use crate::auth::{b64, member_id, proof_input, random, unb64, KEY_LEN};
 use crate::invites::{Invite, Refusal};
 use crate::limits::{Bucket, Limits, RateLimit};
+use crate::persist::{ImportError, SavedMember, SavedRelay, SavedRoom, SavedTombstone, FORMAT};
 use crate::proto::{close, FrameError, Header, Kind, HEADER_LEN, PROTO_VERSION};
 use crate::Shared;
 
@@ -1136,6 +1137,163 @@ pub(crate) fn list(shared: &Shared) -> Vec<RoomInfo> {
 
 pub(crate) fn count(shared: &Shared) -> usize {
     shared.v2.lock().unwrap().rooms.len()
+}
+
+/// The reasons a tombstone can carry, as the static texts the close frames use.
+fn tombstone_reason(text: &str) -> Option<&'static str> {
+    ["room deleted", "room closed", "host lost"]
+        .into_iter()
+        .find(|known| *known == text)
+}
+
+/// What an embedding app stores to bring rooms back after a restart (`persist`).
+pub(crate) fn export(shared: &Shared) -> SavedRelay {
+    let v2 = shared.v2.lock().unwrap();
+    let mut rooms: Vec<SavedRoom> = v2
+        .rooms
+        .iter()
+        .filter(|(_, room)| room.kind == RoomType::Shared)
+        .filter_map(|(id, room)| {
+            let host = room.members.get(&room.host)?;
+            let mut invites: Vec<_> = room.invites.iter().map(|(id, i)| i.to_saved(id)).collect();
+            invites.sort_by(|a, b| a.id.cmp(&b.id));
+            Some(SavedRoom {
+                id: id.clone(),
+                kind: room.kind.as_str().to_owned(),
+                epoch: room.epoch,
+                host: b64(&host.key),
+                members: room
+                    .members
+                    .iter()
+                    .filter(|(id, _)| **id != room.host)
+                    .map(|(_, m)| SavedMember {
+                        key: b64(&m.key),
+                        xkey: m.xkey.as_ref().map(|k| b64(k)),
+                        role: m.role.as_str().to_owned(),
+                        invite: m.invite.clone(),
+                        last_seen: m.last_seen_ms,
+                    })
+                    .collect(),
+                removed: room.removed.iter().map(|k| b64(k)).collect(),
+                invites,
+                last_active: room.last_active_ms,
+            })
+        })
+        .collect();
+    rooms.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut tombstones: Vec<SavedTombstone> = v2
+        .tombstones
+        .iter()
+        .map(|(id, t)| SavedTombstone {
+            id: id.clone(),
+            at: t.at_ms,
+            reason: t.reason.to_owned(),
+        })
+        .collect();
+    tombstones.sort_by(|a, b| a.id.cmp(&b.id));
+    SavedRelay {
+        version: FORMAT,
+        rooms,
+        tombstones,
+    }
+}
+
+/// One saved room as a record, or `None` when any part of it is not what it
+/// should be. Members and invites that are damaged are left out one by one.
+fn room_from_saved(saved: &SavedRoom, limits: &Limits, now_ms: u64) -> Option<(String, Room)> {
+    let id = normalize_room_id(&saved.id)?;
+    if RoomType::parse(&saved.kind) != Some(RoomType::Shared) || saved.epoch == 0 {
+        return None;
+    }
+    let host_key = unb64::<KEY_LEN>(&saved.host)?;
+    let host = member_id(&host_key);
+    if host == 0 {
+        return None;
+    }
+    let mut room = Room::new(RoomType::Shared, limits, now_ms);
+    room.epoch = saved.epoch;
+    room.host = host;
+    // An idle room is judged by when someone was last there, not by this start.
+    room.last_active_ms = saved.last_active.min(now_ms);
+    let mut member = room.new_member(host_key, None, Role::Host, limits);
+    member.last_seen_ms = room.last_active_ms;
+    room.members.insert(host, member);
+    for m in saved
+        .members
+        .iter()
+        .take(limits.max_members.saturating_sub(1))
+    {
+        let Some(key) = unb64::<KEY_LEN>(&m.key) else {
+            continue;
+        };
+        let role = match Role::parse(&m.role) {
+            Some(Role::Host) | None => continue,
+            Some(role) => role,
+        };
+        let member_id = member_id(&key);
+        if member_id == 0 || room.members.contains_key(&member_id) {
+            continue;
+        }
+        let xkey = m.xkey.as_deref().and_then(unb64::<KEY_LEN>);
+        let mut member = room.new_member(key, xkey, role, limits);
+        member.invite = m.invite.clone();
+        member.last_seen_ms = m.last_seen.min(now_ms);
+        room.members.insert(member_id, member);
+    }
+    for key in saved.removed.iter().filter_map(|k| unb64::<KEY_LEN>(k)) {
+        room.remember_removed(key, limits);
+    }
+    for (id, invite) in saved
+        .invites
+        .iter()
+        .filter_map(Invite::from_saved)
+        .take(limits.max_invites)
+    {
+        room.invites.insert(id, invite);
+    }
+    Some((id, room))
+}
+
+/// Brings saved rooms back, then lets lapse what ran out while the relay was off.
+pub(crate) fn import(shared: &Shared, saved: SavedRelay) -> Result<usize, ImportError> {
+    if saved.version > FORMAT {
+        return Err(ImportError::Newer(saved.version));
+    }
+    let limits = &shared.cfg.limits;
+    let now = shared.now_ms();
+    let mut taken = Vec::new();
+    {
+        let mut v2 = shared.v2.lock().unwrap();
+        for t in &saved.tombstones {
+            let (Some(id), Some(reason)) = (normalize_room_id(&t.id), tombstone_reason(&t.reason))
+            else {
+                continue;
+            };
+            if v2.rooms.contains_key(&id) || v2.tombstones.len() >= limits.tombstones {
+                continue;
+            }
+            v2.tombstones.entry(id).or_insert(Tombstone {
+                at_ms: t.at.min(now),
+                reason,
+            });
+        }
+        for room in &saved.rooms {
+            let Some((id, room)) = room_from_saved(room, limits, now) else {
+                continue;
+            };
+            if v2.rooms.len() >= limits.max_rooms
+                || v2.rooms.contains_key(&id)
+                || v2.tombstones.contains_key(&id)
+            {
+                continue;
+            }
+            v2.rooms.insert(id.clone(), room);
+            taken.push(id);
+        }
+    }
+    sweep(shared);
+    let v2 = shared.v2.lock().unwrap();
+    Ok(taken.iter().filter(|id| v2.rooms.contains_key(*id)).count())
 }
 
 #[cfg(test)]
