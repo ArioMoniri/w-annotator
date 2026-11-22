@@ -8,6 +8,8 @@
  * as JSON and quits the app.
  */
 import { RoomClient } from './collab/client';
+import { loadCodec } from './io/codecs';
+import * as engine from './viewer/engine';
 import { makeSeed } from './collab/identity';
 import { FrameKind, parseInvite } from './collab/protocol';
 import { finishSelfTest } from './platform';
@@ -150,6 +152,42 @@ export async function run(): Promise<void> {
     await until('the save to finish', () => !get().dirty, 20_000);
     saved = { file: get().maskName ?? '', voxels: voxels() };
     return `${saved.file}, ${saved.voxels} voxels`;
+  });
+
+  await step('3D view drawn', async () => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-view="volume3d"] canvas');
+    if (!canvas || canvas.width < 16 || canvas.height < 16) throw new Error('The 3D view has no canvas');
+    engine.refreshImage();
+    await sleep(300);
+    return `${canvas.width} x ${canvas.height}`;
+  });
+
+  await step('image decoders loaded', async () => {
+    // The decoders for compressed DICOM are WebAssembly, fetched and compiled on first use.
+    const loaded: string[] = [];
+    for (const [name, syntax] of [['JPEG', '1.2.840.10008.1.2.4.50'], ['JPEG-LS', '1.2.840.10008.1.2.4.80'], ['JPEG 2000', '1.2.840.10008.1.2.4.90'], ['HTJ2K', '1.2.840.10008.1.2.4.201']]) {
+      await loadCodec(syntax);
+      loaded.push(name);
+    }
+    return loaded.join(', ');
+  });
+
+  await step('update check ran', async () => {
+    // Whether there is an update or the network is away, the check itself must not be refused.
+    const { check } = await import('@tauri-apps/plugin-updater');
+    try {
+      const update = await check();
+      return update ? `version ${update.version} is available` : 'up to date';
+    } catch (err) {
+      return `asked, and the answer was: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  });
+
+  await step('nothing refused by the content security policy', async () => {
+    await sleep(300);
+    const blocked = (window as unknown as { __w: { blocked: string[] } }).__w.blocked;
+    if (blocked.length > 0) throw new Error(blocked.join('; '));
+    return 'no violations';
   });
 
   const report = { ok: steps.every((s) => s.ok), steps, saved, userAgent: navigator.userAgent, webview: await webviewVersion() };
