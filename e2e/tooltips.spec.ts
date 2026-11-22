@@ -11,7 +11,7 @@ import { drag, modLabel, openPhantom } from './helpers';
 async function tree(page: Page, tooltips: boolean): Promise<string> {
   const off = tooltips ? null : await page.addStyleTag({ content: '[data-tip]::after { content: none !important; }' });
   const snapshot = await page.locator('body').ariaSnapshot();
-  await off?.evaluate((el) => el.remove());
+  await off?.evaluate((el) => (el as HTMLElement).remove());
   // The save state in the status bar changes by itself as a recovery copy is written.
   return snapshot
     .split('\n')
@@ -89,7 +89,7 @@ test('tooltips add nothing to what a screen reader is told', async ({ page }) =>
     expect(names.length, what).toBe(tips.length);
     await page.addStyleTag({ content: '[data-tip]::after { content: none !important; }' }).then(async (off) => {
       expect(names, what).toEqual(await browserNames(page));
-      await off.evaluate((el) => el.remove());
+      await off.evaluate((el) => (el as HTMLElement).remove());
     });
   };
   await compare('no segment');
