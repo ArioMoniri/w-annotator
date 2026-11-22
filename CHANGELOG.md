@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A tooltip is no longer read out as part of a button's name. A screen reader says "Apply", not "Apply Apply Enter".
 - In the Grow, Shrink, Smooth, Remove small islands and Combine popovers of a segment, Tab and Shift+Tab reach every control and stay inside, also on a Mac.
 - Opening a mask, showing a hidden comparison mask or switching the mask being edited no longer sends the views back to the middle slice and the fitted zoom.
+- Undo of "Split into separate segments" also removes the segments the split made, for everyone in a room, and redo brings them back with their names and colours.
 
 ## [0.1.2] - 2026-11-21
 
