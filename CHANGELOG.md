@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Esc restores a maximised view only when nothing else took it. Holding Esc a moment too long to close a menu, or pressing it in the middle of a brush stroke or a pan, no longer changes the layout or the tool.
+- A tooltip is no longer read out as part of a button's name. A screen reader says "Apply", not "Apply Apply Enter".
 
 ## [0.1.2] - 2026-11-21
 
