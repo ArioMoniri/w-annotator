@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-22
+
 ### Added
 
 - Invite links with choices, under "Link options" where a link is made: it can stop working after 1 hour, 24 hours or 7 days, and work for one person, up to 5 people, or anyone who has it until it expires. The room server counts the uses and keeps the time, and the host's app counts as well and lets in no more people than the link was made for. A note such as "for Sam" can be added for the host's own list; it stays on the host's computer. The list of links shows the note, the uses left and the time left.
@@ -217,7 +219,8 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...v0.1.1
