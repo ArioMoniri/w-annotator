@@ -4,6 +4,7 @@ import {
   fillHoles,
   fillHolesPerSlice,
   formatVolume,
+  formatVoxels,
   grow,
   keepLargestIsland,
   removeSmallIslands,
@@ -360,6 +361,14 @@ describe('formatting', () => {
     expect(formatVolume(0.32)).toBe('320 mm³');
     expect(formatVolume(1234.5)).toBe('1,235 mL');
     expect(formatVolume(0)).toBe('');
+  });
+
+  it('says how much a number of voxels is, in the same units as a volume', () => {
+    expect(formatVoxels(222, [1, 1, 1])).toBe('222 mm³');
+    expect(formatVoxels(482_791, [1, 1, 1])).toBe('483 mL');
+    expect(formatVoxels(1000, [0.5, 0.5, 2])).toBe('0.5 mL');
+    expect(formatVoxels(1, [0.5, 0.5, 0.5])).toBe('1 mm³');
+    expect(formatVoxels(0, [1, 1, 1])).toBe('');
   });
 
   it('writes the measurements as CSV with quoted names', () => {

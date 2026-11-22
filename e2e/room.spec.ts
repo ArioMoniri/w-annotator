@@ -119,10 +119,8 @@ test('a rename and a new segment made at the same moment both survive', async ({
   await expect(guest.locator('.segrow')).toHaveCount(2);
 
   await Promise.all([
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    host.evaluate(() => (window as any).__w.session.patchSegment(1, { name: 'Liver' })),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    guest.evaluate(() => (window as any).__w.session.addSegment()),
+    host.evaluate(() => window.__w.session.patchSegment(1, { name: 'Liver' })),
+    guest.evaluate(() => window.__w.session.addSegment()),
   ]);
   for (const page of [host, guest]) {
     await expect(page.locator('.segrow')).toHaveCount(3);

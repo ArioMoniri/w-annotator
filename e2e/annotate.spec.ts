@@ -163,8 +163,7 @@ test('opacity, outline and hiding a segment repaint the overlay', async ({ page 
   const box = (await page.locator('[data-view="axial"]').boundingBox())!;
   // A point inside segment 1 of the phantom (voxel 30,22 of 48, shown at the centre slice).
   const state = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const img = w.session.getImage();
     return { dims: img.dims };
   });
@@ -242,13 +241,11 @@ test('shift-drag erases with the brush', async ({ page }) => {
 test('a mask stored in another axis order lands on the same anatomy', async ({ page }) => {
   await openPhantom(page);
   const reference = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return Array.from((window as any).__w.session.getMask().data as Uint8Array);
+    return Array.from(window.__w.session.getMask().data as Uint8Array);
   });
   // The same mask, saved with x and y flipped and the affine flipped to match.
   await page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const src = w.session.getMask().data as Uint8Array;
     const n = 48;
     const flipped = new Uint8Array(src.length);
@@ -277,8 +274,7 @@ test('a mask stored in another axis order lands on the same anatomy', async ({ p
     await w.session.openFiles([{ name: 'flipped_seg.nii', bytes: new Uint8Array(buf) }], 'mask');
   });
   const loaded = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return Array.from((window as any).__w.session.getMask().data as Uint8Array);
+    return Array.from(window.__w.session.getMask().data as Uint8Array);
   });
   expect(loaded).toEqual(reference);
 });
@@ -288,14 +284,12 @@ test('threshold brush paints only where the image is inside the range', async ({
   await page.getByRole('button', { name: 'Add segment' }).first().click();
   await page.keyboard.press('t');
   // The phantom is 300 at the centre, falls off with radius, and is -1000 outside.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.setToolOption({ threshold: [200, 400] }));
+  await page.evaluate(() => window.__w.session.setToolOption({ threshold: [200, 400] }));
   await page.keyboard.press(']');
   await page.keyboard.press(']');
   await drag(page, 'axial', [-150, 0], [150, 0]);
   const result = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const img = w.session.getImage().data as Int16Array;
     const msk = w.session.getMask().data as Uint8Array;
     let painted = 0;
@@ -313,8 +307,7 @@ test('threshold brush paints only where the image is inside the range', async ({
 
 test('zoom and window still work after using pan', async ({ page }) => {
   await openPhantom(page);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const read = () => page.evaluate(() => { const s = (window as any).__w.store.getState(); return { zoom: s.zoom, w: s.voi.upper - s.voi.lower }; });
+  const read = () => page.evaluate(() => { const s = window.__w.store.getState(); return { zoom: s.zoom, w: s.voi.upper - s.voi.lower }; });
   await page.keyboard.press('h');
   await drag(page, 'axial', [0, 0], [30, 20]);
   const start = await read();
@@ -375,8 +368,7 @@ test('a mask saved as DICOM SEG reopens with the same voxels and names', async (
   await page.getByLabel('Segment name').fill('Liver');
   await page.keyboard.press('Enter');
   const before = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     w.store.setState({ maskName: 'phantom_seg.dcm' });
     return Array.from(w.session.getMask().data as Uint8Array).join('');
   });
@@ -387,16 +379,14 @@ test('a mask saved as DICOM SEG reopens with the same voxels and names', async (
   const bytes = Array.from(await (await import('node:fs/promises')).readFile((await file.path())!));
   // Clear the mask, then open the saved SEG as the mask again.
   await page.evaluate(async (bytes) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     w.session.deleteSegment(1);
     w.session.deleteSegment(2);
     await w.session.openFiles([{ name: 'reopened.dcm', bytes: new Uint8Array(bytes) }], 'mask');
   }, bytes);
   await expect(page.locator('.segrow').first()).toContainText('Liver');
   const after = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return Array.from((window as any).__w.session.getMask().data as Uint8Array).join('');
+    return Array.from(window.__w.session.getMask().data as Uint8Array).join('');
   });
   expect(after).toBe(before);
 });

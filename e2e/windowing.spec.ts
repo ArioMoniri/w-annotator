@@ -8,15 +8,13 @@ interface Voi {
   upper: number;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const state = <T>(page: Page, pick: string) => page.evaluate((pick) => pick.split('.').reduce((o, k) => o?.[k], (window as any).__w.store.getState()) as T, pick);
+const state = <T>(page: Page, pick: string) => page.evaluate((pick) => pick.split('.').reduce((o, k) => o?.[k], window.__w.store.getState()) as T, pick);
 const voi = (page: Page) => state<Voi>(page, 'voi');
 const wl = async (page: Page) => {
   const v = await voi(page);
   return { w: Math.round(v.upper - v.lower), l: Math.round((v.upper + v.lower) / 2) };
 };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const zoom = (page: Page, view = 'axial') => page.evaluate((view) => (window as any).__w.engine.getZoom(view) as number, view);
+const zoom = (page: Page, view = 'axial') => page.evaluate((view) => window.__w.engine.getZoom(view) as number, view);
 
 const readout = (page: Page) => page.getByTestId('status-window');
 const windowMenu = (page: Page) => page.getByRole('menu', { name: 'Window' });
@@ -57,8 +55,7 @@ async function openMr(page: Page): Promise<void> {
     ].forEach((row, r) => row.forEach((x, c) => v.setFloat32(280 + r * 16 + c * 4, x, true)));
     new Uint8Array(buf, 344, 4).set([0x6e, 0x2b, 0x31, 0]);
     new Uint8Array(buf, 352).set(new Uint8Array(img.buffer));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (window as any).__w.session.openFiles([{ name: 'phantom_t2.nii', bytes: new Uint8Array(buf) }]);
+    await window.__w.session.openFiles([{ name: 'phantom_t2.nii', bytes: new Uint8Array(buf) }]);
   });
   await page.locator('[data-view="axial"] canvas').first().waitFor();
   await page.waitForTimeout(800);
@@ -73,8 +70,7 @@ const close = (a: Voi, b: Voi) => Math.abs(a.lower - b.lower) < 0.01 && Math.abs
 /** A sum over the image and the mask, to show neither was written to. */
 const checksums = (page: Page) =>
   page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     const sum = (d: ArrayLike<number>) => {
       let a = 0;
       for (let i = 0; i < d.length; i++) a = (a * 31 + d[i]) | 0;
@@ -143,8 +139,7 @@ test('the window menu works from the keyboard', async ({ page }) => {
   await expect(menu).toBeVisible();
   // Focus starts on the window in use; the arrows move through the list without changing slice.
   await expect(menu.getByRole('menuitemradio', { name: /^Soft tissue/ })).toBeFocused();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const slice = () => page.evaluate(() => (window as any).__w.engine.getSlice('axial').index as number);
+  const slice = () => page.evaluate(() => window.__w.engine.getSlice('axial').index as number);
   const before = await slice();
   await page.keyboard.press('ArrowDown');
   await expect(menu.getByRole('menuitemradio', { name: /^Abdomen/ })).toBeFocused();
@@ -317,8 +312,7 @@ test('with the Window / Level tool, a box drawn with the main modifier sets the 
   // The window is the range of the values under the box, from the app's own percentile code.
   const expected = await page.evaluate(
     ({ a, b }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
+      const w = window.__w;
       const image = w.session.getImage();
       const cell = document.querySelector('[data-view="axial"]')!;
       const canvas = cell.querySelector('canvas')!.getBoundingClientRect();
@@ -422,8 +416,7 @@ test('with the Window / Level tool a two-finger scroll changes the window, and S
       }
       await new Promise((r) => setTimeout(r, 320));
     }, events);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const slice = () => page.evaluate(() => (window as any).__w.engine.getSlice('axial').index as number);
+  const slice = () => page.evaluate(() => window.__w.engine.getSlice('axial').index as number);
   const vertical = (dy: number, more = {}) => Array.from({ length: 30 }, () => ({ deltaY: dy, ...more }));
 
   // With another tool the scroll is slices, as before.
@@ -466,8 +459,7 @@ test('the zoom readout opens a menu with Zoom in, Zoom out, Fit and Actual size'
 
   const centre = () =>
     page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
+      const w = window.__w;
       const r = document.querySelector('[data-view="axial"] canvas')!.getBoundingClientRect();
       return (w.engine.canvasToWorld('axial', r.width / 2, r.height / 2) as number[]).map((v) => Math.round(v * 100) / 100);
     });
@@ -487,8 +479,7 @@ test('the zoom readout opens a menu with Zoom in, Zoom out, Fit and Actual size'
   await expect(menu).toBeHidden();
   // One voxel of this 1 mm image per screen pixel.
   const mmPerPixel = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const f = (window as any).__w.engine.viewFrame('axial');
+    const f = window.__w.engine.viewFrame('axial');
     return Math.hypot(...(f.right as number[]));
   });
   expect(mmPerPixel).toBeCloseTo(1, 3);

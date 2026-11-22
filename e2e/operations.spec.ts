@@ -2,8 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { copiedText, drag, maskVoxels, openPhantom } from './helpers';
 
 const dump = (page: Page) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
+  page.evaluate(() => Array.from(window.__w.session.getMask().data as Uint8Array).join(''));
 
 async function openMenu(page: Page, segment: string): Promise<void> {
   await page.locator('.segrow', { hasText: segment }).hover();
@@ -16,8 +15,7 @@ async function voxelUnder(page: Page, dx: number, dy: number): Promise<[number, 
   await page.mouse.move(box.x + box.width / 2 + dx - 3, box.y + box.height / 2 + dy);
   await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
   await page.waitForTimeout(80);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return page.evaluate(() => (window as any).__w.store.getState().hover.ijk as [number, number, number]);
+  return page.evaluate(() => window.__w.store.getState().hover.ijk as [number, number, number]);
 }
 
 /** Where a voxel column sits in the axial view, as an offset in pixels from its centre. */

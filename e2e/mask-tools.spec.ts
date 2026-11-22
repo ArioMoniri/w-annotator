@@ -1,66 +1,23 @@
 import { expect, test, type Page } from '@playwright/test';
-import { drag, isTinted, jumpToVoxel, maskVoxels, openPhantom, pixelAt, tintedPixels } from './helpers';
-
-type Voxel = [number, number, number];
-
-const dump = (page: Page) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
-
-/** How many voxels of the 48³ phantom mask pass `keep`, written as the body of a function of (value, x, y, z). */
-const count = (page: Page, keep: string) =>
-  page.evaluate((keep) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
-    const test = new Function('v', 'x', 'y', 'z', `return ${keep}`) as (v: number, x: number, y: number, z: number) => boolean;
-    let n = 0;
-    for (let z = 0; z < 48; z++) for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) if (test(d[x + y * 48 + z * 2304], x, y, z)) n++;
-    return n;
-  }, keep);
-
-/** Where a voxel position (fractions allowed) is on the page, in a slice view. */
-async function onPage(page: Page, view: string, ijk: Voxel): Promise<[number, number]> {
-  return page.evaluate(
-    ({ view, ijk }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
-      const vol = w.session.getMask();
-      const d = vol.direction as number[];
-      const world = [0, 1, 2].map((r) => vol.origin[r] + d[r] * vol.spacing[0] * ijk[0] + d[3 + r] * vol.spacing[1] * ijk[1] + d[6 + r] * vol.spacing[2] * ijk[2]);
-      const [x, y] = w.engine.worldToCanvas(view, world) as [number, number];
-      const rect = document.querySelector(`[data-view="${view}"] canvas`)!.getBoundingClientRect();
-      return [rect.left + x, rect.top + y] as [number, number];
-    },
-    { view, ijk },
-  );
-}
-
-/** Presses at the first voxel position, drags through the rest and releases. */
-async function trace(page: Page, view: string, path: Voxel[], release = true): Promise<void> {
-  const points: [number, number][] = [];
-  for (const p of path) points.push(await onPage(page, view, p));
-  await page.mouse.move(...points[0]);
-  await page.mouse.down();
-  for (const p of points.slice(1)) await page.mouse.move(...p, { steps: 6 });
-  if (!release) return;
-  await page.mouse.up();
-  await page.waitForTimeout(400);
-}
-
-async function click(page: Page, view: string, at: Voxel, modifiers: ('Alt' | 'Shift')[] = []): Promise<void> {
-  const [x, y] = await onPage(page, view, at);
-  for (const m of modifiers) await page.keyboard.down(m);
-  await page.mouse.click(x, y);
-  for (const m of modifiers) await page.keyboard.up(m);
-  await page.waitForTimeout(300);
-}
-
-const choose = (page: Page, group: string, option: string) => page.getByRole('group', { name: group }).getByRole('button', { name: option, exact: true }).click();
+import {
+  choose,
+  clickVoxel as click,
+  countVoxels as count,
+  drag,
+  isTinted,
+  jumpToVoxel,
+  maskDump as dump,
+  maskVoxels,
+  openPhantom,
+  pixelAt,
+  tintedPixels,
+  trace,
+  type Voxel,
+} from './helpers';
 
 const chip = (page: Page) => page.locator('.strip .chip');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const store = <T>(page: Page, read: string) => page.evaluate((read) => new Function('s', `return ${read}`)((window as any).__w.store.getState()) as T, read);
+const store = <T>(page: Page, read: string) => page.evaluate((read) => new Function('s', `return ${read}`)(window.__w.store.getState()) as T, read);
 
 /** A loop around segment 1 on the middle axial slice, drawn by hand rather than as a box. */
 const AROUND_1: Voxel[] = [
@@ -183,8 +140,7 @@ test('Alt-click selects the segment under the cursor and changes nothing else', 
 
   // A hidden segment is not picked; a locked one is, and no stroke or refusal comes of it.
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     s.patchSegment(1, { visible: false });
     s.patchSegment(2, { locked: true });
   });
@@ -192,8 +148,7 @@ test('Alt-click selects the segment under the cursor and changes nothing else', 
   await click(page, 'axial', [30, 22, 24], ['Alt']);
   await expect(chip(page)).toHaveText('Segment 2');
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     s.patchSegment(1, { visible: true });
     s.selectSegment(1);
   });
@@ -239,8 +194,7 @@ test('paint over "Only" keeps a stroke inside the chosen segment', async ({ page
 
   // Without its segment the limit cannot hold: it goes back to Everything and says so.
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__w.session.deleteSegment(2);
+    window.__w.session.deleteSegment(2);
   });
   await expect(page.locator('.toast', { hasText: 'Paint over is back to Everything.' })).toBeVisible();
   await expect(chip(page)).toHaveText('Segment 1');
@@ -384,19 +338,16 @@ test('Smooth pixels in the view menu changes how the image is drawn and not its 
   await openPhantom(page);
   const values = () =>
     page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = (window as any).__w.session.getImage().data as Int16Array;
+      const d = window.__w.session.getImage().data as Int16Array;
       let h = 0;
       for (let i = 0; i < d.length; i++) h = (h * 31 + d[i]) | 0;
       return h;
     });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const smooth = () => page.evaluate(() => (window as any).__w.engine.getSmoothPixels('axial') as boolean);
+  const smooth = () => page.evaluate(() => window.__w.engine.getSmoothPixels('axial') as boolean);
   const before = await values();
   // Two points inside one voxel, where the image has a slope, on a narrow window so the slope shows. No mask is over them.
   await page.keyboard.press('x');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.setVoi(150, 230));
+  await page.evaluate(() => window.__w.session.setVoi(150, 230));
   await page.waitForTimeout(300);
   const pair = async () => [await pixelAt(page, 'axial', [37.8, 24, 24]), await pixelAt(page, 'axial', [38.2, 24, 24])];
   expect(await smooth()).toBe(true);
@@ -413,8 +364,7 @@ test('Smooth pixels in the view menu changes how the image is drawn and not its 
   expect(a).toEqual(b);
   expect(await values()).toBe(before);
   // The other slice views follow; the choice is kept for the next launch.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect(await page.evaluate(() => (window as any).__w.engine.getSmoothPixels('coronal'))).toBe(false);
+  expect(await page.evaluate(() => window.__w.engine.getSmoothPixels('coronal'))).toBe(false);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('w-annotator:settings')!).smoothPixels)).toBe(false);
   // The 3D view has no pixels to smooth.
   await page.locator('[data-view="volume3d"] .viewlabel > button').click();
@@ -462,8 +412,7 @@ test('a split that would make many segments asks first and stops at twenty', asy
   await page.getByRole('button', { name: 'Add segment' }).first().click();
   // Thirty separate voxels and one larger piece, written the way a file or a room would bring them.
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const d = new Uint8Array(48 * 48 * 48);
     for (let n = 0; n < 30; n++) d[2 + n * 98 + 10 * 2304] = 1;
     for (let x = 20; x < 24; x++) d[x + 40 * 48 + 30 * 2304] = 1;
@@ -527,8 +476,7 @@ for (const size of [
     await page.keyboard.press('b');
     await fits('brush');
     await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const s = (window as any).__w.session;
+      const s = window.__w.session;
       s.setPaintOver('all');
       s.addSegment();
     });

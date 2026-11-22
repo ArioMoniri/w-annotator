@@ -40,8 +40,7 @@ async function openBall(page: Page, name: string, centre: [number, number, numbe
   const bytes = await ballFile(page, name, centre, radius);
   await page.evaluate(
     async ({ name, bytes }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (window as any).__w.session.openFiles([{ name, bytes: new Uint8Array(bytes) }], 'mask');
+      await window.__w.session.openFiles([{ name, bytes: new Uint8Array(bytes) }], 'mask');
     },
     { name, bytes },
   );
@@ -66,8 +65,7 @@ async function whitePixels(page: Page, view: string): Promise<number> {
 
 /** The brightest the image gets is mid grey, so nothing of it counts as white. */
 async function greyWindow(page: Page): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.setVoi(-1000, 2000));
+  await page.evaluate(() => window.__w.session.setVoi(-1000, 2000));
   await page.waitForTimeout(300);
 }
 
@@ -232,8 +230,7 @@ test('closing a mask asks about unsaved edits and always leaves one to edit', as
   await openPhantom(page);
   await openBall(page, 'corrected_seg.nii', [24, 34, 24], 5);
   // Make an unsaved edit on the active mask.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.clearSegment(1));
+  await page.evaluate(() => window.__w.session.clearSegment(1));
   await expect(row(page, 'corrected_seg').getByRole('img', { name: 'Unsaved changes' })).toBeVisible();
 
   await row(page, 'corrected_seg').hover();
@@ -297,8 +294,7 @@ test('an image and its mask opened together become a pair, whatever the order', 
     bytes.set(head);
     bytes.set(new Uint8Array(img.buffer), head.length);
     // The mask comes first, as it may when two files are chosen and opened with the app.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (window as any).__w.session.openFiles([
+    await window.__w.session.openFiles([
       { name: 'liver_seg.nii', bytes: new Uint8Array(seg) },
       { name: 'liver ct.mha', bytes },
     ]);

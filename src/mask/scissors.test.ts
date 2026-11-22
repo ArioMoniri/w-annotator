@@ -3,6 +3,7 @@ import {
   cut,
   cutsWithOutline,
   ellipseOutline,
+  offScreen,
   rectangleOutline,
   sliceRange,
   thinOutline,
@@ -274,5 +275,38 @@ describe('which scissors do the cutting', () => {
     expect(cutsWithOutline('rectangle', 'erase', 'slice')).toBe(false);
     expect(cutsWithOutline('circle', 'fill', 'slice')).toBe(false);
     expect(cutsWithOutline('sphere', 'outside', 'all')).toBe(false);
+  });
+});
+
+describe('what a cut reaches outside the view', () => {
+  const dims: Dims = [8, 8, 2];
+
+  it('counts the voxels of the segment whose centres are off screen, on the slice only', () => {
+    const v = volume(dims);
+    // A view 4 pixels square that shows the corner of the slice: one voxel per pixel.
+    for (let x = 0; x < 8; x++) v.mask[v.at(x, 1)] = 1;
+    v.mask[v.at(6, 6)] = 2;
+    v.mask[v.at(7, 7, 1)] = 1;
+    expect(offScreen(v.mask, dims, { map: FLAT, depth: SLICE_0, label: 1 }, [4, 4])).toBe(4);
+    expect(offScreen(v.mask, dims, { map: FLAT, depth: null, label: 1 }, [4, 4])).toBe(5);
+    expect(offScreen(v.mask, dims, { map: FLAT, depth: SLICE_0, label: 1 }, [8, 8])).toBe(0);
+  });
+
+  it('follows the view when it is zoomed and panned', () => {
+    const v = volume(dims);
+    v.mask.fill(1, 0, 64);
+    // Four pixels per voxel, panned so that voxels 2 to 5 are on screen each way.
+    const zoomed: PlaneMap = { x: [-8, 4, 0, 0], y: [-8, 0, 4, 0], depth: [0, 0, 0, 1] };
+    expect(offScreen(v.mask, dims, { map: zoomed, depth: SLICE_0, label: 1 }, [16, 16])).toBe(64 - 16);
+  });
+
+  it('tells what an erase outside took that could not be seen', () => {
+    const v = volume(dims);
+    for (let x = 0; x < 8; x++) v.mask[v.at(x, 1)] = 1;
+    const view: [number, number] = [4, 4];
+    const before = offScreen(v.mask, dims, { map: FLAT, depth: SLICE_0, label: 1 }, view);
+    run(v.mask, dims, rectangleOutline([-0.5, 0.5], [1.5, 1.5]), 'eraseOutside');
+    expect(v.set()).toEqual(['0,1,0', '1,1,0']);
+    expect(before - offScreen(v.mask, dims, { map: FLAT, depth: SLICE_0, label: 1 }, view)).toBe(4);
   });
 });
