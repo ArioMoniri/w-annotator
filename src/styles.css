@@ -3048,6 +3048,85 @@ button.avatar {
   font: 11px var(--font-mono);
 }
 
+/* ── Dataset: the cases of a dataset folder, by patient ─────────── */
+
+.dataset-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 0 0 6px;
+}
+
+.dataset-bar .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.dataset-start {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dataset-start .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.caselist {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-bottom: 2px;
+}
+
+.caselist .patient {
+  padding: 6px 6px 2px;
+  font: 11px var(--font-mono);
+  color: var(--text-3);
+}
+
+.caserow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 26px;
+  padding: 0 6px 0 18px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font: 12px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.caserow:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.caserow[aria-selected='true'] {
+  background: var(--bg-active);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.caserow .nolabel {
+  margin-left: auto;
+  font: 11px var(--font-ui);
+  color: var(--text-3);
+}
+
 .filelist {
   padding: 0 6px;
 }

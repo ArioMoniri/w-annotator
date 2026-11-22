@@ -46,6 +46,8 @@ export const ACTIONS = [
   { id: 'file.openImage', label: 'Open image', group: 'View and file', key: 'mod+o' },
   { id: 'file.openMask', label: 'Open mask', group: 'View and file', key: 'mod+shift+o' },
   { id: 'file.save', label: 'Save mask', group: 'View and file', key: 'mod+s' },
+  { id: 'dataset.next', label: 'Next case', group: 'View and file', key: 'alt+arrowdown' },
+  { id: 'dataset.previous', label: 'Previous case', group: 'View and file', key: 'alt+arrowup' },
   { id: 'help.shortcuts', label: 'Keyboard shortcuts', group: 'View and file', key: '?' },
   { id: 'app.settings', label: 'Settings', group: 'View and file', key: 'mod+,' },
 ] as const;

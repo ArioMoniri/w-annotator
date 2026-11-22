@@ -86,6 +86,31 @@ export const lastSavedPath = (): string | null => savedPath;
 
 const leaf = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
+/** A file in a folder the user picked, read only when it is needed. */
+export interface FolderFile {
+  /** Path inside the folder (browser) or on disk (desktop app). */
+  path: string;
+  /** True when `path` is a real path on this computer. */
+  onDisk: boolean;
+  read: () => Promise<Uint8Array>;
+}
+
+/**
+ * Desktop app: asks for a folder and lists every file in it, without reading
+ * any. Null when the dialog was cancelled. The Rust side makes the folder
+ * readable; nothing in it becomes writable.
+ */
+export async function pickFolderFiles(title: string): Promise<FolderFile[] | null> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const paths = await invoke<string[]>('pick_open_paths', { directory: true, title });
+  if (paths.length === 0) return null;
+  return paths.map((path) => ({
+    path,
+    onDisk: true,
+    read: async () => new Uint8Array(await invoke<ArrayBuffer>('read_file', { path })),
+  }));
+}
+
 export interface GivenFile {
   name: string;
   bytes: Uint8Array;

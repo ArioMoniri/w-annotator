@@ -105,6 +105,8 @@ function useHotkeys() {
       'edit.redo': () => session.redo(),
       'file.openImage': () => pickImage(),
       'file.openMask': () => pickMask(),
+      'dataset.next': () => session.stepCase(1),
+      'dataset.previous': () => session.stepCase(-1),
       'file.save': () => void session.saveMask(),
       'help.shortcuts': () => set({ settings: get().settings === 'shortcuts' ? null : 'shortcuts' }),
       'app.settings': () => set({ settings: get().settings ? null : 'profile' }),
