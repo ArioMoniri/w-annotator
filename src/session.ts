@@ -2022,7 +2022,8 @@ function teardown(r: RoomCtx, opts: { keep?: boolean; wipe?: boolean } = {}): vo
   }
   if (room === r) room = null;
   conflicts = null;
-  set({ room: null, peers: [], progress: null, busy: get().busy && r.sync ? null : get().busy });
+  const waiting = get().busy === WAITING_FOR_KEYS;
+  set({ room: null, peers: [], progress: null, busy: (get().busy && r.sync) || waiting ? null : get().busy });
   if (r.hosting) void platform.stopHosting();
   if (opts.wipe) wipeGuestCopy();
 }

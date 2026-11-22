@@ -301,6 +301,42 @@ test('a shared-copy guest keeps working offline and is merged on return', async 
   await expect(guest.getByTestId('merge-review')).toHaveCount(0);
 });
 
+test('someone who joins while the host is offline waits to be let in, and can leave instead', async ({ browser }) => {
+  const host = await person(browser);
+  const ario = await person(browser);
+  const ben = await person(browser);
+  const link_ = await cuttable(host);
+  await openPhantom(host);
+  const first = await startRoom(host, 'Mina');
+  const second = await anotherLink(host);
+  await link_.cut();
+
+  // The room server still knows the room and takes the links. Only the host can hand over its keys.
+  const waiting = 'Waiting for the host to let you in…';
+  await ario.goto('/');
+  await submitJoin(ario, 'Ario', first);
+  await expect(ario.locator('.busy')).toHaveText(waiting);
+  await ben.goto('/');
+  await submitJoin(ben, 'Ben', second);
+  await expect(ben.locator('.busy')).toHaveText(waiting);
+  // Nothing of the room has reached either of them.
+  expect(await ario.evaluate(() => window.__w.store.getState().image)).toBeNull();
+
+  // Ben gives up.
+  await ben.getByTestId('room-pill').click();
+  await ben.getByRole('menuitem', { name: 'Leave room' }).or(ben.getByRole('button', { name: 'Leave room' })).click();
+  await expect(ben.getByTestId('room-pill')).toHaveCount(0);
+  await expect(ben.locator('.busy')).toHaveCount(0);
+
+  // The host comes back, lets Ario in, and the image and the mask follow.
+  link_.restore();
+  await reconnectNow(host);
+  await expect(ario.locator('.segrow')).toHaveCount(2, { timeout: 30_000 });
+  await expect(ario.locator('.busy')).toHaveCount(0);
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  expect(await maskDump(ario)).toBe(await maskDump(host));
+});
+
 test('someone who was offline when another person was removed gets the new key on return, and work flows both ways', async ({ browser }) => {
   const host = await person(browser);
   const ario = await person(browser);

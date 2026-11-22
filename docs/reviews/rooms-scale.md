@@ -63,3 +63,43 @@ Read the numbers with that in mind. There is no network in them: over the intern
 - **Edits that arrive while someone is joining** are kept until the mask is there, up to 64 MiB or 4096 edits; past that the transfer starts again from a newer mask. A room under constant heavy editing can keep a newcomer waiting.
 - **A member who falls more than 8 MiB of edits behind** (one large edit is enough) cannot be caught up from the relay's log and gets the mask from another member instead (21 frames for this mask).
 - **The relay's worst case** is unchanged: 8 MiB of log per room plus up to 16 MiB of queue for each connected member who is not reading. In the runs here it stayed at 21 MB.
+
+## With protocol 3 (pair keys, signed frames, the chain over edits)
+
+Date: 2026-11-22. Branch `feat/rooms-keys`. Same test, same machine, the same day, with other work running on the machine throughout (load average about 4.5 on 4 cores), which is why the "before" numbers here differ from the table above. Three runs of `origin/main` (0.1.3) and three of the branch, two of each taken back to back.
+
+What changed in the work a frame costs:
+
+- A frame **for one member** (every slab of a join, every slice picture) is sealed as before, under another key. No extra work.
+- A frame **for everyone** (an edit, a name, a cursor) is sealed as before, then hashed (SHA-256, pure JavaScript) and signed (Ed25519); the receiver hashes, checks the signature and opens. Each side also folds one small hash into its chain.
+
+| What | 0.1.3, three runs | Protocol 3, three runs |
+| --- | --- | --- |
+| Shared copy, joining: seconds | 13.4, 16.4, 16.7 | 18.5, 17.6, 16.4 |
+| Rate while sending, MB/s on the wire | 5.5, 4.6, 4.5 | 4.2, 4.3, 4.5 |
+| Host's screen while sending: longest gap, ms | 139, 174, 199 | 198, 223, 161 |
+| Guest's screen while receiving: longest gap, ms | 219, 298, 303 | 438, 332, 316 |
+| Guest memory above the open scan, MB | 76, 78, 77 | 78, 81, 78 |
+| Cut in the middle: seconds | 19.2, 19.7, 22.4 | 21.7, 20.8, 21.4 |
+| View through host: seconds to the first slice | 1.9, 2.8, 3.8 | 2.5, 2.3, 2.1 |
+| Scroll to a slice not yet fetched: median, ms | 316, 447, 888 | 628, 464, 464 |
+| Large edit, host to guest (2.1 million voxels): seconds to make it | 0.27, 0.38, 0.34 | 0.34, 0.33, 0.44 |
+| the guest has all of it after, seconds | 2.41, 3.15, 2.97 | 3.23, 3.08, 4.15 |
+| Large edit, guest to host (4.4 million voxels): seconds to make it | 0.40, 0.39, 0.38 | 0.49, 0.45, 0.45 |
+| the host has all of it after, seconds | 4.79, 6.49, 5.83 | 6.53, 6.40, 6.20 |
+| Screens during a large edit: longest gap, ms | 448 to 783 | 471 to 879 |
+| Relay memory after the large edits, MB | 19, 19, 20 | 21, 20, 20 |
+| Sealing a 1 MiB frame, MiB/s | 41, 38, 28 | 33, 38, 42 (cipher alone) |
+| Opening a 1 MiB frame, MiB/s | 41, 41, 30 | 37, 44, 39 (cipher alone) |
+| Sealing **and signing** a 1 MiB frame for everyone, MiB/s | | 25, 26, 24 |
+| Checking the signature **and opening** it, MiB/s | | 26, 26, 22 |
+| A cursor frame: seal and sign, ms | | 0.50, 0.35, 0.31 |
+| A cursor frame: check and open, ms | | 0.43, 0.40, 0.34 |
+
+Read plainly:
+
+- **Joining, the cut transfer and view-through-host are unchanged** within what one run differs from the next. They are made of frames for one member, which cost what they did.
+- **A megabyte of an edit costs about a third more** to seal and sign than to seal (about 40 ms instead of 27 to 30), and the same to check and open. That is the hash, which is pure JavaScript. A large edit is a few megabytes on the wire, so this adds about a tenth of a second on each side; making a 4.4-million-voxel edit took 0.45 to 0.49 s instead of 0.38 to 0.40 s. The time until the other side has a large edit is within the spread of the 0.1.3 runs at the top of it; what dominates is still drawing.
+- **A brush stroke or a cursor costs a third to half a millisecond** to sign and as much to check. At sixteen cursors a second from each of four other people that is about 25 ms of every second. In a room of more than four others each person sends cursors less often, so the total stays near that.
+- WebCrypto was not needed for this and is still not used; the note above on what it would take stands.
+- Not measured: macOS, Windows, WebKit, the built desktop app, a real network.

@@ -5,7 +5,7 @@ Tests of the built desktop app, as opposed to `e2e/`, which tests the web build 
 | File | What it does | Runs on |
 | --- | --- | --- |
 | `app.test.mjs` | Drives the app window through WebDriver: start, files from the command line, every tool, segments, save, and a room hosted by the app that a second client joins. | Linux, Windows |
-| `selftest.mjs` | Launches the app with `W_SELFTEST` set, so the app checks itself and writes a JSON result, then checks the result and the saved file. | Linux, Windows, macOS |
+| `selftest.mjs` | Launches the app with `W_SELFTEST` set, so the app checks itself and writes a JSON result, then checks the result and the saved file. The app opens the files, paints, hosts a room that a second client joins, saves, draws the 3D view, loads the WebAssembly decoders, runs an update check, and fails if its content security policy refused anything on the way. | Linux, Windows, macOS |
 | `driver.mjs` | Starts `tauri-driver` and the app; small helpers for the tests. | |
 | `ci-config.mjs` | Prints the Tauri config overrides for a test build. | |
 | `fixtures.mjs` | Writes a synthetic `.mha` image and `.nii.gz` mask by hand, and reads a saved NIfTI back. | |
