@@ -405,7 +405,8 @@ for (const width of [1280, 1024]) {
 }
 
 test('at 1024 wide the window hint moves to a tooltip and is not lost', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  // Wide enough for the hint to show in the strip whatever the machine's fonts.
+  await page.setViewportSize({ width: 1680, height: 900 });
   await openPhantom(page);
   await page.keyboard.press('w');
   const hint = `${process.platform === 'darwin' ? '⌘' : 'Ctrl'}-drag a box to set the window from it.`;
