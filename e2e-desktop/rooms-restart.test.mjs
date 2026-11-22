@@ -84,15 +84,18 @@ describe('a room hosted by the app, across a restart of the app', () => {
     const voxels = await maskVoxels(browser);
 
     // What the room server needs is in a file of the app's own, for this user only, and holds nothing of the image.
-    const file = await until(kept, (f) => f?.relay.rooms[0]?.members.length === 2 && f.relay.rooms[0].invites.some((i) => i.uses === 1 && i.maxUses === 5), {
+    // On Windows the file is the app's real one and may hold rooms from earlier runs, so this
+    // test looks only at its own room.
+    const ownRoom = (f) => f?.relay.rooms.find((r) => r.id === roomId);
+    const file = await until(kept, (f) => ownRoom(f)?.members.length === 2 && ownRoom(f).invites.some((i) => i.uses === 1 && i.maxUses === 5), {
       what: `the room to be kept in ${hostedFile}`,
     });
+    const room = ownRoom(file);
     assert.equal(file.format, 1);
     assert.equal(file.port, Number(port));
     assert.equal(file.relay.version, 1);
-    assert.equal(file.relay.rooms[0].id, roomId);
-    assert.equal(file.relay.rooms[0].type, 'shared');
-    assert.deepEqual(file.relay.rooms[0].members.map((m) => m.role).sort(), ['editor', 'viewer']);
+    assert.equal(room.type, 'shared');
+    assert.deepEqual(room.members.map((m) => m.role).sort(), ['editor', 'viewer']);
     const text = readFileSync(hostedFile, 'utf8');
     for (const word of ['Mina', 'Ben', 'Cleo', 'for the team', 'phantom']) assert.ok(!text.includes(word), `the file names "${word}"`);
     if (process.platform !== 'win32') {
@@ -181,10 +184,10 @@ describe('a room hosted by the app, across a restart of the app', () => {
     assert.equal(back.closed.code, 4410);
     // No member, key or link of the room is left in the file; only that this id was deleted, so a
     // member who comes back later is told so instead of waiting.
-    const after = await until(kept, (f) => f === null || f.relay.rooms.length === 0, { what: 'the room to leave the file' });
+    const after = await until(kept, (f) => f === null || !ownRoom(f), { what: 'the room to leave the file' });
     if (after) {
-      assert.deepEqual(after.relay.tombstones.map((t) => [t.id, t.reason]), [[roomId, 'room deleted']]);
-      assert.ok(!readFileSync(hostedFile, 'utf8').includes(file.relay.rooms[0].host));
+      assert.deepEqual(after.relay.tombstones.filter((t) => t.id === roomId).map((t) => [t.id, t.reason]), [[roomId, 'room deleted']]);
+      assert.ok(!readFileSync(hostedFile, 'utf8').includes(room.host));
     }
     assert.equal(await browser.execute(() => localStorage.getItem('w-annotator:rooms')), null);
   });
