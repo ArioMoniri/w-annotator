@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { formatVoxels } from '../src/mask/ops';
-import { choose, clickVoxel, countVoxels, drag, maskDump, maskVoxels, openPhantom, skipTour, trace, voxelOnPage } from './helpers';
+import { choose, clickVoxel, countVoxels, drag, maskDump, joinRoom, maskVoxels, openPhantom, skipTour, startRoom, trace, voxelOnPage } from './helpers';
 
 /** How a toast writes a number of voxels of the phantom, whose voxels are 1 mm each way. */
 const size = (voxels: number) => formatVoxels(voxels, [1, 1, 1]);
@@ -437,4 +437,35 @@ test('the sample can be opened from the empty state after the tour was skipped',
   await expect(page.locator('.segrow', { hasText: 'Left lung' })).toBeVisible();
   // The sample, not the tour: no card comes up.
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('a view-through-host guest at 1024 wide gets whole words in the strip and only the grey-level window', async ({ browser }) => {
+  const host = await (await browser.newContext()).newPage();
+  const guest = await (await browser.newContext({ viewport: { width: 1024, height: 640 } })).newPage();
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina', 'View through my computer');
+  await joinRoom(guest, 'Ario', link);
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+
+  await guest.keyboard.press('s');
+  await expect(guest.locator('.strip')).toHaveAttribute('data-strip', 'scissors');
+  await guest.waitForTimeout(200);
+  for (const word of await stripWords(guest)) expect(SHORTENED, `"${word}" in the guest's scissors strip`).not.toContain(word);
+  expect((await optionsOf(guest, 'Scissors shape')).options).toEqual(['Rectangle', 'Circle', 'Freehand', 'Sphere']);
+  await choose(guest, 'Scissors shape', 'Freehand');
+  expect(await guest.evaluate(() => window.__w.store.getState().scissorsShape)).toBe('freehand');
+  const overflow = () =>
+    guest.locator('.strip').evaluate((strip) => {
+      const options = strip.querySelector('.options')!;
+      return Math.max(options.scrollWidth - options.clientWidth, strip.scrollWidth - strip.clientWidth);
+    });
+  expect(await overflow()).toBeLessThanOrEqual(0);
+
+  // The Window / Level strip: one window, in grey levels, and nothing in Hounsfield units or from the MR list.
+  await guest.keyboard.press('w');
+  await expect(guest.locator('.strip')).toHaveAttribute('data-strip', 'window');
+  await expect(guest.getByLabel('Preset', { exact: true }).locator('option')).toHaveText(['Custom', 'Full range']);
+  expect(await overflow()).toBeLessThanOrEqual(0);
+  await host.context().close();
+  await guest.context().close();
 });

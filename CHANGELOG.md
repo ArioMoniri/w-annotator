@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-22
+
 ### Added
 
 - "Open the sample" on the start screen, for anyone who skipped the welcome tour.
@@ -188,7 +190,8 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ArioMoniri/w-annotator/releases/tag/v0.1.0
