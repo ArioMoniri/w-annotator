@@ -32,11 +32,20 @@ test.afterAll(() => {
   console.log(`\nroom-scale results\n${JSON.stringify(results, null, 2)}`);
 });
 
+const opened: import('@playwright/test').BrowserContext[] = [];
+
 async function person(browser: Browser): Promise<Page> {
-  const page = await (await browser.newContext()).newPage();
+  const context = await browser.newContext();
+  opened.push(context);
+  const page = await context.newPage();
   await skipTour(page);
   return page;
 }
+
+// A scan this size takes about a gigabyte per page: close each test's pages before the next.
+test.afterEach(async () => {
+  await Promise.all(opened.splice(0).map((context) => context.close()));
+});
 
 /** Opens the synthetic scan and its mask through the app's normal open path. */
 async function openScan(page: Page): Promise<void> {

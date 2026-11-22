@@ -7,9 +7,19 @@ import { anotherLink, drag, joinRoom, maskDump, maskVoxels, openPhantom, startRo
  * The findings these tests come from are in docs/reviews/rooms-security.md.
  */
 
+const opened: import('@playwright/test').BrowserContext[] = [];
+
 async function person(browser: Browser): Promise<Page> {
-  return (await browser.newContext()).newPage();
+  const context = await browser.newContext();
+  opened.push(context);
+  return context.newPage();
 }
+
+// Each person's window is closed when the test is over. Left open, they pile up through the
+// file, and the later tests share the machine with dozens of idle pages.
+test.afterEach(async () => {
+  await Promise.all(opened.splice(0).map((context) => context.close()));
+});
 
 const maskAt = (page: Page, index: number) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

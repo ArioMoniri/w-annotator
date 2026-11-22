@@ -19,9 +19,19 @@ import {
 } from './helpers';
 
 /** A page of its own, as a second person on another computer would have. */
+const opened: import('@playwright/test').BrowserContext[] = [];
+
 async function person(browser: import('@playwright/test').Browser): Promise<Page> {
-  return (await browser.newContext()).newPage();
+  const context = await browser.newContext();
+  opened.push(context);
+  return context.newPage();
 }
+
+// Each person's window is closed when the test is over. Left open, they pile up through the
+// file, and the later tests share the machine with dozens of idle pages.
+test.afterEach(async () => {
+  await Promise.all(opened.splice(0).map((context) => context.close()));
+});
 
 /** A fresh page that tries a link and stays on the join form. */
 async function tryJoin(browser: import('@playwright/test').Browser, name: string, link: string): Promise<Page> {
