@@ -556,6 +556,70 @@ try {
     });
   }
 
+  /* ── the review after offline work: a second labelmap drawn as an outline, and the bar ── */
+  await check('slices a merge kept aside are listed, outlined in white, and decided one by one', async () => {
+    const white = () =>
+      b.exec(() => {
+        const canvas = document.querySelector('[data-view="axial"] canvas');
+        const copy = document.createElement('canvas');
+        copy.width = canvas.width;
+        copy.height = canvas.height;
+        const ctx = copy.getContext('2d');
+        ctx.drawImage(canvas, 0, 0);
+        const px = ctx.getImageData(0, 0, copy.width, copy.height).data;
+        let n = 0;
+        for (let i = 0; i < px.length; i += 4) if (Math.min(px[i], px[i + 1], px[i + 2]) > 250) n++;
+        return n;
+      });
+    // Two slices of "my version", handed to the app the way a room copy from an earlier run is.
+    const slices = await b.exec(() => {
+      const s = window.__w.session;
+      const m = s.getMask();
+      const n = m.dims[0] * m.dims[1];
+      const zs = [2, m.dims[2] - 3];
+      const at = [];
+      // A block of 12 x 12 voxels in the middle of each slice.
+      for (const z of zs) for (let y = -6; y < 6; y++) for (let x = -6; x < 6; x++) at.push(z * n + (Math.floor(m.dims[1] / 2) + y) * m.dims[0] + Math.floor(m.dims[0] / 2) + x);
+      at.sort((p, q) => p - q);
+      const mine = new Uint8Array(at.length).fill(1);
+      // Only voxels where the mask holds something else are a question at all.
+      const differs = at.filter((i) => m.data[i] !== 1);
+      s.adoptRoomCopy({
+        room: 'WEBKITCHECK1',
+        session: null,
+        head: 0,
+        base: null,
+        offlineSegs: [],
+        guard: [],
+        review: { at: Date.now(), conflicts: { index: Uint32Array.from(differs), mine: mine.subarray(0, differs.length) } },
+      });
+      return zs;
+    });
+    await until(() => state(b, (s) => s.review?.slices.length), (n) => n === 2, { what: 'two slices to review' });
+    const bar = await until(() => rect(b, '[data-testid="merge-review"]'), Boolean, { what: 'the review bar' });
+    expect(bar.height >= 40 && bar.width > 300, `the review bar is ${bar.width} x ${bar.height}`);
+    const options = await b.exec(() => [...document.querySelectorAll('[data-testid="merge-review"] select option')].map((o) => o.textContent));
+    expect(options.filter((o) => /^Axial slice \d+ · 144 voxels$/.test(o)).length === 2, `unexpected list of slices: ${options.join(' | ')}`);
+
+    const before = await white();
+    await b.exec((z) => window.__w.session.goToReviewSlice(z), slices[0]);
+    await until(() => b.exec(() => window.__w.session.reviewShownSlice()), (z) => z === slices[0], { what: 'the view to go to the slice' });
+    await until(white, (n) => n > before + 20, { what: 'my version to be outlined in white' });
+    await shot('16 review');
+
+    // "Use mine" for the slice on screen: its voxels are in the mask, the outline is gone, the other slice waits.
+    const voxels = await maskVoxels(b, 1);
+    await clickOn(b, '[data-testid="merge-review"] .btn.primary');
+    await until(() => state(b, (s) => s.review?.slices.length), (n) => n === 1, { what: 'one slice left to review' });
+    expect((await maskVoxels(b, 1)) === voxels + 144, 'the slice was not taken as an edit');
+    await until(white, (n) => n <= before, { what: 'the outline to go with the decision' });
+    await b.exec(() => window.__w.session.keepRooms());
+    await until(() => state(b, (s) => s.review), (r) => r === null, { what: 'the review to end' });
+    expect((await rect(b, '[data-testid="merge-review"]')) === null, 'the review bar is still there');
+    await b.exec(() => window.__w.session.undo());
+    expect((await maskVoxels(b, 1)) === voxels, 'taking the slice was not one undo step');
+  });
+
   await check('nothing logged an error', async () => {
     const errors = await b.exec(() => window.__errors ?? ['errors were not being collected']);
     expect(errors.length === 0, errors.join(' | '));

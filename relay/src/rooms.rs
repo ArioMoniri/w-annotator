@@ -1277,11 +1277,17 @@ pub(crate) fn import(shared: &Shared, saved: SavedRelay) -> Result<usize, Import
                 reason,
             });
         }
-        for room in &saved.rooms {
+        // The most recently used first: when there are more than may come
+        // back, the ones left out are those nobody has been in for longest.
+        let mut newest: Vec<&SavedRoom> = saved.rooms.iter().collect();
+        newest.sort_by(|a, b| b.last_active.cmp(&a.last_active).then(a.id.cmp(&b.id)));
+        let room_for_kept = (limits.max_rooms / 2).max(1);
+        for room in newest {
             let Some((id, room)) = room_from_saved(room, limits, now) else {
                 continue;
             };
-            if v2.rooms.len() >= limits.max_rooms
+            if taken.len() >= room_for_kept
+                || v2.rooms.len() >= limits.max_rooms
                 || v2.rooms.contains_key(&id)
                 || v2.tombstones.contains_key(&id)
             {

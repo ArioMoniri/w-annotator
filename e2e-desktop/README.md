@@ -5,6 +5,7 @@ Tests of the built desktop app, as opposed to `e2e/`, which tests the web build 
 | File | What it does | Runs on |
 | --- | --- | --- |
 | `app.test.mjs` | Drives the app window through WebDriver: start, files from the command line, every tool, segments, save, and a room hosted by the app that a second client joins. | Linux, Windows |
+| `rooms-restart.test.mjs` | Hosts a room, closes the app, starts it again and reopens the room; a second client comes back with the membership it had, and deleting the room removes what was kept of it. | Linux, Windows |
 | `selftest.mjs` | Launches the app with `W_SELFTEST` set, so the app checks itself and writes a JSON result, then checks the result and the saved file. | Linux, Windows, macOS |
 | `driver.mjs` | Starts `tauri-driver` and the app; small helpers for the tests. | |
 | `ci-config.mjs` | Prints the Tauri config overrides for a test build. | |
@@ -68,3 +69,4 @@ pnpm selftest:desktop "target/debug/bundle/macos/W Annotator.app/Contents/MacOS/
 - The native save dialog cannot be driven, so the tests launch the app with `W_E2E_SAVE_DIR`. The hooks are described under "Test hooks" in `src-tauri/README.md`; they do nothing unless their variables are set at launch.
 - WebKit's driver leaves text that cannot be selected out of `getText()`, so some checks read `textContent` instead.
 - Fixtures are synthetic. No patient data.
+- `rooms-restart.test.mjs` starts the app twice with the same data folder. On Linux that is a temporary folder (`XDG_DATA_HOME`). On Windows it is the app's real data folder, since there is no switch for it; the test deletes its room at the end.

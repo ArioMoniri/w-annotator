@@ -111,6 +111,23 @@ async fn stop_hosting(host: State<'_, Host>) -> Result<(), String> {
     Ok(())
 }
 
+/// Removes what is kept of one hosted room, when its host forgets it.
+#[tauri::command]
+async fn forget_hosted_room(
+    app: AppHandle,
+    host: State<'_, Host>,
+    room: String,
+) -> Result<(), String> {
+    let store = app
+        .path()
+        .app_local_data_dir()
+        .ok()
+        .map(|dir| dir.join(hosted_rooms::FOLDER));
+    host.forget(&room, store.as_deref())
+        .await
+        .map_err(|e| format!("Could not forget the room: {e}"))
+}
+
 /// The bytes of a raw request body. When the webview cannot use the IPC custom
 /// protocol, Tauri falls back to sending the same bytes as a JSON array.
 fn body_bytes(body: &InvokeBody) -> Result<Cow<'_, [u8]>, String> {
@@ -420,6 +437,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             host_room,
             stop_hosting,
+            forget_hosted_room,
             write_file,
             read_file,
             files_ready,

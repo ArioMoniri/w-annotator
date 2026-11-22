@@ -9,6 +9,7 @@ src/batch.rs     gathers files that arrive close together into one open
 src/dump.rs      a test hook, off unless asked for
 src/recovery.rs  recovery copies in the app's local data folder
 src/hosting.rs   the embedded room relay (the `w-relay` crate in ../relay)
+src/hosted_rooms.rs  the file that keeps hosted rooms across runs of the app
 src/testing.rs   hooks for automated tests, off unless asked for (see "Test hooks")
 capabilities/    what the window may call in the plugins
 ```
@@ -190,9 +191,19 @@ const { port, addresses } = await invoke<{ port: number; addresses: string[] }>(
 // The host itself uses ws://127.0.0.1:<port>/v2/rooms/<ROOM>
 ```
 
-The web side always connects the host over `127.0.0.1`, so a firewall or network setting cannot keep the host out of its own room; the invite link carries `addresses[0]`. When `addresses` is empty the link falls back to `127.0.0.1` and the dialog says it only works on this computer (`../src/collab/hosting.ts`). The embedded relay speaks rooms protocol v2 only (`../docs/design/ROOMS-PROTOCOL.md`) and keeps its rooms in memory, so a room hosted here ends when the app closes.
+The web side always connects the host over `127.0.0.1`, so a firewall or network setting cannot keep the host out of its own room; the invite link carries `addresses[0]`. When `addresses` is empty the link falls back to `127.0.0.1` and the dialog says it only works on this computer (`../src/collab/hosting.ts`). The embedded relay speaks rooms protocol v2 only (`../docs/design/ROOMS-PROTOCOL.md`).
+
+Shared-copy rooms hosted here are kept across runs of the app in `rooms/hosted.json` in the app's local data folder (`src/hosted_rooms.rs`): who is a member, with which role, the open invite links with their remaining uses and expiry, removed keys, the ids of deleted rooms, and the port. No image, mask, name or edit is in it. On macOS and Linux the folder is 0700 and the file 0600; on Windows it is in the user's own app data folder. `host_room` reads it and, when no `port` is given, asks for the port the rooms had, so the address in people's links still works. It is written every two seconds while it has changed, when hosting stops, and when the app quits; a room the host deletes leaves the file, and the file is removed when nothing is left in it. A file written by a newer version of the app is left as it is, and hosting then runs without keeping rooms. A view-through-host room is never kept.
 
 Starts the relay on `0.0.0.0`. If the port is taken, a free one is used, so always read `port` from the result. `addresses` holds this machine's IPv4 addresses on the network (no loopback), private ranges first; it can be empty when offline. Calling it again while hosting returns the running relay and ignores `port`. The relay protocol is in `../relay/README.md`.
+
+### `forget_hosted_room`
+
+```ts
+await invoke<void>('forget_hosted_room', { room: 'K7Q2M9XA4TDP' });
+```
+
+Removes what is kept of one room: called when the host forgets the room in "Rooms you have joined", after which nobody could open it again. While hosting, the relay drops the room; otherwise the room is taken out of `rooms/hosted.json`. Does nothing for an unknown id.
 
 ### `stop_hosting`
 
@@ -200,7 +211,7 @@ Starts the relay on `0.0.0.0`. If the port is taken, a free one is used, so alwa
 await invoke<void>('stop_hosting');
 ```
 
-Stops the relay and disconnects everyone. Does nothing if not hosting. Hosting also stops when the app quits.
+Stops the relay and disconnects everyone, after writing its rooms one last time. Does nothing if not hosting. Hosting also stops when the app quits.
 
 ## Test hooks
 

@@ -21,9 +21,16 @@ export interface Bot {
     roster: { id: number; role: string; online: boolean }[];
   };
   closed: { code: number; reason: string } | null;
+  /** What it takes to come back as the same member: pass it to `joinRoom` again. */
+  member: BotMember;
   send(kind: number, meta: Record<string, unknown>, body?: Uint8Array, opts?: { to?: number; seq?: number }): void;
   close(): void;
 }
 
-export function joinRoom(link: string, name: string): Promise<Bot>;
+export interface BotMember {
+  seed: Uint8Array;
+  roomKey: Uint8Array;
+}
+
+export function joinRoom(link: string, name: string, member?: BotMember | null): Promise<Bot>;
 export function assemble(frames: BotFrame[], kind: number, rid: number): Buffer;

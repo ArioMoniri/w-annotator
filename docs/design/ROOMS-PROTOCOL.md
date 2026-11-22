@@ -368,6 +368,8 @@ When the room closes, the relay erases its members, invites and log. The id answ
 
 **Relay restart.** All of the above is in memory. After a restart every room is unknown (4404). The host re-creates the room under the same id with `create` and `members` (§3.3); `room.session` changes and `head` restarts at 0.
 
+**A relay that was given its rooms back.** A program that embeds the relay can ask it for its shared-copy room records before it stops and hand them back when it starts again (`relay/README.md`, "Embedded in the desktop app"); the desktop app does. Nothing changes on the wire: such a room is simply known again, so the host signs in with `auth` instead of `create`, and members sign in with the keys they have. Kept: members and roles, when each last connected, removed keys, invites with their expiry, uses and revocation, deleted ids, and `room.epoch`. Not kept: the replay log, so `room.session` is new and `head` is 0, and clients treat it exactly as the case above. Whatever lapsed meanwhile (an invite past its expiry, a member 30 days idle) is gone when the records are taken back.
+
 ## 11. Close codes
 
 | Code | Reason text | Meaning | What the client should do |
@@ -478,7 +480,7 @@ Header bytes for `version 2, kind 1, flags 0x0102, from 0x0A0B0C0D, to 7, seq 0x
 - **Encrypt or decrypt.** Payloads, names and segment names are the client's to protect (`ROOMS.md` C7, task 1.10). Bind room id, epoch and frame kind as associated data, and repeat the sender and the recipient inside the payload (§18.1), since the relay could otherwise re-label a frame.
 - **Vouch for what it says about the room.** `room.type`, `self.role` and `self.id` in `welcome` are the relay's word. A client must hold on to what it knows itself (§18.6).
 - **Deduplicate ops.** See §5.3.
-- **Store anything on disk**, or keep a payload beyond the replay log.
+- **Store anything on disk**, or keep a payload beyond the replay log. (An embedding program may store the room records the relay hands it, §10; they hold no payload.)
 - **Choose a snapshot source, pace slabs or resume transfers.** Kinds 3, 4 and 9 are delivered to the member named in `to`; the rest is the client's protocol inside the payload (`ROOMS.md` C6, task 1.6).
 - **Rate-limit slices by content.** It counts slice requests per guest; "viewed 212 of 300 slices" is the host app's count.
 - **Let editors invite** ("can invite", task 2.5) or **rotate keys** (task 2.3). `epoch` is always 1 in phase 1.
@@ -510,7 +512,7 @@ A client applies ordered edits in sequence, then puts its own not yet numbered e
 
 ### 18.3 Presence (kind 5)
 
-`{"t": "hi", "name": "<at most 24 characters>"}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. The host of either kind of room adds `"kind": "shared"|"host-view"`: what it made, to set against what the relay says (§18.6). A receiver removes control characters and invisible direction and joining marks from names before showing them. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second.
+`{"t": "hi", "name": "<at most 24 characters>", "caps": ["roles"]}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. The host of either kind of room adds `"kind": "shared"|"host-view"`: what it made, to set against what the relay says (§18.6). The host of a room that runs on the host's own computer adds `"hosted": true`, so a member who cannot reach it knows to wait for the host rather than for a network. `caps` lists what the sender's app can do that an older one cannot: at most 16 strings of at most 24 characters, unknown ones ignored. `roles` means the app follows a change of its own role (§18.7). Apps up to 0.1.3 send neither field. A receiver removes control characters and invisible direction and joining marks from names before showing them. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second.
 
 ### 18.4 Joining and coming back in a shared-copy room (kinds 9, 3, 4)
 
@@ -558,3 +560,17 @@ The relay says what kind a room is and what role a member has, in `welcome`. Nei
 | joins with a link for the first time | that it is not the host; the kind only from the first `welcome`, and then from the host's `hi` (§18.3) |
 
 After the first `welcome` the kind and "host or not" are fixed for as long as the client stays in the room. A `welcome` that disagrees with what the client knows, or whose `self.id` is not the id of the client's own key, is not followed: the client leaves the room and says "The room server sent something that does not fit this room, so you left it." The same when the host's `hi` names another kind than `welcome` did. Without this, a relay could tell the host of a view-through-host room that the room is a shared copy, and the host would send the image to whoever asked.
+
+### 18.7 Roles while the room is running
+
+The relay enforces roles (§5.2, §7). What the apps add:
+
+- **The member whose role changed** learns it from the `roster` that the relay sends to everyone after `member-role`: its own entry has a new `role`. It switches at once. A new viewer puts its edit tools down, takes its edits that have no sequence number yet off the screen (they will be refused: an edit the relay accepted was acknowledged before the `roster` on the same connection) and tells its user. `self.role` in a later `welcome` says the same after a reconnect. Being the host, or not, never changes (§18.6): a `roster` that says otherwise about this device is not followed.
+- **Everyone else** drops an edit frame (kinds 1 and 2) whose `from` is a member their roster knows as a `viewer`, if it arrives as it is made. The frame keeps its place in the order, like one that does not open (§18.1). Frames between `replay-begin` and `replay-end` are not checked this way: they were accepted when they were made, whatever their author's role is now, and dropping them would leave this client with another mask than everyone else. The host of a view-through-host room drops a viewer guest's edit instead of passing it on.
+- **Old apps.** An app that does not send `caps` with `roles` in `hi` would go on painting what the relay refuses, without telling its user. The host's app does not offer a role change for such a member; the relay would accept one all the same.
+
+Which role a member has is the relay's word. A relay that lies about it can make clients drop a member's edits or keep a viewer's, which is within what a relay that orders and may drop frames can do anyway (`ROOMS.md` C7).
+
+### 18.8 Invite options
+
+Nothing new on the wire: `ttl` and `maxUses` of `invite-add` (§9.2) are what the app's "Stops working after" and "Works for" set (3600, 86400 or 604800 seconds; 1, 5 or 0). The relay enforces both (§9.3) and reports `uses` and `expiresAt` in `invites`; the app only shows them. The host's note for a link is kept on the host's device and is in no message.

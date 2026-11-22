@@ -244,7 +244,9 @@ function Started({ started, onClose }: { started: RoomStarted; onClose: () => vo
           <span className="help" data-testid="room-note">
             {started.localOnly
               ? 'No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others.'
-              : 'This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app.'}
+              : started.kind === 'shared'
+                ? 'This room runs on your computer, so others need to be on the same network or VPN. It is down while the app is closed; open it again from Join a room.'
+                : 'This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app.'}
           </span>
         )}
       </div>

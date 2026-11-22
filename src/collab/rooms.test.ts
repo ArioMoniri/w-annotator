@@ -40,11 +40,13 @@ describe('my rooms', () => {
     const base = { id: 'K7Q2M9XA4TDP', server: 'ws://127.0.0.1:8787', role: 'host', seed: 's', key: 'k', host: null, at: 5 };
     const [plain] = parseRooms(JSON.stringify([base]));
     expect(plain).toEqual(base);
-    const [kept] = parseRooms(JSON.stringify([{ ...base, hosted: true, labels: { abc: 'for Sam', bad: 7, long: 'x'.repeat(40) } }]));
+    const image = '0123456789abcdef0123456789abcdef';
+    const [kept] = parseRooms(JSON.stringify([{ ...base, hosted: true, image, labels: { abc: 'for Sam', bad: 7, long: 'x'.repeat(40) } }]));
     expect(kept.hosted).toBe(true);
     expect(kept.labels).toEqual({ abc: 'for Sam' });
+    expect(kept.image).toBe(image);
     // Anything else in those places is dropped, not passed on.
-    const [odd] = parseRooms(JSON.stringify([{ ...base, hosted: 'yes', labels: ['x'] }]));
+    const [odd] = parseRooms(JSON.stringify([{ ...base, hosted: 'yes', labels: ['x'], image: '../etc' }]));
     expect(odd).toEqual(base);
   });
 

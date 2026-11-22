@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Invite links with choices, under "Link options" where a link is made: it can stop working after 1 hour, 24 hours or 7 days, and work for one person, up to 5 people, or anyone who has it until it expires. The room server counts the uses and keeps the time. A note such as "for Sam" can be added for the host's own list; it stays on the host's computer. The list of links shows the note, the uses left and the time left.
+- The host can change a person between "Can edit" and "Can view" from the people list. The person is told, their edit tools are switched off with the reason, and strokes the room had not taken yet leave their screen. The room server refuses edits from a viewer, and every app leaves them out as well.
+- After offline work in a shared-copy room, the slices where both sides changed the same voxels are reviewed one by one: a bar lists them, goes to the next or previous one (`Alt+↓` / `Alt+↑`, which can be changed), outlines your version in white over the room's, and takes "Use mine" or "Keep the room's" for one slice or for all. Each "Use mine" is one undo step and reaches the room like any edit. Your version stays kept aside until every slice is decided, for seven days at most, also after leaving the room or closing the app.
+- A room hosted by the desktop app survives closing the app. Who is in it, their roles and the open links with their remaining uses and time are kept in the app's data folder, readable by this user only; no image, mask, name or edit is in it. The host opens the room again from "Rooms you have joined" with the same image and mask, on the same address, and the others come back with the membership they had. Deleting the room removes what was kept of it.
+- While the room server does not know a room, or the computer that hosts it cannot be reached, its members read "Waiting for the host to reopen the room." in the room menu and keep working on their copy.
+
+### Changed
+
+- Coming back to a shared-copy room after the app was closed is merged like coming back after being offline: changes to different voxels are both kept, and only voxels both sides changed are asked about. Before, every difference was asked about. This needs autosave to be on, and the mask to be the one that was open before (the saved file, or the restored recovery copy).
+- The room dialog and the room menu say what the link in hand does, not that every link works for one person.
+
+### Rooms with older versions
+
+- Versions 0.1.2 and 0.1.3 can join rooms made by this version and the other way round; the protocol version is unchanged.
+- Links for several people, and links that last 1 hour or 7 days, work for them: the room server enforces both, and has since 0.1.2.
+- A person on 0.1.3 or older cannot be changed to "Can view": their app would not tell them. The host's list says so. They can still be removed.
+- A person on 0.1.3 or older reviews conflicts all at once, as before, and is merged two-way after a restart of their app.
+- A room hosted by 0.1.3 or older still ends when that app closes. In a room hosted by this version, a member on 0.1.3 or older comes back as well once the host has reopened it, but reads "Offline" rather than the line about waiting while it is down.
+
 ## [0.1.3] - 2026-11-22
 
 ### Added

@@ -12,7 +12,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "webkit:check": "node e2e-webkit/check.mjs",
-    "e2e:desktop": "node --test --test-reporter=spec e2e-desktop/app.test.mjs",
+    "e2e:desktop": "node --test --test-concurrency=1 --test-reporter=spec e2e-desktop/app.test.mjs e2e-desktop/rooms-restart.test.mjs",
     "selftest:desktop": "node e2e-desktop/selftest.mjs",
     "tauri": "tauri"
   },

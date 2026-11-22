@@ -22,16 +22,19 @@ export const KIND = { patch: 1, segOp: 2, syncSlab: 3, imageSlab: 4, presence: 5
 /**
  * Redeems an invite link and says a name. Resolves once the relay has let the bot in.
  * `frames` collects every frame received, already opened: `{ kind, from, seq, meta, body }`.
+ *
+ * With `member` (the `member` of an earlier bot of the same room) it comes back as that
+ * member instead: it signs in with the key it already has and spends nothing of the link.
  */
-export async function joinRoom(link, name) {
+export async function joinRoom(link, name, member = null) {
   const url = new URL(link);
   const room = url.pathname.split('/').pop().toUpperCase();
   const secret = unb64(url.hash.slice(1));
-  const seed = new Uint8Array(randomBytes(32));
+  const seed = member?.seed ?? new Uint8Array(randomBytes(32));
   const key = b64(ed25519.getPublicKey(seed));
   const ws = new WebSocket(`ws://${url.host}/v2/rooms/${room}`);
   ws.binaryType = 'arraybuffer';
-  const bot = { room, frames: [], texts: [], welcome: null, roomKey: null, closed: null };
+  const bot = { room, frames: [], texts: [], welcome: null, roomKey: member?.roomKey ?? null, closed: null, member: null };
 
   bot.send = (kind, meta, body = new Uint8Array(0), { to = 0, seq = 0 } = {}) => {
     const json = utf8(JSON.stringify(meta));
@@ -79,7 +82,9 @@ export async function joinRoom(link, name) {
       }
       const msg = JSON.parse(ev.data);
       bot.texts.push(msg);
-      if (msg.t === 'hello') {
+      if (msg.t === 'hello' && member) {
+        ws.send(JSON.stringify({ t: 'auth', proto: 2, key, sig: b64(ed25519.sign(utf8(`w-rooms/2 auth ${room} ${msg.nonce}`), seed)) }));
+      } else if (msg.t === 'hello') {
         const invite = b64(derive(secret, 'w-rooms/2 invite id', 16));
         const authKey = derive(secret, 'w-rooms/2 invite auth', 32);
         ws.send(
@@ -93,10 +98,13 @@ export async function joinRoom(link, name) {
           }),
         );
       } else if (msg.t === 'welcome') {
-        // The room key comes wrapped with a key only the holder of the link can derive.
-        const wrapped = unb64(msg.invite.wrappedKey);
-        bot.roomKey = gcm(derive(secret, 'w-rooms/2 invite wrap', 32), wrapped.subarray(0, 12), utf8('w-rooms/2 room key')).decrypt(wrapped.subarray(12));
+        if (!member) {
+          // The room key comes wrapped with a key only the holder of the link can derive.
+          const wrapped = unb64(msg.invite.wrappedKey);
+          bot.roomKey = gcm(derive(secret, 'w-rooms/2 invite wrap', 32), wrapped.subarray(0, 12), utf8('w-rooms/2 room key')).decrypt(wrapped.subarray(12));
+        }
         bot.welcome = msg;
+        bot.member = { seed, roomKey: bot.roomKey };
         bot.send(KIND.presence, { t: 'hi', name });
         clearTimeout(timer);
         resolve();

@@ -1,6 +1,6 @@
 # Rooms, next version — design
 
-Panel: backend (realtime, Rust), full-stack (React/Tauri), security/privacy (medical data). Status: phase 1 built, relay and app, with the cuts listed under "Decisions made during implementation" at the end.
+Panel: backend (realtime, Rust), full-stack (React/Tauri), security/privacy (medical data). Status: phase 1 built, relay and app, with the cuts listed under "Decisions made during implementation" at the end; of phase 2, task 2.4 and the sweeper of 2.5 are built ("Features built after phase 1").
 Requirements: **R1a** shared-copy room, **R1b** view-through-host room, **R2** host deletes room / removes people, **R3** links expire, **R4** autosave interplay. **S** = safety or correctness regardless of requirement.
 
 ## A. Gap analysis (today's code)
@@ -325,16 +325,31 @@ What the app does, task by task. Where it differs from the text above, this tabl
 |---|---|---|
 | 1.0 | Playwright helpers that cut and restore one page's connection (`e2e/helpers.ts`, `cuttable`) | They work in the browser, not through the relay's fault hooks, so they close a connection cleanly; a broken connection of the host is covered by the relay's own tests |
 | 1.1 | `src/collab/protocol.ts`: header, links, close-code texts; the v1 client is gone | — |
-| 1.2 | `identity.ts` (per-room Ed25519 key, member id), `client.ts` (sign-in, endless jittered reconnect, re-open after a relay restart) | Role `viewer` and "can invite" have no control in the app. No X25519 key |
-| 1.3 | Invite links made, listed and switched off by the host; single use, 24 h | No expiry or use-count options, no label |
-| 1.4 | Kind of room at creation; people list with Remove; Delete room / End room; "Rooms you have joined" | No role change. The people list is in the room menu, not a separate panel. Remove has no "also revoke unused links" |
+| 1.2 | `identity.ts` (per-room Ed25519 key, member id), `client.ts` (sign-in, endless jittered reconnect, re-open after a relay restart); `roles.ts`: a viewer's tools are off, and every app leaves out edits made by a known viewer | "Can invite" is not built. No X25519 key |
+| 1.3 | Invite links made, listed and switched off by the host; `invites.ts`: 1 h / 24 h / 7 days, one person / up to 5 / no limit, and a note for the host's own list | — |
+| 1.4 | Kind of room at creation; people list with role change (Can edit / Can view) and Remove; Delete room / End room; "Rooms you have joined" | The people list is in the room menu, not a separate panel. Remove has no "also revoke unused links" |
 | 1.5 | `oplog.ts`: relay order, ack, rebase of unconfirmed edits, gap replay; per-segment ops; the whole-mask digest is gone | Segments are keyed by label value, not a random id; no renumbering on a same-value add; no per-slice checksum safety net |
 | 1.6 | `transfer.ts`: 16-slice slabs, parts of at most 1 MiB, paced; host first, next member after 5 s; 2 GB limit | Same-image check by the autosave fingerprint; a cut transfer starts again instead of resuming |
-| 1.7 | Offline work, endless reconnect with "Reconnect now", three-way merge (`src/mask/merge.ts`), summary, "Use mine" / "Keep the room's" | Conflicts are decided all at once, with no per-slice panel and no outline; no 7-day pre-merge copy; segment conflicts are last-writer-wins |
+| 1.7 | Offline work, endless reconnect with "Reconnect now", three-way merge (`src/mask/merge.ts`), summary; `src/mask/review.ts` and the review bar: the slices that differ, next and previous, my version as an outline, "Use mine" / "Keep the room's" per slice and for all; my version kept until every slice is decided, 7 days at most, across leaving the room and restarting the app | A bar, not a panel. What is kept is my voxels where the two differ, not a second whole mask. Segment conflicts are last-writer-wins |
 | 1.9 | `hostview.ts`: host answers plane requests with 8-bit windowed planes and labels, counts planes per guest, rate-limits; guest holds no file, cannot save, gets no recovery copy, is blanked while the host is unreachable and wiped when the room ends | Lossless gzip instead of WebP in a worker; no cache cap; 3D view not disabled; the host's window, re-fetched when it changes; a guest is shown no measurements |
 | 1.10 | `crypto.ts`: AES-256-GCM, room key wrapped in the invite, names inside encrypted frames | One room key for both kinds; no pairwise keys |
-| 1.11 | No recovery copy for a view-through-host guest; Settings shows autosave as off in that room | The shared-copy recovery copy does not carry the room id and base, so after an app restart a return is merged two-way |
+| 1.11 | No recovery copy for a view-through-host guest; Settings shows autosave as off in that room. A shared-copy room leaves its base (room id, place in the order, the confirmed mask) beside the recovery copy (`src/recovery/roomcopy.ts`), so a return after an app restart is merged three-way | The base is a file of its own next to the recovery copy, not inside it, and is taken up only by the exact mask it was written for (a hash of its voxels); any other mask is merged two-way, as before. Not kept with autosave off |
 | 1.12 | The embedded relay speaks v2 with the embedded limits; links carry the LAN address; with no network address it listens on this computer only | **Not verified** on macOS, Windows or Linux desktop builds: `ws://` from the webview, address picker, binding one address, firewall text and a CSP are not done |
+
+### Features built after phase 1 (2026-11-22)
+
+What the rows above call built since, in one place, with what was decided on the way. Reasons are in `docs/process/DECISIONS.md` (2026-11-22, "Rooms features").
+
+| Topic | Built | Left out, and why |
+|---|---|---|
+| Invite options (C4) | Duration and uses chosen when a link is made, in the started step and the room menu; the relay keeps the time and counts the uses, as it always did. The note is kept on the host's device only. The host's list shows note, uses left, time left, Switch off | Role of an invite is always editor: the host makes someone a viewer afterwards |
+| Roles (C2) | Host changes a member between editor and viewer (`member-role`, already in the protocol). The member's app is told by the `roster` that follows, switches its tools at once and says so; strokes the room had not taken leave their screen. Every app drops live edit frames from a member its roster knows as a viewer; the host of a view-through-host room does the same for guests | "Can invite" for editors (2.5): an invite wraps the room key, and with key rotation on removal coming only the host can re-wrap open invites. A member whose app does not say `caps: ["roles"]` in `hi` (0.1.3 and older) is not offered the change, because that app would not tell its user |
+| Review per slice (C6 rule 3 and 5) | See 1.7 above | Slices are the mask's stored slices (axial for a volume stored the usual way), not a list per view axis |
+| Merge base across restarts (1.11) | See 1.11 above | — |
+| 2.4 Embedded relay keeps room records | `w_relay::persist`: `Relay::export` / `Relay::import` hand the shared-copy room records out and back (members, roles, open links with uses and expiry, removed keys, deleted ids; no payloads, no log). The desktop app keeps them in `rooms/hosted.json` in its data folder (0600, folder 0700), written while hosting, on stop and on quit, read when hosting starts, on the port it had. The host reopens the room from "Rooms you have joined" with the same image and mask open; members sign in with the keys they have | The order of edits starts again (`room.session` changes, `head` 0), as after any relay restart: the host's mask is the room's and members are merged against it two-way (C6, "base is ahead"). A view-through-host room is not kept: it is one session. The standalone relay still stores nothing (2.1) |
+| 2.5 | The idle sweeper (members 30 days, rooms 30 days) also runs over imported records | "Can invite" |
+
+A member whose room server answers "no such room" (4404), or who cannot reach a room that runs on the host's computer, stays in the room offline, keeps working and reads "Waiting for the host to reopen the room." in the room menu. The host says in its `hi` that the room runs on its computer (`hosted: true`).
 
 ### After the security and scale review (2026-11-22)
 

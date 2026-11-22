@@ -221,3 +221,33 @@ fn the_format_has_a_version_and_a_place_for_key_epochs() {
     assert_eq!(out["rooms"][0]["epoch"], 3);
     assert_eq!(out["rooms"][0]["type"], "shared");
 }
+
+#[tokio::test]
+async fn kept_rooms_never_fill_the_relay() {
+    let relay = TestRelay::start().await;
+    relay.create("KEPT0001", "shared").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let one = relay.relay.export().rooms[0].clone();
+    // Six rooms, each used an hour after the one before.
+    let mut saved = relay.relay.export();
+    saved.rooms = (0..6u64)
+        .map(|n| {
+            let mut room = one.clone();
+            room.id = format!("KEPT000{}", n + 2);
+            room.last_active = one.last_active - (5 - n) * 3_600_000;
+            room
+        })
+        .collect();
+
+    // A relay with space for four rooms takes two back: the two used last.
+    let small = TestRelay::with(|c| c.limits.max_rooms = 4).await;
+    assert_eq!(small.relay.import(saved).unwrap(), 2);
+    let ids: Vec<String> = small.relay.rooms().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["KEPT0006", "KEPT0007"]);
+    // So a new room can still be made.
+    small.create("NEWROOM1", "shared").await;
+    assert_eq!(small.relay.stats().rooms, 3);
+
+    // The relay inside the desktop app has space for more than one person keeps open.
+    assert_eq!(w_relay::RelayConfig::embedded().limits.max_rooms, 32);
+}

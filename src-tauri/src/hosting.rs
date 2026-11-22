@@ -132,6 +132,35 @@ impl Host {
         }
     }
 
+    /// Lets go of what is kept of one room: its host chose to forget it, and
+    /// could not open it again anyway. Its members are no longer members. While
+    /// hosting, the relay drops the room; otherwise it is taken out of the file.
+    pub async fn forget(&self, room: &str, store: Option<&Path>) -> io::Result<()> {
+        let slot = self.0.lock().await;
+        if let Some(running) = slot.as_ref() {
+            if !running.task.is_finished() {
+                running.relay.delete_room(room);
+                if let Some((dir, _)) = &running.keeper {
+                    hosted_rooms::write(dir, running.port, &running.relay.export())?;
+                }
+                return Ok(());
+            }
+        }
+        let Some(dir) = store else {
+            return Ok(());
+        };
+        if let Found::Rooms(mut file) = hosted_rooms::read(dir) {
+            let before = file.relay.rooms.len();
+            file.relay
+                .rooms
+                .retain(|kept| !kept.id.eq_ignore_ascii_case(room));
+            if file.relay.rooms.len() != before {
+                hosted_rooms::write(dir, file.port, &file.relay)?;
+            }
+        }
+        Ok(())
+    }
+
     /// How many rooms the hosted relay holds; 0 when not hosting.
     #[cfg(test)]
     pub async fn rooms(&self) -> usize {
@@ -295,6 +324,40 @@ mod tests {
         other.start(Some(0), None).await.unwrap();
         assert_eq!(other.rooms().await, 0);
         other.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_forgotten_room_leaves_the_file_hosting_or_not() {
+        use crate::hosted_rooms::tests::{sample, TempDir};
+        let dir = TempDir::new("forget");
+        let mut kept = sample(now_ms());
+        kept.tombstones.clear();
+        let mut other = kept.rooms[0].clone();
+        other.id = "OTHERROOM001".into();
+        kept.rooms.push(other);
+        hosted_rooms::write(&dir.0, 0, &kept).unwrap();
+
+        // Not hosting: the file is edited.
+        let host = Host::default();
+        host.forget("k7q2m9xa4tdp", Some(&dir.0)).await.unwrap();
+        let Found::Rooms(file) = hosted_rooms::read(&dir.0) else {
+            panic!("the other room was not kept")
+        };
+        let ids: Vec<&str> = file.relay.rooms.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["OTHERROOM001"]);
+        host.forget("NOSUCHROOM01", Some(&dir.0)).await.unwrap();
+        host.forget("NOSUCHROOM01", None).await.unwrap();
+
+        // Hosting: the relay drops it, and the file follows at once.
+        host.start(Some(0), Some(&dir.0)).await.unwrap();
+        assert_eq!(host.rooms().await, 1);
+        host.forget("OTHERROOM001", Some(&dir.0)).await.unwrap();
+        assert_eq!(host.rooms().await, 0);
+        match hosted_rooms::read(&dir.0) {
+            Found::Rooms(file) => assert!(file.relay.rooms.is_empty()),
+            other => panic!("unexpected {other:?}"),
+        }
+        host.stop().await;
     }
 
     #[tokio::test]

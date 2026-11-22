@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { assemble, joinRoom as botJoin, KIND } from '../e2e-desktop/roombot.mjs';
-import { drag, joinRoom, maskDump, maskVoxels, openPhantom, reconnectNow, startRoom } from './helpers';
+import { cuttable, drag, joinRoom, maskDump, maskVoxels, openPhantom, reconnectNow, startRoom } from './helpers';
 
 /**
  * These tests run their own room server, so they can stop and start it. The suite's
@@ -89,6 +89,48 @@ test('a shared-copy room comes back after the room server restarts, and nothing 
   const before = await maskVoxels(guest);
   await drag(host, 'axial', [30, -20], [70, -10]);
   await expect.poll(() => maskVoxels(guest)).toBeGreaterThan(before);
+});
+
+test('while the room server does not know the room, a member is told they are waiting for the host', async ({ browser }) => {
+  const host = await hostPage(browser);
+  const guest = await (await browser.newContext()).newPage();
+  // The host's own connection is under the test's control, to keep the host away for a while.
+  const hostWire = await cuttable(host);
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina');
+  await joinRoom(guest, 'Ario', link);
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  await expect(host.locator('.avatar')).toHaveCount(1);
+
+  // The room server restarts and has forgotten the room; the host is not back yet.
+  await hostWire.cut();
+  await stopRelay();
+  await expect(guest.getByTestId('sync')).toContainText('Offline');
+  await startRelay();
+  await reconnectNow(guest);
+  await guest.getByTestId('room-pill').click();
+  await expect(guest.locator('.roommenu .note').filter({ hasText: 'Waiting' })).toHaveText('Waiting for the host to reopen the room.', { timeout: 20_000 });
+  await guest.keyboard.press('Escape');
+  // The member is still in the room and keeps working on their copy.
+  await expect(guest.getByTestId('room-pill')).toContainText('Offline');
+  await guest.keyboard.press('2');
+  await guest.keyboard.press('b');
+  await drag(guest, 'axial', [-60, 40], [-20, 70]);
+  const guests2 = await maskVoxels(guest, 2);
+
+  // The host is back and opens the room again; the member comes in with the membership it had.
+  hostWire.restore();
+  await reconnectNow(host);
+  await expect(host.getByTestId('sync')).toContainText('Synced', { timeout: 40_000 });
+  await reconnectNow(guest);
+  await expect(guest.getByTestId('sync')).toContainText('Synced', { timeout: 40_000 });
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  await guest.getByTestId('room-pill').click();
+  await expect(guest.locator('.roommenu')).not.toContainText('Waiting for the host');
+  await guest.keyboard.press('Escape');
+  // Their offline stroke is not lost: it is kept for them to decide, and "Use mine" gives it to the room.
+  await guest.getByRole('button', { name: 'Use mine', exact: true }).click();
+  await expect.poll(() => maskVoxels(host, 2)).toBe(guests2);
 });
 
 test('a client written apart from the app can join with a link and is sent what a member gets', async ({ browser }) => {

@@ -27,6 +27,8 @@ export interface SavedRoom {
   hosted?: boolean;
   /** Host only: the host's own notes for invite links, by invite id ("for Sam"). Never sent anywhere. */
   labels?: Record<string, string>;
+  /** Host of a room on this computer: the fingerprint of its image, to open the room again on the same one. */
+  image?: string;
 }
 
 /** A room keeps at most this many links (`ROOMS-PROTOCOL.md` §13), so at most this many notes. */
@@ -73,9 +75,14 @@ const isRoom = (r: unknown): r is SavedRoom => {
 
 /** Only what this version knows is taken on trust; the optional parts are checked one by one. */
 const tidy = (r: SavedRoom): SavedRoom => {
-  const { hosted, labels, ...rest } = r;
+  const { hosted, labels, image, ...rest } = r;
   const notes = cleanLabels(labels);
-  return { ...rest, ...(hosted === true ? { hosted: true } : {}), ...(Object.keys(notes).length ? { labels: notes } : {}) };
+  return {
+    ...rest,
+    ...(hosted === true ? { hosted: true } : {}),
+    ...(Object.keys(notes).length ? { labels: notes } : {}),
+    ...(typeof image === 'string' && /^[a-f0-9]{16,64}$/.test(image) ? { image } : {}),
+  };
 };
 
 export function parseRooms(raw: string | null): SavedRoom[] {

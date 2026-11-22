@@ -1912,6 +1912,7 @@ export async function rejoinRoom(name: string, id: string): Promise<true | strin
   if (known.hosted && known.role === 'host') {
     // The room ran on this computer: its server is started again, with the members and links it had.
     if (!image || !mask) return 'Open the image and the mask of this room first, then open the room again.';
+    if (known.image && known.image !== imageFingerprint()) return 'This room was started on another image. Open that image and its mask, then open the room again.';
     const hosted = await platform.hostRoom();
     if (!hosted) return 'This room runs on this computer, in the desktop app. Open it there.';
     server = hosted.connect;
@@ -1936,6 +1937,9 @@ export async function rejoinRoom(name: string, id: string): Promise<true | strin
 }
 
 export function forgetSavedRoom(id: string): void {
+  // A room this computer hosted: what its room server kept goes too, since nobody could open it again.
+  const known = savedRooms().find((r) => r.id === id);
+  if (known?.hosted && known.role === 'host') void platform.forgetHostedRoom(id);
   forgetRoom(id);
   if (kept?.id === id) kept = null;
 }
@@ -2350,7 +2354,17 @@ function rememberThis(r: RoomCtx): void {
     at: Date.now(),
     ...(r.hostedRoom ? { hosted: true } : {}),
     ...(r.role === 'host' && r.labels.size > 0 ? { labels: Object.fromEntries(r.labels) } : {}),
+    ...(r.hosting && image ? { image: imageFingerprint() ?? undefined } : {}),
   });
+}
+
+/* The fingerprint reads a few thousand voxels; once per image is enough. */
+const fingerprints = new WeakMap<object, string>();
+function imageFingerprint(): string | null {
+  if (!image) return null;
+  let key = fingerprints.get(image);
+  if (!key) fingerprints.set(image, (key = fingerprint(image)));
+  return key;
 }
 
 /** While the app keeps trying: why the last try failed, and what the member is waiting for. */
