@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { goToReviewSlice, keepRooms, reviewShownSlice, reviewSliceNumbers, stepReview, takeMine } from '../session';
+import { goToReviewSlice, keepRooms, reviewDirection, reviewShownSlice, reviewSliceNumbers, stepReview, takeMine } from '../session';
 import { useStore, type MergeReview } from '../state/store';
 import { useKeyHint } from './common';
 
@@ -35,6 +35,8 @@ function ReviewBar({ review }: { review: MergeReview }) {
   const key = useKeyHint();
   const shown = reviewShownSlice();
   const numbers = reviewSliceNumbers();
+  // Listed in the order the view counts them, whichever way the file stores its slices.
+  const listed = reviewDirection() < 0 ? [...review.slices].reverse() : review.slices;
   const many = review.slices.length > 1;
   const here = review.slices.find((s) => s.z === shown) ?? null;
   // With a single slice the choice is the same wherever the views are.
@@ -59,7 +61,7 @@ function ReviewBar({ review }: { review: MergeReview }) {
             }}
           >
             {!here && <option value="">{count(review.slices.length, 'slice')} to review</option>}
-            {review.slices.map((s) => (
+            {listed.map((s) => (
               <option key={s.z} value={s.z}>
                 {sliceLabel(review.view, numbers[s.z] ?? s.z + 1, s.voxels)}
               </option>

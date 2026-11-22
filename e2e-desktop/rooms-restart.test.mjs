@@ -19,9 +19,11 @@ describe('a room hosted by the app, across a restart of the app', () => {
   const dir = mkdtempSync(join(tmpdir(), 'w-desktop-rooms-'));
   const fx = writeFixtures(join(dir, 'in'));
   // On Linux the app's data goes to a folder of this test's own, the same one for both launches.
-  // Windows has no such switch: there the app's real data folder is used, and the room is deleted at the end.
+  // Windows has no such switch for the app's files: there the app's real data folder is used, and
+  // the room is deleted at the end. What the webview keeps (the app's list of rooms) gets a folder
+  // of the test's own there too, so the second launch finds what the first one left.
   const dataHome = join(dir, 'data');
-  const env = process.platform === 'win32' ? {} : { XDG_DATA_HOME: dataHome };
+  const env = process.platform === 'win32' ? { WEBVIEW2_USER_DATA_FOLDER: join(dir, 'webview') } : { XDG_DATA_HOME: dataHome };
   const appData =
     process.platform === 'win32'
       ? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), IDENTIFIER)
@@ -34,7 +36,11 @@ describe('a room hosted by the app, across a restart of the app', () => {
   after(async () => {
     for (const bot of bots) bot.close();
     await app?.quit();
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* Windows may still hold the webview's files for a moment; the folder is in the system's temporary folder */
+    }
   });
 
   const open = async () => {

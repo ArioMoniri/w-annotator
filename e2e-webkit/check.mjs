@@ -599,7 +599,10 @@ try {
     const bar = await until(() => rect(b, '[data-testid="merge-review"]'), Boolean, { what: 'the review bar' });
     expect(bar.height >= 40 && bar.width > 300, `the review bar is ${bar.width} x ${bar.height}`);
     const options = await b.exec(() => [...document.querySelectorAll('[data-testid="merge-review"] select option')].map((o) => o.textContent));
-    expect(options.filter((o) => /^Axial slice \d+ · 144 voxels$/.test(o)).length === 2, `unexpected list of slices: ${options.join(' | ')}`);
+    // By the number the view shows for each, lowest first, whichever way the file stores its slices.
+    const numbers = options.map((o) => /^Axial slice (\d+) · [\d,]+ voxels?$/.exec(o)).filter(Boolean).map((m) => Number(m[1]));
+    expect(numbers.length === 2 && numbers[0] < numbers[1], `unexpected list of slices: ${options.join(' | ')}`);
+    const onSlice = await state(b, (s) => s.review.slices[0].voxels);
 
     const before = await white();
     await b.exec((z) => window.__w.session.goToReviewSlice(z), slices[0]);
@@ -611,7 +614,7 @@ try {
     const voxels = await maskVoxels(b, 1);
     await clickOn(b, '[data-testid="merge-review"] .btn.primary');
     await until(() => state(b, (s) => s.review?.slices.length), (n) => n === 1, { what: 'one slice left to review' });
-    expect((await maskVoxels(b, 1)) === voxels + 144, 'the slice was not taken as an edit');
+    expect((await maskVoxels(b, 1)) === voxels + onSlice, 'the slice was not taken as an edit');
     await until(white, (n) => n <= before, { what: 'the outline to go with the decision' });
     await b.exec(() => window.__w.session.keepRooms());
     await until(() => state(b, (s) => s.review), (r) => r === null, { what: 'the review to end' });

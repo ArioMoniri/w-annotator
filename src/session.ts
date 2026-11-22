@@ -979,7 +979,7 @@ function editMask(fn: (data: Uint8Array) => void): number {
  * other edit. Returns false when the copy does not fit the mask on screen.
  */
 export function restoreMask(data: Uint8Array, segments: Omit<SegmentInfo, 'visible'>[], maskName: string | null): boolean {
-  if (!mask || data.length !== mask.data.length || isGuestView()) return false;
+  if (!mask || data.length !== mask.data.length || isGuestView() || viewOnly()) return false;
   editMask((d) => d.set(data));
   ensureSegments(data);
   const s = get();
@@ -1064,7 +1064,7 @@ export function showOnly(index: number): void {
 
 export function clearSegment(index: number): void {
   const seg = get().segments.find((x) => x.index === index);
-  if (!seg) return;
+  if (!seg || refusedForViewer()) return;
   const n = editMask((d) => {
     for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
   });
@@ -1074,7 +1074,7 @@ export function clearSegment(index: number): void {
 export function deleteSegment(index: number): void {
   const s = get();
   const seg = s.segments.find((x) => x.index === index);
-  if (!seg) return;
+  if (!seg || refusedForViewer()) return;
   const n = editMask((d) => {
     for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
   });
@@ -1094,6 +1094,7 @@ function activeEditable(): SegmentInfo | null {
     toast('info', 'Add a segment to start editing.');
     return null;
   }
+  if (refusedForViewer()) return null;
   if (isGuestView()) {
     toast('info', WHOLE_MASK_OFF);
     return null;
@@ -2988,11 +2989,25 @@ export function goToReviewSlice(z: number): void {
   if (at !== null) engine.jumpTo(voxelWorld(mask, at));
 }
 
-/** The next or the previous slice that is still to decide, from the one on screen. */
+/**
+ * Whether the view's counter goes up with the stored slices (1) or down (-1). "Next" means a
+ * higher number in the view, as it does for the arrow keys, whichever way the file is stored.
+ */
+export function reviewDirection(): 1 | -1 {
+  const m = mask;
+  if (!m || m.dims[2] < 2) return 1;
+  const view = reviewView();
+  const first = engine.sliceNumberAt(view, voxelWorld(m, 0), m.spacing[2]);
+  const last = engine.sliceNumberAt(view, voxelWorld(m, (m.dims[2] - 1) * sliceSize()), m.spacing[2]);
+  return first !== null && last !== null && last < first ? -1 : 1;
+}
+
+/** The next or the previous slice that is still to decide, from the one on screen, by the view's own numbering. */
 export function stepReview(dir: 1 | -1): void {
   const list = get().review?.slices.map((s) => s.z) ?? [];
+  const along = (dir * reviewDirection()) as 1 | -1;
   const shown = reviewShownSlice();
-  const next = stepSlice(list, shown ?? (dir > 0 ? -1 : Infinity), dir);
+  const next = stepSlice(list, shown ?? (along > 0 ? -1 : Infinity), along);
   if (next !== null) goToReviewSlice(next);
 }
 

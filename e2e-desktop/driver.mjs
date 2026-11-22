@@ -76,8 +76,9 @@ export async function launch({ args = [], env = {} } = {}) {
   let capabilities = { 'tauri:options': { application: APP, args } };
   const killApp = () => app && spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
   if (debugPort) {
-    // A data folder of its own, so nothing is shared with an earlier launch.
-    const dataDir = mkdtempSync(join(tmpdir(), 'w-webview2-'));
+    // A data folder of its own, so nothing is shared with an earlier launch, unless the test
+    // names one because it is about what a second launch finds.
+    const dataDir = env.WEBVIEW2_USER_DATA_FOLDER ?? mkdtempSync(join(tmpdir(), 'w-webview2-'));
     app = spawn(APP, args, { env: { ...process.env, ...env, WEBVIEW2_USER_DATA_FOLDER: dataDir }, stdio: 'inherit' });
     capabilities = { browserName: 'webview2', 'ms:edgeOptions': { debuggerAddress: `127.0.0.1:${debugPort}` } };
     // Attach only once the app's own page is there; attaching while the webview is still blank leaves the driver on the blank page.

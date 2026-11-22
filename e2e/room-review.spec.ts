@@ -109,25 +109,34 @@ test('after offline work each slice that differs is reviewed on its own', async 
   await guest.getByRole('button', { name: 'Use mine', exact: true }).click({ force: true });
   expect(await maskDump(guest)).toBe(untouched);
 
-  // Next and previous, by button and by key, go from one such slice to the other and round again.
+  // Next and previous, by button and by key, go from one such slice to the other in the order the
+  // view counts them, and round again at the ends.
   const shown = () => guest.evaluate(() => window.__w.session.reviewShownSlice());
+  const numbers: Record<number, number> = await guest.evaluate(() => window.__w.session.reviewSliceNumbers());
+  const [first, second, third] = [...SLICES].sort((p, q) => numbers[p] - numbers[q]);
+  expect(new Set(Object.values(numbers)).size).toBe(3);
+  // The list is in that order too.
+  await expect(list.locator('option').nth(1)).toHaveText(new RegExp(`^Axial slice ${numbers[first]} · `));
+  await expect(list.locator('option').nth(3)).toHaveText(new RegExp(`^Axial slice ${numbers[third]} · `));
+  // The view is on slice 4 of the file, before all three or after all three: either way the first comes next.
   await guest.getByRole('button', { name: 'Next slice to review' }).click();
-  await expect.poll(shown).toBe(8);
+  await expect.poll(shown).toBe(first);
+  expect(await axialNumber(guest)).toBe(numbers[first]);
   await guest.getByRole('button', { name: 'Next slice to review' }).click();
-  await expect.poll(shown).toBe(12);
+  await expect.poll(shown).toBe(second);
   await guest.locator('[data-view="axial"]').hover();
   await guest.keyboard.press('Alt+ArrowDown');
-  await expect.poll(shown).toBe(40);
+  await expect.poll(shown).toBe(third);
   await guest.keyboard.press('Alt+ArrowDown');
-  await expect.poll(shown).toBe(8);
+  await expect.poll(shown).toBe(first);
   await guest.keyboard.press('Alt+ArrowUp');
-  await expect.poll(shown).toBe(40);
+  await expect.poll(shown).toBe(third);
   await guest.getByRole('button', { name: 'Previous slice to review' }).click();
-  await expect.poll(shown).toBe(12);
+  await expect.poll(shown).toBe(second);
   // The list takes you to a slice too.
-  await list.selectOption({ index: 0 });
+  await list.selectOption(String(8));
   await expect.poll(shown).toBe(8);
-  await list.selectOption({ index: 1 });
+  await list.selectOption(String(12));
   await expect.poll(shown).toBe(12);
   await expect(list.locator('option:checked')).toHaveText(new RegExp(`^Axial slice ${await axialNumber(guest)} · `));
   await expect.poll(() => whitePixels(guest)).toBeGreaterThan(40);
@@ -148,7 +157,7 @@ test('after offline work each slice that differs is reviewed on its own', async 
   await expect(bar).toContainText(/on 2 slices/);
 
   // "Keep the room's" for a slice changes nothing in the mask and lets my version of it go.
-  await guest.getByRole('button', { name: 'Next slice to review' }).click();
+  await list.selectOption(String(40));
   await expect.poll(shown).toBe(40);
   const before = await maskDump(guest);
   await guest.getByRole('button', { name: "Keep the room's", exact: true }).click();
