@@ -117,7 +117,7 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 - 2 × 2, equal cells, 2px gap showing `--bg-app`. Each cell is `#000`.
 - Order: Axial (top-left), Sagittal (top-right), Coronal (bottom-left), 3D (bottom-right).
 - Active viewport: 1px inset outline `--accent`. Hovered: 1px inset `--border-strong`. Otherwise none.
-- Corner overlays, 8px inset, 11px mono, `--text-2` with a 1px black text shadow, `pointer-events: none`:
+- Corner overlays, 8px inset, 11px mono, `--text-2` with a 1px black text shadow, `pointer-events: none`. The view name and the slice counter each sit on a chip of `--bg-label`, 20 high, 4px padding left and right, radius 4, so they stay readable over a bright or noisy image: `--text-2` keeps 4.5:1 on it even over a white pixel. The chip is no larger than its text needs, is the same in both themes, and never fades or moves:
   - top-left: orientation name (`Axial`) — coloured dot matches the reference line colour for that plane. It is a button: it opens the view picker (Axial, Sagittal, Coronal, 3D), and dragging it onto another pane swaps the two
   - top-right: maximise button (24 × 24, appears on viewport hover or focus only)
   - bottom-left: `Slice 84 / 212`
@@ -173,7 +173,7 @@ Right: `W 400  L 40  Soft tissue` · `Zoom 125%` · sync status (`Saved`, `Unsav
 
 **Window and zoom are buttons.** Each is the read-out itself with a 10 px chevron: 20 high, `--bg-hover` on hover and while open, the bar's inset focus ring. A click, Enter or Space opens a menu (`--bg-raised`, `--shadow-2`, 13px UI font) above the bar with its right edge on the button's; it fades in from 4px below, scrolls inside itself when taller than the room above the bar, and closes on a choice, Esc or a click elsewhere. Focus goes to the item in use; ↑ ↓ Home End move through the items; Esc gives the focus back to the button. Both work with any tool.
 
-- **Window menu.** Row `Presets for` with a segmented `CT / MR` (set from the image's values; the user can overrule it). Then the presets as radio items, each with its `W … L …` at the right in 11px mono `--text-3`, the one in use on `--bg-active`. CT list: Soft tissue, Abdomen, Liver, Pancreas (a narrow window chosen by the project for a contrast-enhanced pancreas, not a standard preset), Lung, Bone, Brain, Stroke, Subdural · saved presets · Auto, Full range. MR list: Auto, Full range · Mid range, Bright fluid, Dark detail (worked out from the image; none shares a name with a CT preset) · saved presets. A saved preset has a 20 px `×` at the end of its row (`Remove preset <name>`); removing keeps the menu open. Last item: `Save current as preset…`.
+- **Window menu.** Row `Presets for` with a segmented `CT / MR` (set from the image's values; the user can overrule it). Then the presets as radio items, each with its `W … L …` at the right in 11px mono `--text-3` (`--text-2` on the item in use, focused or pointed at, where `--text-3` is under 4.5:1), the one in use on `--bg-active`. CT list: Soft tissue, Abdomen, Liver, Pancreas (a narrow window chosen by the project for a contrast-enhanced pancreas, not a standard preset), Lung, Bone, Brain, Stroke, Subdural · saved presets · Auto, Full range. MR list: Auto, Full range · Mid range, Bright fluid, Dark detail (worked out from the image; none shares a name with a CT preset) · saved presets. A saved preset has a 20 px `×` at the end of its row (`Remove preset <name>`); removing keeps the menu open. Last item: `Save current as preset…`.
 - **Save dialog.** Small modal `Save window as preset`: the window in mono (`W 1600 L −550`), one `Name` field (24 characters), `Cancel`, primary `Save`. Enter saves. A name in use, an empty name or a full list (12) shows the reason in `--danger` under the field.
 - **Zoom menu.** `Zoom in`, `Zoom out` (the menu stays open for these), divider, `Fit`, `Actual size`, each with its key at the right. They act on the active view, about its centre. Actual size is one voxel on one screen pixel and is disabled for the 3D view.
 - The read-out shows the name of the preset in use in `--text-1`, and no name when the window is none of them. On a narrow bar the name is the first thing to leave; the window itself never leaves.
@@ -219,6 +219,7 @@ Rail, strip, right panel and status bar are hidden; only the top bar (app name, 
   --bg-hover:      #22262B;
   --bg-active:     #2A2F36;
   --bg-scrim:      rgba(0, 0, 0, 0.56);
+  --bg-label:      rgba(0, 0, 0, 0.78);  /* behind text on the image; both themes */
 
   --border:        #24282E;
   --border-strong: #363C45;
@@ -395,7 +396,7 @@ Height 28 (36 in modals and empty state), padding 0 × 12, radius `--radius-sm`,
 
 32 high, padding 0 × 8, radius `--radius-sm`, 8 gap.
 
-`[swatch 12×12, radius xs] [index, 11 mono, --text-3, 16 wide] [name, 13, truncates] ······ [presence dot] [eye 24×24] [lock 24×24]`
+`[swatch 12×12, radius xs] [index, 11 mono, --text-3 (--text-2 on a hovered or active row, where --text-3 is under 4.5:1), 16 wide] [name, 13, truncates] ······ [presence dot] [eye 24×24] [lock 24×24]`
 
 | State | Treatment |
 |---|---|

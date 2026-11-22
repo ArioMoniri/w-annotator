@@ -227,3 +227,102 @@ test('the Window / Level strip sets a width under 1 on an image scaled 0 to 1', 
   await width.press('Enter');
   await expect(width).toHaveValue('0.01');
 });
+
+/**
+ * Contrast ratio (WCAG 2) of an element's text against what is drawn behind it, from the
+ * colours the browser computed: backgrounds are laid over each other from the page up.
+ */
+const contrastOf = (page: Page, selector: string) =>
+  page.locator(selector).first().evaluate((el) => {
+    const parse = (c: string) => {
+      const m = c.match(/[\d.]+/g)!.map(Number);
+      return { r: m[0], g: m[1], b: m[2], a: m[3] ?? 1 };
+    };
+    const chain: Element[] = [];
+    for (let e: Element | null = el; e; e = e.parentElement) chain.unshift(e);
+    let bg = { r: 255, g: 255, b: 255 };
+    for (const e of chain) {
+      const c = parse(getComputedStyle(e).backgroundColor);
+      bg = { r: c.r * c.a + bg.r * (1 - c.a), g: c.g * c.a + bg.g * (1 - c.a), b: c.b * c.a + bg.b * (1 - c.a) };
+    }
+    const t = parse(getComputedStyle(el).color);
+    const fg = { r: t.r * t.a + bg.r * (1 - t.a), g: t.g * t.a + bg.g * (1 - t.a), b: t.b * t.a + bg.b * (1 - t.a) };
+    const lum = (c: { r: number; g: number; b: number }) => {
+      const f = (v: number) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+    };
+    const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a);
+    return (hi + 0.05) / (lo + 0.05);
+  });
+
+for (const scheme of ['dark', 'light'] as const) {
+  test(`small numbers keep 4.5:1 on a row that is in use, focused or pointed at, in the ${scheme} theme`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    await openPhantom(page);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+
+    // The segment number: on the active row, with and without the pointer on it, and on a row pointed at.
+    await page.mouse.move(5, 5);
+    expect(await contrastOf(page, '.segrow[aria-selected="true"] .idx')).toBeGreaterThanOrEqual(4.5);
+    await page.locator('.segrow[aria-selected="true"]').hover();
+    expect(await contrastOf(page, '.segrow[aria-selected="true"] .idx')).toBeGreaterThanOrEqual(4.5);
+    await page.locator('.segrow[aria-selected="false"]').first().hover();
+    expect(await contrastOf(page, '.segrow[aria-selected="false"] .idx')).toBeGreaterThanOrEqual(4.5);
+
+    // W and L beside each window preset: the one in use, which also has the focus, one pointed at, and one at rest.
+    await page.getByTestId('status-window').focus();
+    await page.keyboard.press('Enter');
+    const menu = page.getByRole('menu', { name: 'Window' });
+    await expect(menu.locator('[aria-checked="true"]')).toBeFocused();
+    expect(await contrastOf(page, '.menu [aria-checked="true"] .wl')).toBeGreaterThanOrEqual(4.5);
+    await page.keyboard.press('ArrowDown');
+    expect(await contrastOf(page, '.menu .item:focus .wl')).toBeGreaterThanOrEqual(4.5);
+    await menu.getByRole('menuitemradio').last().hover();
+    expect(await contrastOf(page, '.menu .item:hover .wl')).toBeGreaterThanOrEqual(4.5);
+    expect(await contrastOf(page, '.menu [role="menuitemradio"]:not(:hover):not(:focus):not([aria-checked="true"]) .wl')).toBeGreaterThanOrEqual(4.5);
+  });
+}
+
+for (const scheme of ['dark', 'light'] as const) {
+  test(`the view name and slice counter have a backing that keeps them readable over a white image, in the ${scheme} theme`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openPhantom(page);
+    await page.mouse.move(5, 5);
+    for (const selector of ['[data-view="coronal"] .viewlabel > button', '[data-view="coronal"] .overlay.bl', '[data-view="volume3d"] .viewlabel > button']) {
+      const chip = await page.locator(selector).evaluate((el) => {
+        const s = getComputedStyle(el);
+        const parse = (c: string) => {
+          const m = c.match(/[\d.]+/g)!.map(Number);
+          return { r: m[0], g: m[1], b: m[2], a: m[3] ?? 1 };
+        };
+        const bg = parse(s.backgroundColor);
+        const text = parse(s.color);
+        // The worst case behind the chip: the brightest pixel an image can have.
+        const over = { r: bg.r * bg.a + 255 * (1 - bg.a), g: bg.g * bg.a + 255 * (1 - bg.a), b: bg.b * bg.a + 255 * (1 - bg.a) };
+        const lum = (c: { r: number; g: number; b: number }) => {
+          const f = (v: number) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+          return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+        };
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const box = el.getBoundingClientRect();
+        return {
+          contrast: (Math.max(lum(text), lum(over)) + 0.05) / (Math.min(lum(text), lum(over)) + 0.05),
+          alpha: bg.a,
+          // How much wider and taller the chip is than the text it backs.
+          extra: [box.width - range.getBoundingClientRect().width, box.height - 16],
+          moves: `${s.transitionDuration} ${s.animationName}`,
+          radius: s.borderTopLeftRadius,
+        };
+      });
+      expect(chip.contrast, selector).toBeGreaterThanOrEqual(4.5);
+      // A backing, not a block: the image still shows through, and it is no bigger than the text needs.
+      expect(chip.alpha, selector).toBeLessThan(0.9);
+      expect(chip.extra[0], selector).toBeLessThanOrEqual(10);
+      expect(chip.extra[1], selector).toBeLessThanOrEqual(4);
+      expect(chip.radius, selector).toBe('4px');
+      // Nothing over the image fades or slides.
+      expect(chip.moves, selector).toMatch(/^0s( none)$/);
+    }
+  });
+}

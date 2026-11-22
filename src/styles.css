@@ -94,6 +94,8 @@
   --text-on-user: #0a0b0d;
   /* Between viewports. Dark in both themes so no bright line sits against the image. */
   --bg-view-gap: #0a0b0d;
+  /* Behind text that sits on the image. Dark enough that --text-2 keeps 4.5:1 over a white pixel; the same in both themes, as the views are. */
+  --bg-label: rgba(0, 0, 0, 0.78);
   --tip-delay: 400ms;
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
@@ -838,6 +840,7 @@ input[type='range']:focus-visible {
   margin: -2px -4px;
   padding: 0 4px;
   border-radius: 4px;
+  background: var(--bg-label);
   font: inherit;
   color: inherit;
   text-shadow: inherit;
@@ -954,9 +957,13 @@ input[type='range']:focus-visible {
   color: var(--accent);
 }
 
+/* The slice counter has the same backing as the view name, and its text stays 8px from the corner. */
 .overlay.bl {
-  bottom: 8px;
-  left: 8px;
+  bottom: 6px;
+  left: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg-label);
 }
 
 .overlay.center {
@@ -1141,6 +1148,13 @@ input[type='range']:focus-visible {
   color: var(--text-3);
   font: 11px var(--font-mono);
   flex: none;
+}
+
+/* --text-3 falls under 4.5:1 on a selected or hovered row, in both themes. */
+.segrow:hover .idx,
+.segrow:focus-within .idx,
+.segrow[aria-selected='true'] .idx {
+  color: var(--text-2);
 }
 
 .segrow .name {
@@ -3468,6 +3482,13 @@ select.select.paintover {
   font: 11px/16px var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
+}
+
+/* On --bg-hover and --bg-active the quieter grey is under 4.5:1 at this size. */
+.menu .item:hover .wl,
+.menu .item:focus-visible .wl,
+.menu [aria-checked='true'] .wl {
+  color: var(--text-2);
 }
 
 .form .wl {
