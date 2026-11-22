@@ -98,7 +98,7 @@ test('the window is always shown in the status bar, with the name of its preset,
   expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
-test('a CT image lists Abdomen and Pancreas, and choosing one applies its published width and level', async ({ page }) => {
+test('a CT image lists Abdomen and Pancreas, and choosing one applies its width and level', async ({ page }) => {
   await openCt(page);
   await page.keyboard.press('b');
   await readout(page).click();
@@ -164,10 +164,12 @@ test('an image that is not CT lists windows worked out from its own values', asy
   expect(await state<boolean>(page, 'image.ct')).toBe(false);
   await readout(page).click();
   const menu = windowMenu(page);
-  for (const name of ['Auto', 'Full range', 'Soft tissue', 'Bright fluid', 'Dark detail']) {
+  for (const name of ['Auto', 'Full range', 'Mid range', 'Bright fluid', 'Dark detail']) {
     await expect(menu.getByRole('menuitemradio', { name: new RegExp(`^${name}\\b`) })).toBeVisible();
   }
   await expect(menu.getByRole('menuitemradio', { name: /^Pancreas/ })).toHaveCount(0);
+  // "Soft tissue" is a CT window in Hounsfield units; no MR window borrows the name.
+  await expect(menu.getByRole('menuitemradio', { name: /^Soft tissue/ })).toHaveCount(0);
 
   const before = await voi(page);
   await menu.getByRole('menuitemradio', { name: /^Bright fluid/ }).click();
@@ -559,7 +561,7 @@ test('the strip lists the MR windows for an image that is not CT', async ({ page
   await openMr(page);
   await page.keyboard.press('w');
   const preset = page.getByLabel('Preset', { exact: true });
-  await expect(preset.locator('option')).toHaveText(['Custom', 'Auto', 'Full range', 'Soft tissue', 'Bright fluid', 'Dark detail']);
+  await expect(preset.locator('option')).toHaveText(['Custom', 'Auto', 'Full range', 'Mid range', 'Bright fluid', 'Dark detail']);
   await preset.selectOption('Dark detail');
   expect(await voi(page)).toEqual(await state<Voi>(page, 'image.mr.dark'));
 });

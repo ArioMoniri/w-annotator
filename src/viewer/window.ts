@@ -18,14 +18,21 @@ export interface WindowPreset {
 }
 
 /**
- * CT windows in Hounsfield units, abdominal ones together. Sources:
- * - Radiopaedia, "Windowing (CT)", https://doi.org/10.53347/rID-52108 (revised 7 Jan 2025):
- *   soft tissues W 350–400 L 20–60, liver W 150 L 30, lungs W 1500 L −600, bone W 1800 L 400,
- *   brain W 80 L 40, stroke W 40 L 40, subdural W 130–300 L 50–100.
- *   Soft tissue, Abdomen and Subdural here are values inside those published ranges.
- * - Pancreas: W 150 with L 50–80, from "Management of Acute Pancreatitis by Using Modified
- *   Computed Tomography Severity Index", Int J Contemp Med Surg Radiol 2018;3(1). L 65 is the
- *   middle of that range.
+ * CT windows in Hounsfield units, abdominal ones together.
+ *
+ * All but Pancreas follow Radiopaedia, "Windowing (CT)", https://doi.org/10.53347/rID-52108
+ * (revised 7 Jan 2025): soft tissues W 350–400 L 20–60, liver W 150 L 30, lungs W 1500
+ * L −600, bone W 1800 L 400, brain W 80 L 40, stroke W 40 L 40, subdural W 130–300 L 50–100.
+ * Where that page gives a range (Soft tissue, Abdomen, Subdural), the value here is one
+ * inside it.
+ *
+ * Pancreas is not a standard preset and is not on that list. It is a narrow window chosen
+ * by this project, at the owner's request, for a contrast-enhanced pancreas: W 150, L 65,
+ * which shows −10 to 140 HU. The width and the range L 50–80 are taken from one paper on
+ * a pancreatitis severity index ("Management of Acute Pancreatitis by Using Modified Computed
+ * Tomography Severity Index", Int J Contemp Med Surg Radiol 2018;3(1)), which is not a
+ * windowing reference; L 65 is the middle of that range, picked here. On an unenhanced scan
+ * the gland is dark grey in this window. A site with its own value saves it as a preset.
  */
 export const CT_PRESETS: readonly WindowPreset[] = [
   { name: 'Soft tissue', w: 400, l: 40 },
@@ -39,8 +46,12 @@ export const CT_PRESETS: readonly WindowPreset[] = [
   { name: 'Subdural', w: 200, l: 75 },
 ];
 
-/** Names of the windows worked out from an image that has no unit. */
-export const MR_NAMES = ['Soft tissue', 'Bright fluid', 'Dark detail'] as const;
+/**
+ * Names of the windows worked out from an image that has no unit, in the order of
+ * `MrWindows`: soft, fluid, dark. None shares a name with a CT preset: "Soft tissue" is a
+ * fixed Hounsfield window, and these are shares of one image's own values.
+ */
+export const MR_NAMES = ['Mid range', 'Bright fluid', 'Dark detail'] as const;
 
 /** The most presets a person can save. */
 export const PRESET_MAX = 12;
@@ -115,6 +126,7 @@ export type WindowSet = 'ct' | 'mr';
 
 /** The three MR windows, each worked out from the image's own values. */
 export interface MrWindows {
+  /** Shown as "Mid range": the brightest tenth is clipped. */
   soft: Voi;
   fluid: Voi;
   dark: Voi;
@@ -199,7 +211,7 @@ const BACKGROUND = 0.05;
  * Windows for an image whose values have no unit, from the values themselves. Background
  * (air around the body) is left out first: everything within 5% of the bottom of the
  * image's 0.5 to 99.5 percentile span. Of what is left, the tissue:
- * - soft: 2nd to 90th percentile. The brightest tenth, usually fluid or fat, is clipped.
+ * - soft ("Mid range"): 2nd to 90th percentile. The brightest tenth, usually fluid or fat, is clipped.
  * - fluid: 2nd percentile to the largest value. Nothing bright is clipped.
  * - dark: 2nd to 50th percentile. A narrow window on the darker half.
  */

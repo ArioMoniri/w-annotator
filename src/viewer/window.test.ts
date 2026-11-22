@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CT_PRESETS,
+  MR_NAMES,
   PRESET_MAX,
   actualSizeFactor,
   boxValues,
@@ -77,7 +78,12 @@ describe('the list of windows to choose from', () => {
     expect(names).toEqual([...CT_PRESETS.map((p) => p.name), 'Auto', 'Full range']);
   });
   it('offers windows worked out from the image, and no CT presets, in the MR set', () => {
-    expect(windowChoices(mr, [], 'mr').map((c) => c.name)).toEqual(['Auto', 'Full range', 'Soft tissue', 'Bright fluid', 'Dark detail']);
+    expect(windowChoices(mr, [], 'mr').map((c) => c.name)).toEqual(['Auto', 'Full range', 'Mid range', 'Bright fluid', 'Dark detail']);
+  });
+  it('gives no MR window the name of a CT preset, since the two mean different things', () => {
+    const ctNames = new Set(CT_PRESETS.map((p) => p.name.toLowerCase()));
+    expect(MR_NAMES.filter((n) => ctNames.has(n.toLowerCase()))).toEqual([]);
+    expect(MR_NAMES).toEqual(['Mid range', 'Bright fluid', 'Dark detail']);
   });
   it('takes the MR windows from the image', () => {
     const list = windowChoices(mr, [], 'mr');
@@ -89,7 +95,7 @@ describe('the list of windows to choose from', () => {
     expect(windowChoices(mr, custom, 'mr').map((c) => `${c.kind}:${c.name}`)).toEqual([
       'auto:Auto',
       'full:Full range',
-      'builtin:Soft tissue',
+      'builtin:Mid range',
       'builtin:Bright fluid',
       'builtin:Dark detail',
       'custom:Site lung',
