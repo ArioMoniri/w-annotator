@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- **Everyone in a room needs 0.1.4 or later**, and so does the room server. An older app that tries to join is told "Update W Annotator to join this room". Rooms kept by 0.1.3 or earlier cannot be reopened: start a new room.
+- Rooms no longer share one key. What one person is sent alone (the image and the mask on joining, slice pictures in a view-through-host room) can be read by that person only, and every edit, name and cursor is signed by whoever sent it, so nobody in a room can pass as someone else.
+- Removing someone changes the room's key. A removed person cannot read anything sent afterwards, even on a network or a room server that still shows them the traffic.
+- The host's app lets each person in itself, with proof that they hold the invite link. Nobody can join while the host is offline; they see "Waiting for the host to let you in…".
+- If the room server leaves an edit out for someone, swaps edits, or shows people different edits, the apps notice and say "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room." Nothing more is taken from that room; your work stays.
+- The desktop app has a content security policy: scripts only from the app, and no connections except to room servers.
+- A room's keys are removed from the device when the room is deleted, when you are removed from it, and when you forget the room.
+- `docs/design/ROOMS-PROTOCOL.md` describes protocol 3, with test vectors; `docs/reviews/rooms-security.md` and `SECURITY.md` say what is closed and what is left.
+
 ## [0.1.3] - 2026-11-22
 
 ### Added
