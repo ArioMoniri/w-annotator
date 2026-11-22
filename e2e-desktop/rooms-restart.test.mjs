@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
-import { idle, launch, maskVoxels, openInWindow, store, until } from './driver.mjs';
+import { drag, idle, launch, maskVoxels, openInWindow, store, until } from './driver.mjs';
 import { count, writeFixtures } from './fixtures.mjs';
 import { KIND, assemble, joinRoom } from './roombot.mjs';
 
@@ -142,11 +142,33 @@ describe('a room hosted by the app, across a restart of the app', () => {
     await until(() => back.frames.find((f) => f.kind === KIND.syncSlab && f.meta.rid === 9 && f.meta.t === 'end'), Boolean, { what: 'the mask from the host' });
     assert.equal(count(assemble(back.frames, KIND.syncSlab, 9)), voxels);
 
+    // Edits flow again both ways, signed and in order, with the keys both sides kept: Ben's edit
+    // reaches the host's mask, and a stroke of the host reaches Ben.
+    const patch = new Uint8Array(4 + 8 + 4);
+    const view = new DataView(patch.buffer);
+    view.setUint32(0, 1, true);
+    view.setUint32(8, 4, true);
+    patch.fill(1, 12);
+    back.send(KIND.patch, { c: 1, s: 'back' }, patch, { seq: 1 });
+    await until(() => browser.execute(() => Array.from(window.__w.session.getMask().data.subarray(0, 4)).join()), (v) => v === '1,1,1,1', { what: "Ben's edit to reach the host's mask" });
+    const seen = back.frames.length;
+    await browser.execute(() => window.__w.session.setTool('brush'));
+    await drag(browser, 'axial', [-60, 40], [-20, 70]);
+    const stroke = await until(() => back.frames.slice(seen).find((f) => f.kind === KIND.patch), Boolean, { what: "the host's stroke to reach Ben" });
+    assert.equal(stroke.from, hostId);
+    assert.ok(stroke.seq >= 2);
+    // Nobody is told the room server delivered different edits: the order began again, and so did the count over it.
+    assert.equal(await store(browser, (s) => s.room.note), null);
+    assert.ok(!(await store(browser, (s) => s.toasts.map((t) => t.text).join(' | '))).includes('delivered different edits'));
+
     // The link for five still has the one use spent, and the host's note for it is still there.
     const links = await session(browser, 'return (await s.listInvites()).map((i) => ({ label: i.label, uses: i.uses, maxUses: i.maxUses, revoked: i.revoked }));');
     assert.deepEqual(links.find((i) => i.label === 'for the team'), { label: 'for the team', uses: 1, maxUses: 5, revoked: false });
     // The first link was used up before the restart, and still is.
     await assert.rejects(joinRoom(link, 'Dan'), /4408 invite already used/);
+
+    // Reopening a room and keeping it needed nothing the content security policy refuses.
+    assert.deepEqual(await browser.execute('return window.__w.blocked'), []);
 
     /* ── deleting the room removes what was kept of it ── */
     await (await browser.$('[data-testid="room-pill"]')).click();

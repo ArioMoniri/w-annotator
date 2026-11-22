@@ -1,30 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { Pace, afterClose, frameIsBound, handshakeMessage, paceLimits, parseRoster, parseWelcome, retryDelay, welcomeFits } from './client';
 import { inviteKeys, inviteProof, publicKey } from './identity';
+import { xPublic } from './keys';
 import { b64encode } from './protocol';
 
 const ROOM = 'K7Q2M9XA4TDP';
 const NONCE = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI';
 const seed = new Uint8Array(32).fill(9);
 const key = b64encode(publicKey(seed));
+const xkey = b64encode(xPublic(seed));
 
 describe('handshakeMessage', () => {
   it('creates a room of the chosen kind', () => {
     const msg = handshakeMessage({ t: 'create', type: 'host-view' }, seed, ROOM, NONCE);
-    expect(msg).toMatchObject({ t: 'create', proto: 2, type: 'host-view', key });
+    expect(msg).toMatchObject({ t: 'create', proto: 3, type: 'host-view', key, xkey });
     expect(typeof msg.sig).toBe('string');
     expect(msg).not.toHaveProperty('members');
   });
 
   it('names the members again when the host re-opens a room the server lost', () => {
-    const members = [{ key: 'abc', role: 'editor' as const }];
+    const members = [{ key: 'abc', xkey: 'def', role: 'editor' as const }];
     expect(handshakeMessage({ t: 'create', type: 'shared', members }, seed, ROOM, NONCE).members).toEqual(members);
   });
 
   it('signs in with the documented signature', () => {
     expect(handshakeMessage({ t: 'auth' }, seed, ROOM, NONCE)).toEqual({
       t: 'auth',
-      proto: 2,
+      proto: 3,
       key,
       sig: 'RA6G6hqKeo4SjyGYi2a-HgiEhanc_D8SKC80umU9m0jJD2E46pzO7s8g-dLWlRrVU65LYnMXsHFcHOIqR-TbDQ',
     });
@@ -34,15 +36,16 @@ describe('handshakeMessage', () => {
     const secret = Uint8Array.from({ length: 16 }, (_, i) => i);
     const msg = handshakeMessage({ t: 'redeem', secret }, seed, ROOM, NONCE);
     const keys = inviteKeys(secret);
-    expect(msg).toMatchObject({ t: 'redeem', proto: 2, invite: keys.id, key, proof: inviteProof(keys.authKey, ROOM, NONCE, key) });
+    expect(msg).toMatchObject({ t: 'redeem', proto: 3, invite: keys.id, key, xkey, proof: inviteProof(keys.authKey, ROOM, NONCE, key) });
     expect(JSON.stringify(msg)).not.toContain(b64encode(secret));
     expect(JSON.stringify(msg)).not.toContain(b64encode(keys.wrapKey));
+    expect(JSON.stringify(msg)).not.toContain(b64encode(keys.bindKey));
   });
 
   it('sends no name and no address', () => {
     for (const mode of [{ t: 'create' as const, type: 'shared' as const }, { t: 'auth' as const }]) {
       expect(Object.keys(handshakeMessage(mode, seed, ROOM, NONCE)).sort()).toEqual(
-        mode.t === 'create' ? ['key', 'proto', 'sig', 't', 'type'] : ['key', 'proto', 'sig', 't'],
+        mode.t === 'create' ? ['key', 'proto', 'sig', 't', 'type', 'xkey'] : ['key', 'proto', 'sig', 't'],
       );
     }
   });
@@ -65,7 +68,7 @@ describe('afterClose', () => {
 });
 
 describe('who a frame is from and for', () => {
-  const header = { version: 2, kind: 1, flags: 0, from: 7, to: 0, seq: 1, epoch: 1 };
+  const header = { version: 3, kind: 1, flags: 0, from: 7, to: 0, seq: 1, epoch: 1 };
   it('accepts a frame that names its sender as the room server did', () => {
     expect(frameIsBound({ f: 7 }, header, 9)).toBe(true);
     expect(frameIsBound({ f: 7, d: 9 }, { ...header, to: 9 }, 9)).toBe(true);
@@ -78,8 +81,9 @@ describe('who a frame is from and for', () => {
   it('refuses a frame meant for another member', () => {
     expect(frameIsBound({ f: 7, d: 5 }, { ...header, to: 9 }, 9)).toBe(false);
   });
-  it('still takes frames from an app that does not say', () => {
-    expect(frameIsBound({}, header, 9)).toBe(true);
+  it('refuses a frame that does not say: every app on protocol 3 does', () => {
+    expect(frameIsBound({}, header, 9)).toBe(false);
+    expect(frameIsBound({ f: 7 }, { ...header, to: 9 }, 9)).toBe(false);
   });
 });
 
@@ -147,7 +151,7 @@ describe('parseWelcome', () => {
   const good = {
     t: 'welcome',
     self: { id: 7, role: 'editor' },
-    room: { id: ROOM, type: 'shared', state: 'active', proto: 2, epoch: 1, head: 3, logFloor: 0, session: 'abc' },
+    room: { id: ROOM, type: 'shared', state: 'active', proto: 3, epoch: 1, head: 3, logFloor: 0, session: 'abc' },
     roster: [
       { id: 7, key: 'k', xkey: null, role: 'editor', online: true },
       { id: 9, key: 'h', xkey: null, role: 'host', online: true },

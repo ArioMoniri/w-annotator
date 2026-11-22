@@ -257,7 +257,7 @@ impl TestRelay {
         me: &Identity,
     ) -> Result<Client, Closed> {
         self.handshake(room, me, |nonce| {
-            json!({ "t": "create", "proto": 2, "app": "test", "type": kind,
+            json!({ "t": "create", "proto": 3, "app": "test", "type": kind,
                     "key": me.key(), "sig": me.sign("create", room, nonce) })
         })
         .await
@@ -270,7 +270,7 @@ impl TestRelay {
 
     pub async fn try_auth(&self, room: &str, me: &Identity) -> Result<Client, Closed> {
         self.handshake(room, me, |nonce| {
-            json!({ "t": "auth", "proto": 2, "key": me.key(), "sig": me.sign("auth", room, nonce) })
+            json!({ "t": "auth", "proto": 3, "key": me.key(), "sig": me.sign("auth", room, nonce) })
         })
         .await
     }
@@ -282,7 +282,7 @@ impl TestRelay {
     /// Signs in and asks for the edits after `after`.
     pub async fn resume(&self, room: &str, me: &Identity, after: u64) -> Client {
         self.handshake(room, me, |nonce| {
-            json!({ "t": "auth", "proto": 2, "key": me.key(), "resume": after,
+            json!({ "t": "auth", "proto": 3, "key": me.key(), "resume": after,
                     "sig": me.sign("auth", room, nonce) })
         })
         .await
@@ -296,7 +296,7 @@ impl TestRelay {
         me: &Identity,
     ) -> Result<Client, Closed> {
         self.handshake(room, me, |nonce| {
-            json!({ "t": "redeem", "proto": 2, "invite": link.id, "key": me.key(),
+            json!({ "t": "redeem", "proto": 3, "invite": link.id, "key": me.key(),
                     "proof": link.proof(room, nonce, &me.key()),
                     "sig": me.sign("redeem", room, nonce) })
         })
@@ -368,7 +368,7 @@ pub async fn next_event(ws: &mut Ws) -> Event {
 /// A 24-byte v2 header followed by `payload`.
 pub fn encode_frame(kind: u8, to: u32, cid: u64, payload: &[u8]) -> Vec<u8> {
     let header = Header {
-        version: 2,
+        version: 3,
         kind,
         flags: 0,
         from: 0,

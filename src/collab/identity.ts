@@ -41,8 +41,10 @@ export interface InviteKeys {
   id: string;
   /** Given to the relay when the invite is registered; keys the redeemer's proof. */
   authKey: Uint8Array;
-  /** Never leaves the two apps: wraps the room key. */
+  /** Never leaves the two apps: seals what the invite tells the newcomer about the host. */
   wrapKey: Uint8Array;
+  /** Never leaves the two apps: keys the newcomer's proof to the host of which keys are theirs. */
+  bindKey: Uint8Array;
 }
 
 const derive = (secret: Uint8Array, info: string, length: number) => hkdf(sha256, secret, new Uint8Array(0), utf8(info), length);
@@ -53,6 +55,7 @@ export function inviteKeys(secret: Uint8Array): InviteKeys {
     id: b64encode(derive(secret, 'w-rooms/2 invite id', 16)),
     authKey: derive(secret, 'w-rooms/2 invite auth', 32),
     wrapKey: derive(secret, 'w-rooms/2 invite wrap', 32),
+    bindKey: derive(secret, 'w-rooms/3 invite bind', 32),
   };
 }
 

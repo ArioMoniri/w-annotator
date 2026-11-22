@@ -8,8 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- Invite links with choices, under "Link options" where a link is made: it can stop working after 1 hour, 24 hours or 7 days, and work for one person, up to 5 people, or anyone who has it until it expires. The room server counts the uses and keeps the time. A note such as "for Sam" can be added for the host's own list; it stays on the host's computer. The list of links shows the note, the uses left and the time left.
-- The host can change a person between "Can edit" and "Can view" from the people list. The person is told, their edit tools are switched off with the reason, and strokes the room had not taken yet leave their screen. The room server refuses edits from a viewer, and every app leaves them out as well.
+- Invite links with choices, under "Link options" where a link is made: it can stop working after 1 hour, 24 hours or 7 days, and work for one person, up to 5 people, or anyone who has it until it expires. The room server counts the uses and keeps the time, and the host's app counts as well and lets in no more people than the link was made for. A note such as "for Sam" can be added for the host's own list; it stays on the host's computer. The list of links shows the note, the uses left and the time left.
+- The host can change a person between "Can edit" and "Can view" from the people list. The person is told, their edit tools are switched off with the reason, and strokes the room had not taken yet leave their screen. Who may only view is part of the list of members the host signs, and the change has its place in the room's order of edits: every app leaves a viewer's edits out from there on, whatever the room server does, and the room server refuses them as well.
 - After offline work in a shared-copy room, the slices where both sides changed the same voxels are reviewed one by one: a bar lists them, goes to the next or previous one (`Alt+↓` / `Alt+↑`, which can be changed), outlines your version in white over the room's, and takes "Use mine" or "Keep the room's" for one slice or for all. Each "Use mine" is one undo step and reaches the room like any edit. Your version stays kept aside until every slice is decided, for seven days at most, also after leaving the room or closing the app.
 - A room hosted by the desktop app survives closing the app. Who is in it, their roles and the open links with their remaining uses and time are kept in the app's data folder, readable by this user only; no image, mask, name or edit is in it. The host opens the room again from "Rooms you have joined" with the same image and mask, on the same address, and the others come back with the membership they had. Deleting the room removes what was kept of it.
 - While the room server does not know a room, or the computer that hosts it cannot be reached, its members read "Waiting for the host to reopen the room." in the room menu and keep working on their copy.
@@ -18,20 +18,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Coming back to a shared-copy room after the app was closed is merged like coming back after being offline: changes to different voxels are both kept, and only voxels both sides changed are asked about. Before, every difference was asked about. This needs autosave to be on, and the mask to be the one that was open before (the saved file, or the restored recovery copy).
 - The room dialog and the room menu say what the link in hand does, not that every link works for one person.
+- **Everyone in a room needs 0.1.4 or later**, and so does the room server. An older app that tries to join is told "Update W Annotator to join this room". Rooms kept by 0.1.3 or earlier cannot be reopened: start a new room.
+- Rooms no longer share one key. What one person is sent alone (the image and the mask on joining, slice pictures in a view-through-host room) can be read by that person only, and every edit, name and cursor is signed by whoever sent it, so nobody in a room can pass as someone else.
+- Removing someone changes the room's key. A removed person cannot read anything sent afterwards, even on a network or a room server that still shows them the traffic.
+- The host's app lets each person in itself, with proof that they hold the invite link. Nobody can join while the host is offline; they see "Waiting for the host to let you in…".
+- If the room server leaves an edit out for someone, swaps edits, or shows people different edits, the apps notice and say "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room." Nothing more is taken from that room; your work stays.
+- The desktop app has a content security policy: scripts only from the app, and no connections except to room servers.
+- A room's keys are removed from the device when the room is deleted, when you are removed from it, and when you forget the room.
+- `docs/design/ROOMS-PROTOCOL.md` describes protocol 3, with test vectors; `docs/reviews/rooms-security.md` and `SECURITY.md` say what is closed and what is left.
 - In "1 large and 3 stacked" the view in the large pane shows its image enlarged to fill the pane, as a maximised view does. It goes back to its size when it leaves the large pane, and a view swapped in grows in its place.
 - The Pancreas preset is now W 350, L 40: a soft-tissue window of the kind published pancreas CT studies use (W 350, L 40 as reported for Radiology 2010, doi:10.1148/radiol.10091819; W 400, L 40 in Cancer Imaging 2023, doi:10.1186/s40644-023-00637-9). There is no dedicated standard pancreas window. The earlier narrow window (W 150, L 65) stays as "Pancreas, narrow", for low-attenuation lesions on a contrast-enhanced scan.
 
 ### Fixed
 
 - An image opened while the layout was "1 large and 3 stacked" stayed zoomed in after going back to 2 × 2. It now looks the same whichever layout it was opened in.
-
-### Rooms with older versions
-
-- Versions 0.1.2 and 0.1.3 can join rooms made by this version and the other way round; the protocol version is unchanged.
-- Links for several people, and links that last 1 hour or 7 days, work for them: the room server enforces both, and has since 0.1.2.
-- A person on 0.1.3 or older cannot be changed to "Can view": their app would not tell them. The host's list says so. They can still be removed.
-- A person on 0.1.3 or older reviews conflicts all at once, as before, and is merged two-way after a restart of their app.
-- A room hosted by 0.1.3 or older still ends when that app closes. In a room hosted by this version, a member on 0.1.3 or older comes back as well once the host has reopened it, but reads "Offline" rather than the line about waiting while it is down.
 
 ## [0.1.3] - 2026-11-22
 

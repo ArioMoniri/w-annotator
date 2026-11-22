@@ -73,7 +73,7 @@ There are two kinds of room, chosen when it is started:
 | Without the host | They keep working. Offline work is merged when they come back, also after the app was closed in between. Where both sides changed the same voxels the room's version stays and theirs is kept aside: a bar lists the slices, goes from one to the next (`Alt+↓` / `Alt+↑`), outlines their version in white, and takes *Use mine* or *Keep the room's* for one slice or for all. Each *Use mine* is one undo step. | The room ends when the host leaves. Guests are disconnected and what was in memory is cleared. |
 | Saving | Everyone can save. | Only the host. Guests cannot save and no recovery copy is written. |
 
-The host can change a person between *Can edit* and *Can view*, remove a person, switch off a link, and end or delete the room. Someone changed to *Can view* is told, their edit tools are switched off, and the room server refuses edits from them. Removing someone from a shared-copy room does not delete the copy they already have. People on version 0.1.3 or older can be in the same room, but their role cannot be changed until they update.
+The host can change a person between *Can edit* and *Can view*, remove a person, switch off a link, and end or delete the room. Someone changed to *Can view* is told and their edit tools are switched off. Who may only view is part of the list of members the host signs, so every app leaves such a person's edits out whatever the room server does, and the room server refuses them as well. Removing someone from a shared-copy room does not delete the copy they already have.
 
 Things to know before sharing:
 

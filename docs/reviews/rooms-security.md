@@ -2,6 +2,8 @@
 
 Date: 2026-11-22. Reviewed: rooms as shipped in 0.1.2 (`origin/main` at `6a9f410`). Fixes are on the branch `fix/rooms-hardening`.
 
+Update, same day, branch `feat/rooms-keys` (for 0.1.4): the accepted findings A1, A2 and A6 are closed and A5 is narrowed. See "Closed in 0.1.4" below; the text under "Accepted" is kept as it was written, with a note on each.
+
 This is the project's own review of its own code, done by reading the code and writing a failing test for each weakness before fixing it. It is not an independent review, and `SECURITY.md` still says so.
 
 ## What was reviewed
@@ -17,7 +19,7 @@ This is the project's own review of its own code, done by reading the code and w
 | A stranger who can reach the relay | A TCP connection | Read anything; join a room; tie up the relay for nothing |
 | Someone with the device | The app's local storage | Find more than `SECURITY.md` says is kept |
 
-One thing is outside what the design defends and stays so: **every member of a room holds the same room key**. See "Accepted" below.
+One thing was outside what the design defended up to 0.1.3: **every member of a room held the same room key**. From 0.1.4 that is no longer so; see "Closed in 0.1.4".
 
 ## Findings
 
@@ -42,13 +44,13 @@ Severity is for a room used as intended: a few people who know each other, on a 
 | 15 | Low | Relay: pings did not count towards the rate limit | Fixed, `5083367` |
 | 16 | Low | View-through-host: an old answer to a slice request could stand in for a new one | Fixed, `47e2524` |
 | 17 | Low | The relay inside the desktop app listens on every network interface | Partly fixed, `5083367`; the rest accepted |
-| A1 | Medium | One shared room key | Accepted (decision already recorded) |
-| A2 | Medium | The relay orders the edits, so it can drop, delay and reorder them, and show different members different things | Accepted |
+| A1 | Medium | One shared room key | **Closed in 0.1.4**: pair keys, signed frames, a new room key on removal |
+| A2 | Medium | The relay orders the edits, so it can drop, delay and reorder them, and show different members different things | **Detected since 0.1.4** (dropping, reordering, showing different things). Delay and refusal to deliver stay accepted |
 | A3 | Medium | Anyone who can reach a relay can create rooms; after a relay restart a room id can be taken by someone else | Accepted; keep a relay private |
 | A4 | Low | A member is trusted for content | Accepted |
-| A5 | Low | Member keys and room keys are kept in local storage as they are | Accepted (as `SECURITY.md` says) |
-| A6 | Info | The desktop app sets no content security policy | Accepted for now |
-| A7 | Info | The new checks on what the relay does cover frames from up-to-date apps only | Accepted; goes away as people update |
+| A5 | Low | Member keys and room keys are kept in local storage as they are | Still accepted. Since 0.1.4 a removal makes the stored room key of a removed device useless for anything sent later |
+| A6 | Info | The desktop app sets no content security policy | **Closed in 0.1.4** |
+| A7 | Info | The new checks on what the relay does cover frames from up-to-date apps only | **Gone in 0.1.4**: protocol 3 has no room with an older app in it |
 
 ### 1. Kind of room and host taken from the relay (high)
 
@@ -58,7 +60,7 @@ Fix: the device that makes a room knows its kind and that it is the host; a devi
 
 Tests: `client.test.ts` ("knows a room that is not what this device joined"), `e2e/room-hostile.spec.ts` ("a room server that calls a view-through-host room a shared copy is not believed").
 
-Left over: a guest joining for the first time has only the relay's word for the kind until the host's greeting arrives, a moment later. In that moment a lying relay can make a view-through-host guest write the room's id and keys to local storage; they are removed when the greeting arrives. A host on 0.1.2 sends no kind, so its guests keep relying on the relay.
+Since 0.1.4 the kind of room is sealed into the invite by the host, so a newcomer no longer has only the relay's word for it. As it was in 0.1.3: a guest joining for the first time has only the relay's word for the kind until the host's greeting arrives, a moment later. In that moment a lying relay can make a view-through-host guest write the room's id and keys to local storage; they are removed when the greeting arrives. A host on 0.1.2 sends no kind, so its guests keep relying on the relay.
 
 ### 2. The relay could re-label frames (medium)
 
@@ -143,6 +145,8 @@ Fixed: with no network address to share, it now listens on this computer only. A
 
 ## Accepted
 
+As written for 0.1.3. A1, A2, A6 and A7 are answered under "Closed in 0.1.4".
+
 **A1. One shared room key.** Everyone who has been given the key can read everything sent under it. So:
 
 - A guest who works with whoever runs the relay can read what the host sends other guests, and can make frames that pass as another member's (they need not include the sender check of finding 2).
@@ -162,6 +166,84 @@ Changing this needs keys per pair in view-through-host rooms and a new key on re
 **A6. No content security policy.** `tauri.conf.json` has `"csp": null`. No way to inject markup was found: names, segment names and link text go through React, nothing is set as HTML, and the relay's `/j/` page has a strict policy and no script. A policy would still limit the damage of a future mistake. It is not added here because it can only be tried against the built app on all three systems; it should be its own change.
 
 **A7. Mixed versions.** Findings 2, 3 and 16 work by the sender adding fields that old apps do not send. A frame made by a 0.1.2 app can still be re-labelled or replayed by the relay, and a 0.1.2 app applies none of the new checks to what it receives. Nothing breaks when versions are mixed; the room is as strong as it was. The wire protocol version stays 2.
+
+## Closed in 0.1.4
+
+Branch `feat/rooms-keys`. The design is `ROOMS-PROTOCOL.md` §19; the code is `src/collab/keys.ts`, `src/collab/chain.ts` and their use in `client.ts` and `session.ts`. This is still the project's own work reviewed by itself.
+
+### A1. No single room key any more
+
+- **For one person.** A frame for one member is sealed under a key only that member and the sender can make (X25519 between keys each made for this room). That covers the image and mask slabs of a join, slice pictures and room descriptions in a view-through-host room, requests, and key deliveries. A guest who is handed every frame by the relay opens none that were for someone else.
+- **For everyone.** Edits, names and cursors are sealed under the room key of the current epoch and signed by their sender. A member who holds the room key and makes a frame in another member's name fails the signature check on every device.
+- **Who the members are** is a list the host signs. The relay's roster is used to know who is connected, never whom to trust. A newcomer learns the host's keys from the invite (sealed with a key from the link) and proves to the host, with another key from the link, which keys are its own. The relay has neither key, so it cannot stand between the two at first contact, and it cannot add a member who is then handed keys.
+- **Removal.** The host makes a new room key and hands it, under each pair key, to the people who stay. Frames carry the epoch. A removed person holds the old key and reads nothing sealed under the new one. Someone who was away gets the new key on return from the host, or from another member when the host is away; the member checks against the host's signed list, so nobody removed is ever handed it.
+- The invite no longer carries a room key, so a link that is never used, or the relay that stores it, holds nothing that opens the room.
+
+Tests: `keys.test.ts` (ten groups, with vectors), `e2e/room-hostile.spec.ts` ("what the host sends one person cannot be read by another, and a removed person reads nothing sent after": the relay's view of the traffic is handed to another guest and to a removed member), `relay/tests/v2_keys.rs`.
+
+What is left:
+
+| Who | Can still |
+| --- | --- |
+| A member, alone or with the relay operator | Read what is sent to everyone while a member; pass on what they read; change any voxel; send a wrong mask to someone who asks them for it; raise a false alarm about the relay |
+| A removed person who still sees the traffic | Read what is sent to everyone until each remaining app has received the new key: with an honest relay they are disconnected first; with a dishonest one this is the moment between the removal and the key change, typically well under a second. Keep everything received before |
+| Whoever holds a valid invite link | Come in as the person it was meant for. Trust at first contact rests on the link |
+| Whoever has the host's device or its stored keys | Everything the host can: sign lists, let people in |
+| The relay | Replay an old greeting or cursor of a member under the same room key (they are signed but carry no counter), so a name someone has since changed can be put back until the next key change |
+
+The price: nobody can come in while the host is offline (they wait and are told), and every frame to everyone costs a signature and a check (`rooms-scale.md`).
+
+### A2. A relay that does not keep to its order is noticed
+
+Each member keeps a hash chain over the ordered frames it took, in order, whether or not they opened, and every edit carries the sender's place in it; a short note does the same a moment after the room goes quiet. Members who were given different frames under the same numbers have different chains, and the first frame that passes between them shows it. Each then says "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room.", tells the others once, and takes and sends nothing more. The mask on screen stays.
+
+Noticed: an edit left out for one member with the numbering closed up, two edits swapped, an edit changed or made unreadable for one member, an edit sent to one member a second time, a wrong `ack`.
+
+Not noticed, and accepted: delay; refusing to deliver at all (the app sees a gap or silence, as with a bad connection); keeping two groups of members wholly apart, so that no frame passes between them; the order the relay chooses for edits made at the same moment, which is its job.
+
+No false alarms from: a gap filled by replay, a reconnect, offline work merged on return, a catch-up cut and started again, the mask taken from another member, a relay restart with the room made again (`ROOMS-PROTOCOL.md` §19.6 says how the chain follows each). The whole room suite, with its reconnect, offline and restart cases, runs with the check on.
+
+Tests: `chain.test.ts`, `e2e/room-hostile.spec.ts` ("an edit the room server keeps from one person is noticed, and nobody loses their own work"; "an edit the room server sends a second time is not applied a second time", which now also expects the notice).
+
+### A5. Keys on the device
+
+Unchanged in kind: the member's seed and the room's keys are in the app's local storage, not encrypted, in the desktop app too. Looked at for the desktop app: Tauri's first-party secret store is the Stronghold plugin, which encrypts a file under a password the app must supply; with no user password that password would sit next to the file, and the plugin is a large dependency. There is no first-party plugin for the system keychain. So nothing was added.
+
+What changed: the keys of a room are removed when the room is deleted (4410), when the member is removed (4403) or is no longer a member (4401), and on "Forget this room"; and because removal changes the room key, the stored key of a removed or lost device opens nothing sent after the host removed it. Remove a lost device from the room.
+
+### A6. Content security policy
+
+`src-tauri/tauri.conf.json` now sets:
+
+```
+default-src 'self';
+script-src 'self' 'wasm-unsafe-eval';
+worker-src 'self' blob:;
+style-src 'self' 'unsafe-inline';
+img-src 'self' blob: data:;
+font-src 'self' data:;
+connect-src 'self' ipc: http://ipc.localhost ws: wss:;
+object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+```
+
+- **Scripts** come from the app only. There is no `unsafe-inline` and no `unsafe-eval`; Tauri adds the hash of the one inline script in `index.html` (the theme, before first paint) when it builds the app. `wasm-unsafe-eval` is for the decoders of compressed DICOM, which are WebAssembly.
+- **Styles** allow inline, and Tauri is told not to add its nonce to `style-src` (`dangerousDisableAssetCspModification: ["style-src"]`), because a nonce there switches `unsafe-inline` off. The reason is Cornerstone3D: it adds a `<style>` element of its own when a view is set up, which a policy with `style-src 'self'` refused (the first run of the self-test under the policy failed on exactly that). An inline style cannot run code, and with `img-src`, `font-src` and `connect-src` as they are it has nowhere to send anything.
+- **Connections**: the app's own files, Tauri's bridge to the Rust side (`ipc:`, `http://ipc.localhost`), and `ws:` and `wss:` to any host, because a room server is an address the user types in or receives in a link. Nothing else: no `http:` or `https:` from the page. The update check and download are made by the Rust side, not the page, so GitHub is not in the policy and does not need to be.
+- **Workers** from the app and from `blob:` (Cornerstone3D and the app's own workers).
+
+Checked on the built app, Linux (WebKitGTK), debug build, under a virtual display:
+
+| Run | Covers | Result |
+| --- | --- | --- |
+| `pnpm selftest:desktop` | image and mask opened from the command line, a stroke, a room hosted by the app and joined through its link by a second client in the same webview (`ws://`), save, the 3D view, all four WebAssembly decoders loaded, an update check | passes; the new step "nothing refused by the content security policy" reads the `securitypolicyviolation` events the app collected and fails on any |
+| `pnpm e2e:desktop` | every tool, segments, save, a room hosted by the app and joined by the room bot | 13 of 13, with a last test that the list of refusals is empty |
+| `W_APP=target/debug/w-annotator node e2e-webkit/check.mjs` | 45 checks of the built app, a room among them, and "nothing logged an error" | 45 of 45 |
+
+Not verified: Windows (WebView2) and macOS (WKWebView). The self-test with its new step runs on both in CI, and `e2e:desktop` on Windows. Opening a compressed DICOM series from disk in the built app was not run; the decoders it needs were loaded and compiled under the policy. A release build was not tried, only the debug build CI uses.
+
+### A7. Mixed versions
+
+Protocol 3 cannot share a room with protocol 2, so there is no room in which some frames lack the checks. The fields that were optional for the sake of 0.1.2 (`f`, `d`) are now required.
 
 ## Checked and found sound
 

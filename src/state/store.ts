@@ -52,8 +52,6 @@ export interface Peer {
   cursor?: { vp: ViewId; w: [number, number, number]; r?: number };
   /** View through host, on the host's side: how many planes this guest has been sent. */
   seen?: number;
-  /** For the host: this person's app follows a change of role. An older app does not, and is not offered one. */
-  roles?: boolean;
 }
 
 /** What a merge after offline work left for the person to decide (`ROOMS.md` C6, rule 3). */

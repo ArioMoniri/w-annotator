@@ -50,6 +50,9 @@ async fn a_shared_room_comes_back_with_its_members_roles_and_links() {
     host.send_frame(PATCH, 0, 1, b"an edit").await;
     assert_eq!(host.text("ack").await["seq"], 1);
     let session = host.welcome["room"]["session"].clone();
+    // The host moved the room to a new key after the removal: the relay takes frames for epoch 2 only.
+    let reply = host.request(json!({ "t": "rekey", "epoch": 2 })).await;
+    assert_eq!(reply["t"], "ok");
 
     // A view-through-host room is one session: it is never kept.
     relay.create("PERSIST2", "host-view").await;
@@ -72,6 +75,8 @@ async fn a_shared_room_comes_back_with_its_members_roles_and_links() {
     assert_eq!(host2.welcome["self"]["role"], "host");
     assert_eq!(host2.welcome["room"]["head"], 0);
     assert_ne!(host2.welcome["room"]["session"], session);
+    // The key epoch is kept: the room does not fall back to a key a removed person holds.
+    assert_eq!(host2.welcome["room"]["epoch"], 2);
     assert_eq!(host2.welcome["roster"].as_array().unwrap().len(), 3);
 
     let back = again.auth("PERSIST1", &editor).await;

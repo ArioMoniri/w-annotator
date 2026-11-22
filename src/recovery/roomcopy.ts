@@ -50,6 +50,12 @@ export interface RoomCopyHeader {
   offlineSegs: number[];
   /** Edits already in the base, so none is taken twice (`ReplayGuard`). */
   guard: GuardEntry[];
+  /** This device's place in the chain over the room's edits at `head` (`collab/chain.ts`), or null. */
+  claim?: unknown;
+  /** The newest key epoch among the edits in the base. */
+  minEpoch?: number;
+  /** Who may only look, at `head`. */
+  viewers?: number[];
   savedAt: number;
   /** Length of the gzip-compressed base that follows the header; 0 when there is none. */
   base: number;
@@ -79,6 +85,8 @@ function validHeader(h: RoomCopyHeader | null): h is RoomCopyHeader {
   if (!isCount(h.head) || !isCount(h.savedAt) || !isCount(h.base)) return false;
   if (!Array.isArray(h.dims) || h.dims.length !== 3 || !h.dims.every((n) => isCount(n) && n > 0)) return false;
   if (!Array.isArray(h.offlineSegs) || !h.offlineSegs.every(isCount) || !Array.isArray(h.guard)) return false;
+  if (h.minEpoch !== undefined && !isCount(h.minEpoch)) return false;
+  if (h.viewers !== undefined && (!Array.isArray(h.viewers) || !h.viewers.every(isCount))) return false;
   if (h.review !== null && (typeof h.review !== 'object' || !isCount(h.review.at) || !isCount(h.review.bytes) || h.review.bytes === 0)) return false;
   return true;
 }

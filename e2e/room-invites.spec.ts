@@ -298,33 +298,84 @@ test('a guest of a view-through-host room can be changed to view only', async ({
   await expect.poll(async () => (await ben.evaluate(() => (window.__w.session.getMask().data as Uint8Array).reduce((n, v) => n + (v === 2 ? 1 : 0), 0))) > 0).toBe(true);
 });
 
-test('someone on an older app is not offered a change they would not be told of', async ({ browser }) => {
-  const host = await person(browser);
-  await openPhantom(host);
-  const link = await startRoom(host, 'Mina');
-  // A client that says nothing about what it can do, as an app from before this did.
-  const bot = await botJoin(link, 'Old Ben');
-  await expect(host.locator('.avatars .avatar')).toHaveCount(1);
-  await host.getByTestId('room-pill').click();
-  await expect(role(host, 'Old Ben')).toBeDisabled();
-  await expect(host.getByTestId('room-person').locator('.rolebox')).toHaveAttribute('data-tip', 'Old Ben needs a newer W Annotator before this can be changed.');
-  // Removing them still works.
-  await expect(host.getByRole('button', { name: 'Remove Old Ben' })).toBeEnabled();
-  await host.keyboard.press('Escape');
-
-  // What holds a viewer to looking is the room server, whatever their app does: made a viewer
-  // behind the menu's back, the old client's edit is refused and reaches nobody.
-  const before = await maskDump(host);
-  expect(await host.evaluate((id) => window.__w.session.setMemberRole(id, 'viewer'), bot.welcome.self.id)).toBe(true);
-  // One run of four voxels set to segment 1, as a patch (`ROOMS-PROTOCOL.md` §18.2).
+/** One run of four voxels set to segment 1, as a patch (`ROOMS-PROTOCOL.md` §18.2). */
+function smallPatch(): Uint8Array {
   const patch = new Uint8Array(4 + 8 + 4);
   const view = new DataView(patch.buffer);
   view.setUint32(0, 1, true);
   view.setUint32(4, 0, true);
   view.setUint32(8, 4, true);
   patch.fill(1, 12);
-  bot.send(KIND.patch, { c: 1, s: 'oldclient' }, patch, { seq: 1 });
+  return patch;
+}
+
+test('the room server refuses the edits of someone who can only view, whatever their app does', async ({ browser }) => {
+  const host = await person(browser);
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina');
+  // A client written apart from the app, which does not switch anything off.
+  const bot = await botJoin(link, 'Ben');
+  await expect(host.locator('.avatars .avatar')).toHaveCount(1);
+  await host.getByTestId('room-pill').click();
+  await role(host, 'Ben').selectOption({ label: 'Can view' });
+  await expect(host.locator('.toast').filter({ hasText: 'Ben can view only now.' })).toBeVisible();
+  await host.keyboard.press('Escape');
+
+  const before = await maskDump(host);
+  bot.send(KIND.patch, { c: 1, s: 'viewer' }, smallPatch(), { seq: 1 });
   await expect.poll(() => bot.texts.some((m) => m.t === 'error' && m.code === 'forbidden' && m.kind === KIND.patch)).toBe(true);
   expect(await maskDump(host)).toBe(before);
+  // The host's word reached the client as an edit in the room's order, signed by the host.
+  expect(bot.frames.some((f) => f.kind === KIND.segOp && f.meta.op === 'role' && f.meta.member === bot.self && f.meta.view === true)).toBe(true);
+  bot.close();
+});
+
+test('a room server that lets a viewer\'s edit through does not get it into anyone\'s mask', async ({ browser }) => {
+  const host = await person(browser);
+  const cleo = await person(browser);
+  // This room server is never told that Ben can only view: the host's request does not reach it.
+  await host.addInitScript(() => {
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket['send']>[0]) {
+      if (typeof data === 'string' && data.includes('"member-role"')) return;
+      send.call(this, data);
+    };
+  });
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina');
+  const bot = await botJoin(link, 'Ben');
+  await joinRoom(cleo, 'Cleo', await host.evaluate(() => window.__w.session.createInvite()));
+  await expect(host.locator('.avatars .avatar')).toHaveCount(2);
+  await expect(cleo.locator('.segrow')).toHaveCount(2);
+
+  // While Ben may edit, his edit counts for everyone.
+  bot.send(KIND.patch, { c: 1, s: 'ben' }, smallPatch(), { seq: 1 });
+  await expect.poll(() => bot.texts.some((m) => m.t === 'ack' && m.cid === 1)).toBe(true);
+  await expect.poll(() => host.evaluate(() => Array.from((window.__w.session.getMask().data as Uint8Array).subarray(0, 4)).join())).toBe('1,1,1,1');
+  await expect.poll(() => cleo.evaluate(() => Array.from((window.__w.session.getMask().data as Uint8Array).subarray(0, 4)).join())).toBe('1,1,1,1');
+
+  // The host makes him a viewer. The room server does not know, so it goes on taking his edits.
+  void host.evaluate((id) => void window.__w.session.setMemberRole(id, 'viewer'), bot.self);
+  await expect.poll(() => bot.frames.some((f) => f.kind === KIND.segOp && f.meta.op === 'role' && f.meta.view === true)).toBe(true);
+  await cleo.getByTestId('room-pill').click();
+  // (The client said its name once, before Cleo came in, so Cleo does not know it.)
+  await expect(cleo.getByTestId('room-person').filter({ hasText: 'View only' })).toHaveCount(1);
+  await cleo.keyboard.press('Escape');
+  const patch = smallPatch();
+  patch.fill(2, 12);
+  bot.send(KIND.patch, { c: 2, s: 'ben' }, patch, { seq: 2 });
+  await expect.poll(() => bot.texts.some((m) => m.t === 'ack' && m.cid === 2)).toBe(true);
+
+  // The apps hold to what the host signed: the edit has its place in the order and is in nobody's mask.
+  await host.keyboard.press('2');
+  await host.keyboard.press('b');
+  await drag(host, 'axial', [-60, -80], [-20, -70]);
+  const after = await maskVoxels(host);
+  await expect.poll(() => maskVoxels(cleo)).toBe(after);
+  expect(await host.evaluate(() => Array.from((window.__w.session.getMask().data as Uint8Array).subarray(0, 4)).join())).toBe('1,1,1,1');
+  expect(await maskDump(cleo)).toBe(await maskDump(host));
+  // And nobody was told the room server delivered different edits: everyone left out the same one.
+  await expect(cleo.locator('.toast').filter({ hasText: 'delivered different edits' })).toHaveCount(0);
+  await expect(host.locator('.toast').filter({ hasText: 'delivered different edits' })).toHaveCount(0);
   bot.close();
 });

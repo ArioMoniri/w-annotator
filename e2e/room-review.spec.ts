@@ -121,7 +121,7 @@ test('after offline work each slice that differs is reviewed on its own', async 
   // The view is on slice 4 of the file, before all three or after all three: either way the first comes next.
   await guest.getByRole('button', { name: 'Next slice to review' }).click();
   await expect.poll(shown).toBe(first);
-  expect(await axialNumber(guest)).toBe(numbers[first]);
+  await expect.poll(() => axialNumber(guest)).toBe(numbers[first]);
   await guest.getByRole('button', { name: 'Next slice to review' }).click();
   await expect.poll(shown).toBe(second);
   await guest.locator('[data-view="axial"]').hover();

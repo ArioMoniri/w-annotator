@@ -13,7 +13,12 @@ export type SegOp =
   | { op: 'set'; seg: SharedSegment }
   | { op: 'del'; index: number }
   /** View-through-host only: the host changed the window, so the pictures guests hold are out of date. */
-  | { op: 'window'; voi?: [lower: number, upper: number] };
+  | { op: 'window'; voi?: [lower: number, upper: number] }
+  /**
+   * Host only: from this place in the room's order on, `member` may only look (`view`) or may edit
+   * again. It is an edit like any other, so everyone agrees on which of that member's edits came before it.
+   */
+  | { op: 'role'; member: number; view: boolean };
 
 const shared = ({ index, name, color, locked }: SegmentInfo): SharedSegment => ({ index, name, color, locked });
 const same = (a: SegmentInfo, b: SegmentInfo) => a.name === b.name && a.color === b.color && a.locked === b.locked;
@@ -48,6 +53,10 @@ export function parseSegOp(meta: Meta): SegOp | null {
     const v = meta.voi;
     const ok = Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === 'number' && Number.isFinite(x)) && v[1] > v[0];
     return ok ? { op: 'window', voi: [v[0], v[1]] } : { op: 'window' };
+  }
+  if (meta.op === 'role') {
+    const ok = typeof meta.member === 'number' && Number.isInteger(meta.member) && meta.member > 0 && meta.member <= 0xffffffff && typeof meta.view === 'boolean';
+    return ok ? { op: 'role', member: meta.member as number, view: meta.view as boolean } : null;
   }
   if (meta.op === 'del') return isIndex(meta.index) ? { op: 'del', index: meta.index } : null;
   if (meta.op !== 'set' || !meta.seg || typeof meta.seg !== 'object') return null;

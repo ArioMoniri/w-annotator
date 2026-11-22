@@ -359,4 +359,9 @@ describe('with an image and a mask from the command line', () => {
     // Leaving stops the relay.
     await until(() => fetch(`http://${host}:${port}/health`).then(() => false, () => true), Boolean, { what: 'hosting to stop' });
   });
+
+  test('nothing the app did was refused by its content security policy', async () => {
+    // Opening files, every tool, saving, hosting a room and a guest joining it are behind us.
+    assert.deepEqual(await browser.execute('return window.__w.blocked'), []);
+  });
 });

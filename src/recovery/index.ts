@@ -162,7 +162,7 @@ function captureRoomCopy(key: string, data: Uint8Array): Captured | null {
   const copy = mayKeepRoomCopy() ? session.roomCopy() : null;
   if (!mask || !copy) return null;
   return {
-    header: { v: 1, key, room: copy.room, session: copy.session, head: copy.head, dims: mask.dims, mine: maskHash(data), offlineSegs: copy.offlineSegs, guard: copy.guard, savedAt: Date.now() },
+    header: { v: 1, key, room: copy.room, session: copy.session, head: copy.head, dims: mask.dims, mine: maskHash(data), offlineSegs: copy.offlineSegs, guard: copy.guard, claim: copy.claim, minEpoch: copy.minEpoch, viewers: copy.viewers, savedAt: Date.now() },
     base: copy.base,
     review: copy.review ? { at: copy.review.at, bytes: encodeConflicts(copy.review.conflicts) } : null,
   };
@@ -223,6 +223,9 @@ async function lookForRoomCopy(): Promise<void> {
       base: base && base.length === data.length ? base : null,
       offlineSegs: found.header.offlineSegs,
       guard: found.header.guard,
+      claim: found.header.claim ?? null,
+      minEpoch: found.header.minEpoch ?? 0,
+      viewers: found.header.viewers ?? [],
       review: conflicts && found.header.review ? { at: found.header.review.at, conflicts } : null,
     });
   } catch {

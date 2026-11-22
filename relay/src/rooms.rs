@@ -670,8 +670,8 @@ fn decide(room: RoomType, role: Role, kind: Kind, to: u32, host: u32) -> Route {
             Kind::Presence if to == 0 => Route::Broadcast,
             Kind::Presence => Route::To(to),
             Kind::SliceRequest | Kind::Slice => Route::Refuse("wrong-room-type"),
-            Kind::Key if role == Role::Host => targeted(to),
-            Kind::Key => Route::Refuse("forbidden"),
+            // Any member hands keys to any other: the roster a key travels with is signed by the host.
+            Kind::Key => targeted(to),
         },
         // Star routing: the host talks to guests, a guest only ever to the host.
         RoomType::HostView if role == Role::Host => match kind {
@@ -855,7 +855,7 @@ pub(crate) fn control(shared: &Shared, room_id: &str, me: u32, conn_id: u64, raw
             None => fail(room, "bad-message"),
         },
         "invite-add" | "invite-revoke" | "invite-list" | "member-remove" | "member-role"
-        | "room-delete" | "room-close"
+        | "room-delete" | "room-close" | "rekey"
             if !is_host =>
         {
             fail(room, "forbidden")
@@ -963,6 +963,21 @@ pub(crate) fn control(shared: &Shared, room_id: &str, me: u32, conn_id: u64, raw
                 &text(&json!({ "t": "roster", "members": room.roster() })),
             );
             ok(room);
+        }
+        "rekey" => {
+            // The host has handed out a new room key. Frames under an older epoch are refused from here on.
+            let next = msg
+                .get("epoch")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok());
+            match next {
+                Some(epoch) if epoch > room.epoch => {
+                    room.epoch = epoch;
+                    room.broadcast(None, &text(&json!({ "t": "epoch", "epoch": epoch })));
+                    ok(room);
+                }
+                _ => fail(room, "bad-message"),
+            }
         }
         "room-delete" => {
             v2.close_room(room_id, "room deleted", now, limits);
@@ -1350,10 +1365,8 @@ mod tests {
             shared(Role::Host, Kind::Key, 0),
             Route::Refuse("needs-recipient")
         );
-        assert_eq!(
-            shared(Role::Editor, Kind::Key, 4),
-            Route::Refuse("forbidden")
-        );
+        assert_eq!(shared(Role::Editor, Kind::Key, 4), Route::To(4));
+        assert_eq!(shared(Role::Viewer, Kind::Key, 4), Route::To(4));
         for kind in [Kind::SliceRequest, Kind::Slice] {
             assert_eq!(
                 shared(Role::Host, kind, 4),

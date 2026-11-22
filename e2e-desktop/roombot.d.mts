@@ -1,6 +1,6 @@
 /** Types for roombot.mjs, so the Playwright suite can use the same client. */
 
-export const KIND: { patch: 1; segOp: 2; syncSlab: 3; imageSlab: 4; presence: 5; syncRequest: 9 };
+export const KIND: { patch: 1; segOp: 2; syncSlab: 3; imageSlab: 4; presence: 5; key: 8; syncRequest: 9 };
 
 export interface BotFrame {
   kind: number;
@@ -21,15 +21,21 @@ export interface Bot {
     roster: { id: number; role: string; online: boolean }[];
   };
   closed: { code: number; reason: string } | null;
+  /** The bot's member id. */
+  self: number;
   /** What it takes to come back as the same member: pass it to `joinRoom` again. */
   member: BotMember;
+  /** Whether the bot can read a frame it was not sent, had the relay stamped it as from `from`. */
+  canRead(bytes: Uint8Array, from: number): boolean;
   send(kind: number, meta: Record<string, unknown>, body?: Uint8Array, opts?: { to?: number; seq?: number }): void;
   close(): void;
 }
 
 export interface BotMember {
   seed: Uint8Array;
-  roomKey: Uint8Array;
+  host: { k: string; x: string };
+  epochs: [number, Uint8Array][];
+  members: [number, unknown][];
 }
 
 export function joinRoom(link: string, name: string, member?: BotMember | null): Promise<Bot>;

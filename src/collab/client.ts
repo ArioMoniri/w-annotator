@@ -3,9 +3,10 @@
  * sealing and opening payloads. What the messages mean is the session's business.
  */
 
-import { frameAad, open, seal } from './crypto';
 import { handshakeSignature, inviteKeys, inviteProof, memberId, publicKey } from './identity';
+import { RoomKeys, openInvite, xPublic } from './keys';
 import {
+  FrameKind,
   PROTO,
   b64encode,
   decodeFrame,
@@ -14,7 +15,6 @@ import {
   roomSocketUrl,
   unpack,
   type FrameHeader,
-  type FrameKind,
   type Member,
   type Meta,
   type Role,
@@ -25,6 +25,8 @@ import { TokenBucket } from './transfer';
 
 export interface MemberKey {
   key: string;
+  /** The member's X25519 public key, so a newcomer and the host can reach each other after the room is made again. */
+  xkey?: string | null;
   role: 'editor' | 'viewer';
 }
 
@@ -34,10 +36,12 @@ export type JoinMode = { t: 'create'; type: RoomKind; members?: MemberKey[] } | 
 export function handshakeMessage(mode: JoinMode, seed: Uint8Array, room: string, nonce: string): Record<string, unknown> {
   const key = b64encode(publicKey(seed));
   const base = { t: mode.t, proto: PROTO, key, sig: handshakeSignature(seed, mode.t, room, nonce) };
-  if (mode.t === 'create') return { ...base, type: mode.type, ...(mode.members?.length ? { members: mode.members } : {}) };
+  // The key agreement key is public. The relay shows it to the host, who believes it only with the newcomer's proof (`RoomKeys.admit`).
+  const xkey = b64encode(xPublic(seed));
+  if (mode.t === 'create') return { ...base, xkey, type: mode.type, ...(mode.members?.length ? { members: mode.members } : {}) };
   if (mode.t === 'redeem') {
     const invite = inviteKeys(mode.secret);
-    return { ...base, invite: invite.id, proof: inviteProof(invite.authKey, room, nonce, key) };
+    return { ...base, xkey, invite: invite.id, proof: inviteProof(invite.authKey, room, nonce, key) };
   }
   return base;
 }
@@ -128,15 +132,13 @@ export function welcomeFits(w: Welcome, pinned: Pinned): boolean {
 }
 
 /**
- * Whether a frame that opened really is from the member the relay stamped on it, and for
- * this device. The relay writes `from` and `to` in the clear header and could write anyone;
- * the sender repeats both inside the encrypted part (`f`, `d`), which the relay cannot change.
- * Apps from before this check send neither, and their frames are taken as before.
+ * Whether a frame that opened says inside what the relay says outside: who sent it and whom
+ * it is for. The keys already tie a frame to its sender (`keys.ts`); this is the same fact
+ * stated in the part every later check reads.
  */
 export function frameIsBound(meta: Meta, header: FrameHeader, self: number): boolean {
-  if (meta.f !== undefined && meta.f !== header.from) return false;
-  if (meta.d !== undefined && meta.d !== 0 && meta.d !== self) return false;
-  return true;
+  if (meta.f !== header.from) return false;
+  return header.to === 0 ? meta.d === undefined || meta.d === 0 : meta.d === self;
 }
 
 /* ───────────────────────── pacing ───────────────────────── */
@@ -189,8 +191,17 @@ export interface RoomEvents {
   onWelcome(msg: Welcome, first: boolean): void;
   /** Everything the relay says in text after `welcome`, except answers to `request`. */
   onText(msg: TextMessage): void;
-  /** `meta` is null for a frame that could not be opened; its place in the order still counts. */
-  onFrame(header: FrameHeader, meta: Meta | null, body: Uint8Array): void;
+  /**
+   * `meta` is null for a frame that could not be opened; its place in the order still counts.
+   * `digest` is what the chain over the room's edits is counted with (`chain.ts`); only frames for everyone have one.
+   */
+  onFrame(header: FrameHeader, meta: Meta | null, body: Uint8Array, digest: Uint8Array | null): void;
+  /**
+   * The room's keys arrived or changed: someone was let in, a new room key was made, or this
+   * device was handed what it lacked. `replay` is true when edits were held back for want of
+   * keys and should be asked for again.
+   */
+  onKeys(replay: boolean): void;
   /** The connection is over for good. */
   onEnded(code: number, reason: string): void;
   /** A connection closed and another will be tried. `code` says why, e.g. 4404 when the room server does not know the room. */
@@ -215,6 +226,10 @@ interface Waiting {
   bytes: number;
 }
 
+const isEdit = (kind: number) => kind === FrameKind.Patch || kind === FrameKind.SegOp;
+/** How often a device asks again for keys it is still missing. */
+const ASK_KEYS_MS = 1500;
+
 export class RoomClient {
   private ws: WebSocket | null = null;
   private welcomed = false;
@@ -224,7 +239,6 @@ export class RoomClient {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private nextRid = 1;
   private readonly waiting = new Map<number, (msg: TextMessage) => void>();
-  private key: Uint8Array | null;
   private limits = paceLimits(undefined);
   private pace = new Pace(this.limits, 1, performance.now());
   private outbox: Waiting[] = [];
@@ -233,31 +247,41 @@ export class RoomClient {
   /** This device's member id: it follows from the key, whatever the relay says. */
   readonly self: number;
   private readonly pinned: Pinned;
-  epoch = 1;
+  /** The room's keys. Null until a newcomer has opened its invite. */
+  keys: RoomKeys | null;
+  /** The secret of the link this device came in with, until the host has let it in. */
+  private secret: Uint8Array | null;
+  /** The member list as the relay tells it: who is connected, and where to send. Never whom to trust. */
+  private relay = new Map<number, Member>();
+  /** The key epoch the relay will take frames for. */
+  private relayEpoch = 1;
+  /** My edits on their way, by their id: what each counts for in the chain over the room's edits. */
+  private readonly sent = new Map<number, Uint8Array>();
+  /** True when an edit could not be read for want of keys; the edits after it wait. */
+  private stalled = false;
+  private askedAt = -Infinity;
+  private askTurn = 0;
+  private keyTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     readonly server: string,
     readonly room: string,
     private readonly seed: Uint8Array,
     private mode: JoinMode,
-    key: Uint8Array | null,
+    keys: RoomKeys | null,
     private readonly events: RoomEvents,
     /** What is already known about the room: its kind and whether this device is its host. */
     known: { kind?: RoomKind; host?: boolean } = {},
   ) {
-    this.key = key;
+    this.keys = keys;
+    this.secret = mode.t === 'redeem' ? mode.secret : null;
     this.self = memberId(publicKey(seed));
     this.pinned = {
       kind: mode.t === 'create' ? mode.type : (known.kind ?? null),
-      host: mode.t === "create" ? true : (known.host ?? (mode.t === "redeem" ? false : null)),
+      host: mode.t === 'create' ? true : (known.host ?? (mode.t === 'redeem' ? false : null)),
       self: this.self,
     };
     if (this.pinned.kind) this.kind = this.pinned.kind;
-  }
-
-  /** The room key, once the invite has been redeemed. */
-  setKey(key: Uint8Array): void {
-    this.key = key;
   }
 
   connect(): void {
@@ -275,13 +299,7 @@ export class RoomClient {
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
       if (typeof ev.data !== 'string') {
-        const frame = decodeFrame(new Uint8Array(ev.data as ArrayBuffer));
-        if (!frame) return;
-        const plain = this.key && open(this.key, frameAad(this.room, frame.header.epoch, frame.header.kind), frame.payload);
-        const opened = plain ? unpack(plain) : null;
-        // A frame the relay re-labelled is as unreadable as one it changed.
-        const parts = opened && frameIsBound(opened.meta, frame.header, this.self) ? opened : null;
-        this.events.onFrame(frame.header, parts?.meta ?? null, parts?.body ?? new Uint8Array(0));
+        this.takeFrame(new Uint8Array(ev.data as ArrayBuffer));
         return;
       }
       let msg: TextMessage;
@@ -300,6 +318,15 @@ export class RoomClient {
           this.misfit(ws);
           return;
         }
+        if (!this.keys && this.secret && welcome.invite) {
+          const content = openInvite(inviteKeys(this.secret).wrapKey, welcome.invite.wrappedKey);
+          // What the host sealed into the invite outranks what the room server says about the room.
+          if (content?.kind && content.kind !== welcome.room.type) {
+            this.misfit(ws);
+            return;
+          }
+          if (content) this.keys = RoomKeys.guest(this.room, this.seed, content);
+        }
         const first = !this.welcomed;
         this.welcomed = true;
         this.host = welcome.self.role === 'host';
@@ -307,18 +334,23 @@ export class RoomClient {
         // Neither changes for as long as the room lives.
         this.pinned.kind = this.kind;
         this.pinned.host = this.host;
-        this.epoch = welcome.room.epoch;
+        this.relay = new Map(welcome.roster.map((m) => [m.id, m]));
+        this.relayEpoch = welcome.room.epoch;
         this.attempts = 0;
         this.pace = new Pace(this.limits, this.host && this.kind === 'host-view' ? 4 : 1, performance.now());
         // From now on this key is a member: sign in with it, whatever got us here.
         this.mode = { t: 'auth' };
         this.events.onStatus('online');
         this.events.onWelcome(welcome, first);
+        if (this.ws === ws) this.afterWelcome();
       } else if (typeof msg.rid === 'number' && this.waiting.has(msg.rid)) {
         const done = this.waiting.get(msg.rid)!;
         this.waiting.delete(msg.rid);
         done(msg);
-      } else this.events.onText(msg);
+      } else {
+        this.noteText(msg);
+        this.events.onText(msg);
+      }
     };
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
@@ -338,6 +370,161 @@ export class RoomClient {
       this.events.onRetry?.(ev.code);
       this.timer = setTimeout(() => this.connect(), retryDelay(this.attempts++));
     };
+  }
+
+  /* ── keys ── */
+
+  /** What the relay says in passing that matters for keys: who is connected, and the epoch it takes frames for. */
+  private noteText(msg: TextMessage): void {
+    if (msg.t === 'roster') {
+      const members = parseRoster(msg.members);
+      if (members) this.relay = new Map(members.map((m) => [m.id, m]));
+    } else if (msg.t === 'presence') {
+      const id = Number(msg.member);
+      const m = this.relay.get(id);
+      if (m) this.relay.set(id, { ...m, online: !!msg.online });
+      // Someone who was away may have missed a new room key. The host hands them what they lack.
+      if (msg.online && this.keys?.isHost) this.sendKeys(id);
+    } else if (msg.t === 'epoch' && typeof msg.epoch === 'number' && Number.isSafeInteger(msg.epoch)) {
+      this.relayEpoch = msg.epoch;
+      if (this.keys && !this.keys.isHost && this.keys.epoch < msg.epoch) this.askKeys();
+    }
+  }
+
+  private afterWelcome(): void {
+    const keys = this.keys;
+    if (this.keyTimer) clearInterval(this.keyTimer);
+    this.keyTimer = null;
+    if (!keys) return;
+    if (keys.isHost) {
+      // A room the relay lost starts again at epoch 1 there; the keys never go back.
+      if (keys.epoch > this.relayEpoch) this.send({ t: 'rekey', epoch: keys.epoch });
+      this.announce();
+      return;
+    }
+    if (!keys.ready || keys.epoch < this.relayEpoch) this.askKeys(true);
+    this.keyTimer = setInterval(() => {
+      if (this.keys && (!this.keys.ready || this.stalled || this.keys.epoch < this.relayEpoch)) this.askKeys();
+    }, ASK_KEYS_MS);
+  }
+
+  /**
+   * Asks for the keys this device lacks. A newcomer asks the host to be let in. A member asks
+   * the host, or with the host away anyone who stayed: what they pass on is the list the host
+   * signed and the room keys under it, and they pass it only to someone that list names.
+   */
+  private askKeys(now = false): void {
+    const keys = this.keys;
+    const at = performance.now();
+    if (!keys || keys.isHost || !this.open || (!now && at - this.askedAt < ASK_KEYS_MS)) return;
+    this.askedAt = at;
+    if (!keys.ready && this.secret) {
+      this.sendFrame(FrameKind.Key, keys.joinMeta(this.secret), undefined, { to: keys.hostId });
+      return;
+    }
+    const online = (id: number) => this.relay.get(id)?.online === true;
+    const others = keys.members().filter((m) => m.id !== this.self && m.id !== keys.hostId && online(m.id));
+    const to = online(keys.hostId) || others.length === 0 ? keys.hostId : others[this.askTurn++ % others.length].id;
+    this.sendFrame(FrameKind.Key, { t: 'need' }, undefined, { to });
+  }
+
+  private sendKeys(to: number): void {
+    const meta = this.keys?.keysFor(to);
+    if (meta) this.sendFrame(FrameKind.Key, meta, undefined, { to });
+  }
+
+  /** Hands the list and the room keys to every member who is connected; `last` after the others. */
+  private announce(last?: number): void {
+    const keys = this.keys;
+    if (!keys) return;
+    // Everyone else hears of a newcomer before the newcomer can send anything.
+    for (const m of keys.members()) if (m.id !== last && this.relay.get(m.id)?.online) this.sendKeys(m.id);
+    if (last !== undefined) this.sendKeys(last);
+  }
+
+  private onKeyFrame(from: number, meta: Meta): void {
+    const keys = this.keys;
+    if (!keys) return;
+    if (meta.t === 'join') {
+      const before = keys.roster?.n;
+      if (!keys.admit(from, meta, this.relay.get(from))) return;
+      if (keys.roster?.n === before) return this.sendKeys(from);
+      this.announce(from);
+      this.events.onKeys(false);
+    } else if (meta.t === 'need') this.sendKeys(from);
+    else if (meta.t === 'keys') {
+      const got = keys.take(from, meta);
+      if (!got) return;
+      // Whoever the host's own list does not name is not in the room: their frames stop holding things up.
+      if (from === keys.hostId) keys.confirmUnknown();
+      if (got !== 'new' && !(from === keys.hostId && this.stalled)) return;
+      if (keys.ready) this.secret = null;
+      const replay = this.stalled;
+      this.stalled = false;
+      this.events.onKeys(replay);
+    }
+  }
+
+  /**
+   * Host only: takes `removed` off the list of members, makes a new room key, hands it to
+   * everyone who stays and tells the relay to refuse the old epoch. Call it after the relay
+   * has removed someone. Changing a person's role needs no new key.
+   */
+  async rotate(removed: number[]): Promise<boolean> {
+    const keys = this.keys;
+    if (!keys?.isHost || !this.open) return false;
+    keys.rotate(removed);
+    this.announce();
+    this.events.onKeys(false);
+    return (await this.request({ t: 'rekey', epoch: keys.epoch })).t === 'ok';
+  }
+
+  /**
+   * Host: signs the list of members again with `id` as someone who may only look, or may edit,
+   * and hands it to everyone connected. Who was away gets it on coming back.
+   */
+  setViewOnly(id: number, viewOnly: boolean): boolean {
+    const keys = this.keys;
+    if (!keys?.isHost || !keys.setViewOnly(id, viewOnly)) return false;
+    this.announce();
+    this.events.onKeys(false);
+    return true;
+  }
+
+  /** What my edit `cid` counts for in the chain over the room's edits, once the relay has numbered it. */
+  sentDigest(cid: number): Uint8Array | null {
+    const digest = this.sent.get(cid) ?? null;
+    this.sent.delete(cid);
+    return digest;
+  }
+
+  /** My edits on their way are no longer waited for. */
+  forgetSent(): void {
+    this.sent.clear();
+  }
+
+  private takeFrame(bytes: Uint8Array): void {
+    const frame = decodeFrame(bytes);
+    if (!frame) return;
+    const h = frame.header;
+    const ordered = isEdit(h.kind) && h.to === 0;
+    const got = this.keys ? this.keys.open(h, frame.payload, (id) => this.relay.get(id)?.xkey ?? null) : { plain: null, need: true, digest: null };
+    if (got.need) {
+      // Not readable yet, but it may be once the keys are here. An edit keeps its place: the ones after it wait.
+      if (ordered) this.stalled = true;
+      this.askKeys();
+      return;
+    }
+    const opened = got.plain ? unpack(got.plain) : null;
+    // A frame the relay re-labelled is as unreadable as one it changed.
+    const parts = opened && frameIsBound(opened.meta, h, this.self) ? opened : null;
+    if (h.kind === FrameKind.Key) {
+      if (parts) this.onKeyFrame(h.from, parts.meta);
+      return;
+    }
+    // Names and cursors are of the moment: one sealed under an older room key is not passed on.
+    if (h.to === 0 && !ordered && h.epoch !== this.keys?.epoch) return;
+    this.events.onFrame(h, parts?.meta ?? null, parts?.body ?? new Uint8Array(0), ordered ? got.digest : null);
   }
 
   /** Leaves a room whose server said something that cannot be true, and says so. */
@@ -396,16 +583,22 @@ export class RoomClient {
     });
   }
 
+  /** A guest of a view-through-host room only ever talks to the host, and so under the key the two of them share. */
+  private target(to: number | undefined): number {
+    return this.kind === 'host-view' && !this.host && this.keys ? this.keys.hostId : (to ?? 0);
+  }
+
   /**
    * Seals and sends one frame, in the order frames were given, no faster than the pace
-   * allows. False when offline or before the room key is known; true when the frame went
+   * allows. False when offline or before the keys for it are here; true when the frame went
    * or is waiting its turn.
    */
   sendFrame(kind: FrameKind, meta: Meta, body?: Uint8Array, opts: SendOptions = {}): boolean {
-    if (!this.open || !this.key) return false;
-    const bytes = 64 + (body?.length ?? 0);
+    if (!this.open || !this.keys?.canSend(this.target(opts.to))) return false;
+    const bytes = 128 + (body?.length ?? 0);
     const now = performance.now();
-    if (this.outbox.length === 0 && this.pace.wait(bytes, now) <= 0) {
+    // Keys are small and everything else waits on them: they do not queue behind a transfer.
+    if (kind === FrameKind.Key || (this.outbox.length === 0 && this.pace.wait(bytes, now) <= 0)) {
       this.sealAndSend({ kind, meta, body, to: opts.to, seq: opts.seq, bytes }, now);
       return true;
     }
@@ -417,12 +610,22 @@ export class RoomClient {
   }
 
   private sealAndSend(f: Waiting, now: number): void {
-    if (!this.key || !this.ws) return;
+    if (!this.keys || !this.ws) return;
+    const to = this.target(f.to);
     // Who it is from and for goes inside the encrypted part too (see `frameIsBound`).
-    const meta: Meta = { ...f.meta, f: this.self, ...(f.to ? { d: f.to } : {}) };
-    const payload = seal(this.key, frameAad(this.room, this.epoch, f.kind), pack(meta, f.body));
-    this.pace.spend(payload.length + 24, now);
-    this.ws.send(encodeFrame({ kind: f.kind, to: f.to, seq: f.seq, epoch: this.epoch }, payload) as Uint8Array<ArrayBuffer>);
+    const meta: Meta = { ...f.meta, f: this.self, ...(to ? { d: to } : {}) };
+    const sealed = this.keys.seal(f.kind, to, pack(meta, f.body));
+    if (!sealed) return;
+    if (sealed.digest && f.seq !== undefined && isEdit(f.kind)) {
+      if (this.sent.size >= 8192) this.sent.clear();
+      this.sent.set(f.seq, sealed.digest);
+    }
+    // A frame for everyone names the epoch of its key. One for a single member is sealed under their
+    // pair key whatever the epoch, and names the one the relay takes frames for: a new room key is
+    // handed out before the relay is told of it.
+    const epoch = to ? this.relayEpoch : sealed.epoch;
+    this.pace.spend(sealed.payload.length + 24, now);
+    this.ws.send(encodeFrame({ kind: f.kind, to, seq: f.seq, epoch }, sealed.payload) as Uint8Array<ArrayBuffer>);
   }
 
   private scheduleDrain(now: number): void {
@@ -453,6 +656,8 @@ export class RoomClient {
     this.drainTimer = null;
     this.outbox = [];
     this.outboxBytes = 0;
+    if (this.keyTimer) clearInterval(this.keyTimer);
+    this.keyTimer = null;
   }
 
   close(): void {

@@ -7,7 +7,7 @@ import { set, toast, useStore, type Peer } from '../state/store';
 import { chooseLayout } from '../state/views';
 import { LAYOUTS, paneRects, parseLayout, type LayoutId } from '../viewer/layout';
 import { DEFAULT_INVITE, inviteLine, inviteUsable, linkRule, type InviteOptions } from '../collab/invites';
-import { ROLE_CHOICES, needsUpdateText } from '../collab/roles';
+import { ROLE_CHOICES } from '../collab/roles';
 import { closeImage, createInvite, endRoom, leaveRoom, listInvites, reconnectRoom, removeMember, revokeInvite, saveMask, setMemberRole, type InviteRow } from '../session';
 import { InviteOptionsFields } from './InviteOptions';
 import { copyText } from '../platform';
@@ -276,12 +276,11 @@ function RoomButton() {
                 )}
                 {!host && p.role === 'viewer' && <span className="tag">View only</span>}
                 {host && (
-                  <span className="rolebox" data-tip={p.roles ? undefined : needsUpdateText(p.name)} data-tip-align="end">
+                  <span className="rolebox">
                     <select
                       className="select role"
                       aria-label={`What ${p.name} can do`}
                       value={p.role === 'viewer' ? 'viewer' : 'editor'}
-                      disabled={!p.roles}
                       onChange={(e) => void setMemberRole(p.id, e.target.value as 'editor' | 'viewer')}
                     >
                       {ROLE_CHOICES.map((c) => (

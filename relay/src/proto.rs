@@ -2,7 +2,7 @@
 //! cleartext binary header. The written spec is `docs/design/ROOMS-PROTOCOL.md`.
 
 /// The only protocol version this relay speaks on `/v2/`.
-pub const PROTO_VERSION: u8 = 2;
+pub const PROTO_VERSION: u8 = 3;
 
 /// Length of the cleartext header in front of every binary frame.
 pub const HEADER_LEN: usize = 24;
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn header_round_trips_and_matches_the_documented_bytes() {
         let header = Header {
-            version: 2,
+            version: 3,
             kind: Kind::Patch as u8,
             flags: 0x0102,
             from: 0x0A0B_0C0D,
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(
             bytes,
             [
-                0x02, 0x01, 0x02, 0x01, 0x0D, 0x0C, 0x0B, 0x0A, 0x07, 0x00, 0x00, 0x00, 0x88, 0x77,
+                0x03, 0x01, 0x02, 0x01, 0x0D, 0x0C, 0x0B, 0x0A, 0x07, 0x00, 0x00, 0x00, 0x88, 0x77,
                 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x01, 0x00, 0x00, 0x00
             ]
         );
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn short_and_wrong_version_headers_are_errors_not_panics() {
         let good = Header {
-            version: 2,
+            version: 3,
             kind: 1,
             flags: 0,
             from: 0,
@@ -202,7 +202,7 @@ mod tests {
         for len in 0..HEADER_LEN {
             assert_eq!(Header::parse(&good[..len]), Err(FrameError::Truncated));
         }
-        for version in [0u8, 1, 3, 255] {
+        for version in [0u8, 1, 2, 255] {
             let mut bad = good;
             bad[0] = version;
             assert_eq!(Header::parse(&bad), Err(FrameError::Version(version)));
