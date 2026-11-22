@@ -4,6 +4,8 @@
  * fit a frame, so neither side ever holds a second copy of the whole volume.
  */
 
+import { Gunzip } from 'fflate';
+
 export const SLAB_SLICES = 16;
 /** Compressed bytes per frame. With the header and encryption it stays well under the relay's 2 MiB. */
 export const PART_BYTES = 1 << 20;
@@ -21,22 +23,71 @@ export function splitParts(bytes: Uint8Array, size = PART_BYTES): Uint8Array[] {
   return out.length ? out : [bytes];
 }
 
+/**
+ * The most a packed slab of `raw` bytes can weigh. Data that does not compress grows by a
+ * few bytes per block, never by much; anything larger was not made by packing that slab.
+ */
+export function maxPacked(raw: number): number {
+  return raw + Math.ceil(raw / 1000) + 1024;
+}
+
+/**
+ * Unpacks gzip data that must come out exactly `length` bytes long. Null for anything else.
+ * It stops as soon as more comes out than expected, so a few kilobytes that would unpack
+ * into gigabytes cost a few milliseconds instead of the memory and the minutes.
+ */
+export function gunzipExactly(bytes: Uint8Array, length: number): Uint8Array | null {
+  if (bytes.length < 18 || !Number.isInteger(length) || length < 0) return null;
+  const out = new Uint8Array(length);
+  let n = 0;
+  let over = false;
+  try {
+    const stream = new Gunzip((chunk) => {
+      if (over) return;
+      if (n + chunk.length > length) {
+        over = true;
+        return;
+      }
+      out.set(chunk, n);
+      n += chunk.length;
+    });
+    // In small steps: one step of well-packed input can already unpack to megabytes.
+    const STEP = 16 << 10;
+    for (let o = 0; o < bytes.length && !over; o += STEP) stream.push(bytes.subarray(o, Math.min(bytes.length, o + STEP)), o + STEP >= bytes.length);
+  } catch {
+    return null;
+  }
+  return over || n !== length ? null : out;
+}
+
 /** Collects the parts of one slab at a time; they arrive in order on one connection. */
 export class PartAssembler {
   private key = '';
   private parts: Uint8Array[] = [];
+  /** Bytes waiting for the rest of their slab. */
+  held = 0;
 
-  /** Returns the whole slab once its last part is in. A part out of step drops the slab. */
-  push(key: string, part: number, parts: number, bytes: Uint8Array): Uint8Array | null {
+  private drop(): null {
+    this.key = '';
+    this.parts = [];
+    this.held = 0;
+    return null;
+  }
+
+  /**
+   * Returns the whole slab once its last part is in. A part out of step drops the slab,
+   * and so does a slab that grows past `max` bytes: the sender says how many parts there
+   * are, so without a limit it could keep a receiver collecting for ever.
+   */
+  push(key: string, part: number, parts: number, bytes: Uint8Array, max = Infinity): Uint8Array | null {
+    if (!Number.isInteger(part) || part < 0 || !Number.isInteger(parts) || parts < 1) return this.drop();
     if (part === 0) {
+      this.drop();
       this.key = key;
-      this.parts = [];
     }
-    if (key !== this.key || part !== this.parts.length) {
-      this.key = '';
-      return null;
-    }
+    if (key !== this.key || part !== this.parts.length || part >= parts || this.held + bytes.length > max) return this.drop();
     this.parts.push(bytes);
+    this.held += bytes.length;
     if (this.parts.length < parts) return null;
     const out = new Uint8Array(this.parts.reduce((n, p) => n + p.length, 0));
     let o = 0;
@@ -44,8 +95,7 @@ export class PartAssembler {
       out.set(p, o);
       o += p.length;
     }
-    this.key = '';
-    this.parts = [];
+    this.drop();
     return out;
   }
 }

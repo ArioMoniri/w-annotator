@@ -122,7 +122,17 @@ export interface WindowChoice {
 }
 
 /** Which presets are listed: fixed Hounsfield windows, or windows worked out from the image. */
-export type WindowSet = 'ct' | 'mr';
+export type WindowSet = 'ct' | 'mr' | 'grey';
+
+/**
+ * The list an image gets. A guest who views through the host holds 8-bit pictures already
+ * windowed by the host: grey levels from 0 to 255, for which neither Hounsfield presets nor
+ * windows worked out from stored values mean anything, whatever list was asked for.
+ */
+export function windowSetFor(image: { ct: boolean; grey?: boolean }, asked: WindowSet | null): WindowSet {
+  if (image.grey) return 'grey';
+  return asked ?? (image.ct ? 'ct' : 'mr');
+}
 
 /** The three MR windows, each worked out from the image's own values. */
 export interface MrWindows {
@@ -147,6 +157,7 @@ export interface WindowSource {
  * the image. Saved presets are in both.
  */
 export function windowChoices(image: WindowSource, custom: readonly WindowPreset[], set: WindowSet): WindowChoice[] {
+  if (set === 'grey') return [{ name: 'Full range', voi: { lower: 0, upper: 255 }, kind: 'full' }];
   const saved: WindowChoice[] = custom.map((p) => ({ name: p.name, voi: toVoi(p.w, p.l), kind: 'custom' }));
   const full = { lower: image.range[0], upper: image.range[1] > image.range[0] ? image.range[1] : image.range[0] + 1 };
   const fromImage: WindowChoice[] = [

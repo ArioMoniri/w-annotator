@@ -69,6 +69,8 @@ export interface RoomState {
   hostAway: boolean;
   /** View through host, guest side: why the views are blanked, or null. */
   veil: string | null;
+  /** View through host, guest side: the window the host looks through, when the host has said it. */
+  hostVoi: { lower: number; upper: number } | null;
   /** After a merge: how much of my work differs from the room and was put aside. */
   review: { slices: number; voxels: number } | null;
   /** A short line about what the room is waiting for, or null. */
@@ -98,6 +100,8 @@ interface State {
     dims: [number, number, number];
     range: [number, number];
     ct: boolean;
+    /** True for a guest who views through the host: 8-bit pictures in the host's window, not stored values. */
+    grey?: boolean;
     /** The window the image would open on from its values alone, and the MR windows worked out from them. */
     auto: Voi;
     mr: MrWindows;

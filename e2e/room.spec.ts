@@ -19,9 +19,19 @@ import {
 } from './helpers';
 
 /** A page of its own, as a second person on another computer would have. */
+const opened: import('@playwright/test').BrowserContext[] = [];
+
 async function person(browser: import('@playwright/test').Browser): Promise<Page> {
-  return (await browser.newContext()).newPage();
+  const context = await browser.newContext();
+  opened.push(context);
+  return context.newPage();
 }
+
+// Each person's window is closed when the test is over. Left open, they pile up through the
+// file, and the later tests share the machine with dozens of idle pages.
+test.afterEach(async () => {
+  await Promise.all(opened.splice(0).map((context) => context.close()));
+});
 
 /** A fresh page that tries a link and stays on the join form. */
 async function tryJoin(browser: import('@playwright/test').Browser, name: string, link: string): Promise<Page> {
@@ -514,7 +524,8 @@ test("a view-through-host guest's view is blanked while the connection to the ho
 
   // The network blinks: the guest sees nothing until the host can be reached again.
   await wire.cut();
-  await expect(guest.getByTestId('room-veil')).toHaveText('Waiting for Mina…', { timeout: 2000 });
+  // It is the guest's own connection that is down, and the app says so: the host has gone nowhere.
+  await expect(guest.getByTestId('room-veil')).toHaveText('Offline. Reconnecting…', { timeout: 2000 });
   wire.restore();
   await reconnectNow(guest);
   await expect(guest.getByTestId('room-veil')).toHaveCount(0, { timeout: 12_000 });
@@ -525,6 +536,122 @@ test("a view-through-host guest's view is blanked while the connection to the ho
   await guest.keyboard.press('b');
   await drag(guest, 'axial', [-60, 40], [-20, 70]);
   await expect.poll(() => maskVoxels(host)).toBeGreaterThan(before);
+});
+
+test('a view-through-host guest who is offline for a long time stays a member and comes back', async ({ browser }) => {
+  const host = await person(browser);
+  const guest = await person(browser);
+  const wire = await cuttable(guest);
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina', 'View through my computer');
+  await joinRoom(guest, 'Ario', link);
+  await expect.poll(() => imageValue(guest, [24, 24, 24])).toBeGreaterThan(0);
+
+  // Only the guest's connection goes, and stays gone past the 15 seconds after which the pictures are cleared.
+  await wire.cut();
+  await expect(guest.getByTestId('room-veil')).toHaveText('Offline. Reconnecting…', { timeout: 2000 });
+  await expect(guest.getByTestId('room-veil')).toContainText('cleared from this device', { timeout: 20_000 });
+  // The pictures are gone from memory, as promised; the guest is still in the room and is told nothing untrue.
+  expect(await imageValue(guest, [24, 24, 24])).toBe(0);
+  await expect(guest.getByTestId('room-pill')).toBeVisible();
+  await expect(errorToast(guest)).toHaveCount(0);
+  await expect(guest.getByText('The host ended the session')).toHaveCount(0);
+  // The host never noticed more than a guest going offline.
+  await expect(host.getByTestId('room-pill')).toBeVisible();
+
+  // The connection returns: the same guest is back without a new link, and sees the image again.
+  wire.restore();
+  await reconnectNow(guest);
+  await expect(guest.getByTestId('room-veil')).toHaveCount(0, { timeout: 30_000 });
+  await expect.poll(() => imageValue(guest, [24, 24, 24]), { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  const before = await maskVoxels(host);
+  await guest.keyboard.press('b');
+  await drag(guest, 'axial', [-60, 40], [-20, 70]);
+  await expect.poll(() => maskVoxels(host)).toBeGreaterThan(before);
+});
+
+test("a view-through-host guest is shown grey levels and the host's window, not numbers that mean nothing", async ({ browser }) => {
+  const host = await person(browser);
+  const guest = await person(browser);
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina', 'View through my computer');
+  await joinRoom(guest, 'Ario', link);
+  await expect.poll(() => imageValue(guest, [24, 24, 24])).toBeGreaterThan(0);
+  const numbers = (text: string | null) => /W\s*(\S+)\s*L\s*(\S+)/.exec(text ?? '')?.slice(1, 3).join(' ');
+  const state = () => guest.evaluate(() => window.__w.store.getState());
+
+  // The window in the guest's status bar is the host's, to read; the guest has no preset menu of their own.
+  const hostWindow = numbers(await host.getByTestId('status-window').textContent());
+  expect(hostWindow).toBeTruthy();
+  await expect(guest.getByTestId('host-window')).toContainText("Host's window");
+  await expect.poll(async () => numbers(await guest.getByTestId('host-window').textContent())).toBe(hostWindow);
+  await expect(guest.getByTestId('status-window')).toHaveCount(0);
+
+  // Stepping through presets cannot turn the picture black and white: there is one window for grey levels.
+  await guest.keyboard.press('p');
+  await guest.keyboard.press('p');
+  expect((await state()).voi).toEqual({ lower: 0, upper: 255 });
+  // The threshold brush works on the grey levels it can see, from 0 to 255.
+  expect((await state()).image.range).toEqual([0, 255]);
+  expect((await state()).threshold).toEqual([128, 255]);
+  await guest.keyboard.press('w');
+  await expect(guest.locator('#wl-preset option:not([disabled])')).toHaveText(['Full range']);
+
+  // The value under the cursor is called what it is.
+  const box = (await guest.locator('[data-view="axial"]').boundingBox())!;
+  await guest.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(guest.getByTestId('value')).toContainText('Grey');
+  await expect(guest.getByTestId('value')).not.toContainText('HU');
+
+  // The mask has the room's neutral name, and the 3D pane says why it is empty.
+  await expect(guest.locator('.filerow', { hasText: 'Room mask' })).toHaveCount(1);
+  await expect(guest.locator('.filerow', { hasText: 'New mask' })).toHaveCount(0);
+  await expect(guest.getByTestId('no-3d')).toHaveText("The 3D view stays on the host's computer.");
+
+  // The host changes its window; the guest's read-out follows.
+  await host.keyboard.press('p');
+  const next = numbers(await host.getByTestId('status-window').textContent());
+  expect(next).not.toBe(hostWindow);
+  await expect.poll(async () => numbers(await guest.getByTestId('host-window').textContent()), { timeout: 10_000 }).toBe(next);
+});
+
+test('the host of a shared-copy room is asked before leaving, and the others are told what it means', async ({ browser }) => {
+  const host = await person(browser);
+  const guest = await person(browser);
+  await openPhantom(host);
+  await joinRoom(guest, 'Ario', await startRoom(host, 'Mina'));
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  // Past the quiet seconds after joining, when arrivals and departures are not announced.
+  await guest.waitForTimeout(3500);
+
+  await host.getByTestId('room-pill').click();
+  await host.getByRole('button', { name: 'Leave room' }).click();
+  const ask = host.getByRole('dialog');
+  await expect(ask).toContainText('Leave the room?');
+  await expect(ask).toContainText('Others can keep working');
+  await expect(ask).toContainText('Nobody can invite or remove people until you come back');
+  // Cancel leaves everything as it was.
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(host.getByTestId('room-pill')).toBeVisible();
+
+  await host.getByTestId('room-pill').click();
+  await host.getByRole('button', { name: 'Leave room' }).click();
+  await host.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
+  await expect(host.getByTestId('room-pill')).toHaveCount(0);
+  const left = host.locator('.toast', { hasText: 'You left the room' });
+  await expect(left).toBeVisible();
+  // It stays long enough to read.
+  await host.waitForTimeout(2500);
+  await expect(left).toBeVisible();
+
+  // The guest hears that it was the host who went, and what that changes.
+  await expect(guest.locator('.toast', { hasText: 'Mina, the host, left' })).toContainText('You can keep working');
+  await expect(guest.getByTestId('room-pill')).toBeVisible();
+  const before = await maskVoxels(guest);
+  await guest.keyboard.press('b');
+  await drag(guest, 'axial', [-60, 40], [-20, 70]);
+  expect(await maskVoxels(guest)).toBeGreaterThan(before);
 });
 
 /* ───────────────────────── the dialog ───────────────────────── */

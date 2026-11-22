@@ -4,7 +4,7 @@ import { useRecovery } from '../recovery';
 import { useStore } from '../state/store';
 import { useSettings } from '../state/settings';
 import { itemsToDrop } from './place';
-import { WindowReadout, ZoomReadout } from './ViewMenus';
+import { HostWindow, WindowReadout, ZoomReadout } from './ViewMenus';
 
 export function StatusBar() {
   const hover = useStore((s) => s.hover);
@@ -15,6 +15,7 @@ export function StatusBar() {
   const segments = useStore((s) => s.segments);
   const dims = useStore((s) => s.image?.dims);
   const ct = useStore((s) => !!s.image?.ct);
+  const grey = useStore((s) => !!s.image?.grey);
   const maskHidden = useStore((s) => s.maskHidden);
   const windowSet = useStore((s) => s.windowSet);
   const presets = useSettings((s) => s.windowPresets.length);
@@ -66,7 +67,8 @@ export function StatusBar() {
         <b>X</b> {hover ? hover.ijk[0] + 1 : '—'} <b>Y</b> {hover ? hover.ijk[1] + 1 : '—'} <b>Z</b> {hover ? hover.ijk[2] + 1 : '—'}
       </span>
       <span style={{ minWidth: ct ? 116 : 96 }} data-testid="value" data-drop-order="5">
-        <b>Value</b> {hover ? fmt(hover.value) : '—'}
+        {/* A guest who views through the host holds grey levels of the host's picture, not the image's values. */}
+        <b title={grey ? "Grey level in the host's window, 0 to 255" : undefined}>{grey ? 'Grey' : 'Value'}</b> {hover ? fmt(hover.value) : '—'}
         {hover && ct ? ' HU' : ''}
       </span>
       <span style={{ minWidth: 120 }} data-drop-order="4">
@@ -83,7 +85,7 @@ export function StatusBar() {
           <b>Size</b> {dims[0]} × {dims[1]} × {dims[2]}
         </span>
       )}
-      <WindowReadout />
+      {grey ? <HostWindow /> : <WindowReadout />}
       <ZoomReadout />
       <span className="syncgroup">
         {/* Keyed by its text so each change fades in. */}

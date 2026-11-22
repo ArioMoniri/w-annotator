@@ -4,7 +4,7 @@ import { applyFillPreview, cancelFillPreview, fillBetweenSlices, setBrushSize, s
 import { paintOverLabel } from '../mask/paintOver';
 import { clearMeasurements, fitAll } from '../viewer/engine';
 import { useSettings } from '../state/settings';
-import { matchChoice, windowChoices, windowFields, windowFromFields, windowStep } from '../viewer/window';
+import { matchChoice, windowChoices, windowFields, windowFromFields, windowSetFor, windowStep } from '../viewer/window';
 import { applyWindowChoice } from '../windowing';
 import { BRUSH_MAX } from '../mask/brush';
 import { Choice, MOD, NumberField, Slider, useKeyHint } from './common';
@@ -140,7 +140,7 @@ function WindowFields({ hintAsTip }: { hintAsTip: boolean }) {
     const next = windowFromFields(nw, nl, step);
     setVoi(next.lower, next.upper);
   };
-  const choices = windowChoices(image, custom, asked ?? (image.ct ? 'ct' : 'mr'));
+  const choices = windowChoices(image, custom, windowSetFor(image, asked));
   const current = matchChoice(choices, voi)?.name ?? '';
   return (
     <>

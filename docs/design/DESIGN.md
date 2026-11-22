@@ -692,23 +692,34 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 |---|---|
 | Tabs | Start a room · Join a room |
 | Name label / placeholder | Your name / How others will see you |
-| Code label / placeholder | Room code / ABC-123 |
-| Start helper | Anyone with the code can view and edit this mask. |
+| Kind of room | Shared copy · Everyone gets the image and the mask and keeps a copy. They can keep working without you. / View through my computer · Others see and edit the mask through your computer. They don't receive the files and can't save. The room ends when you close the app. · This limits what leaves your computer; it can't stop someone photographing or recording their screen. |
+| Invite label / placeholder | Invite link / Paste the invite link |
+| Join helper | Rooms you have joined on this device |
+| Start helper (no image) | Open an image first, then start a room. |
 | Buttons | Cancel · Start · Join · Starting… · Joining… |
-| Started | Room started · Share this code with the people you want to work with. · Copy code · Copy invite link · Done |
-| Popover | Room KDR-482 · Copy code · Copy invite link · People · You · Leave room |
+| Started | Room started · Each link works for one person and stops working after 24 hours. · Copy invite link · Another link · Done |
+| Started, hosted here | This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app. / No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others. |
+| Popover | Shared copy or View through my computer · New invite link · Link 1 · expires in 23 h · Copy · Switch off · People · You · host · Remove · Leave room · Delete room (shared copy) or End room (view through my computer) |
+| Popover, offline | Offline. Your changes are merged when you reconnect. (shared copy) / Offline. Reconnecting… (view through the host) · Reconnect now |
 | Person row tooltip | Go to Mina's view |
-| Leave confirm (host) | Leave the room? · Others can keep working. Your copy of the mask stays open here. · Cancel · Leave |
+| Leave confirm (host, shared copy) | Leave the room? · Others can keep working. Nobody can invite or remove people until you come back. Your copy of the mask stays open here. · Cancel · Leave |
+| Remove confirm | Remove Ben? · Ben keeps the copy already on their computer. They won't get further changes, and the link they joined with stops working. (shared copy) / Ben stops seeing the image at once and can't come back with the same link. (view through the host) · Cancel · Remove |
+| Delete / End confirm | Delete this room? · The room closes for everyone and its links stop working. People keep the copies already on their computers. · Delete room / End the room? · Everyone is disconnected at once. Nothing stays on their devices. · End room |
 | Joining with no image | Getting the image from the room… |
+| Guest of view through the host: views covered | Waiting for Mina… (the host is unreachable) / Offline. Reconnecting… (the guest's own connection is down) / Offline. Reconnecting… What you were shown has been cleared from this device. (after 15 seconds) |
+| Guest of view through the host: status bar | Host's window W 1500 L −600 (or Window set by the host) · Grey 84 |
+| Guest of view through the host: 3D pane | The 3D view stays on the host's computer. |
+
+There are no room codes: a room is joined with an invite link (4.6).
 
 ### 6.9 Toasts
 
 | Trigger | Copy |
 |---|---|
-| Code copied | Code copied |
 | Link copied | Invite link copied |
 | Someone joined | Mina joined |
 | Someone left | Mina left |
+| The host of a shared-copy room left | Mina, the host, left. You can keep working. Nobody can invite or remove people until they come back. |
 | You left | You left the room |
 | Reconnected | Back online. Changes are synced. |
 | Mask saved to new file | Saved to liver_mask.nii.gz |
@@ -746,8 +757,14 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Save failed | Couldn't save the mask. Check that the folder is writable. · Retry |
 | Unsaved on close | Save changes to liver_mask.nii.gz? · Don't save · Cancel · Save |
 | Name empty | Enter a name. |
-| Code empty / malformed | Enter the 6-character room code. |
-| Room not found | No room with that code. Check the code and try again. |
+| Invite empty | Paste the invite link. |
+| Invite malformed | Paste the whole invite link, including the part after #. |
+| Room not found | No room at that link. Check the link and try again. |
+| Invite expired, used, switched off or not valid | This invite link has expired. Ask the host for a new one. (or: was already used · was switched off · is not valid) |
+| Removed | Mina removed you from this room. Your copy stays on this computer. (shared copy) / Nothing was saved on this device. (view through the host) |
+| Room ended | Mina deleted this room. Your copy stays on this computer. / The host ended the session. Nothing was saved on this device. |
+| Room server says something that cannot be true | The room server sent something that does not fit this room, so you left it. |
+| App too old / host too old | Update W Annotator to join this room / The host is on an older version |
 | Room closed | This room has ended. |
 | Can't reach server | Can't connect. Check your network and try again. · Retry |
 | Connection lost mid-session | Connection lost. Reconnecting… You can keep working; changes will sync. |

@@ -184,6 +184,8 @@ export function Viewports() {
   const gridRef = useRef<HTMLDivElement>(null);
   const maximized = useStore((s) => s.maximized);
   const veil = useStore((s) => s.room?.veil ?? null);
+  // A guest who views through the host holds single planes, never a volume: there is nothing to draw in 3D.
+  const guestView = useStore((s) => !!s.image?.grey);
   const layout = parseLayout(useSettings((s) => s.layout));
   const viewOrder = useSettings((s) => s.viewOrder);
   const referenceLines = parseReferenceLines(useSettings((s) => s.referenceLines));
@@ -458,8 +460,13 @@ export function Viewports() {
               Slice {slices[v.id].index + 1} / {slices[v.id].count}
             </div>
           )}
-          {v.id === 'volume3d' && !hasSegments && !show3dImage && (
+          {v.id === 'volume3d' && !guestView && !hasSegments && !show3dImage && (
             <div className="overlay center">Add a segment to see it in 3D.</div>
+          )}
+          {v.id === 'volume3d' && guestView && (
+            <div className="hostonly" data-testid="no-3d">
+              The 3D view stays on the host's computer.
+            </div>
           )}
           {v.id !== 'volume3d' && <RemoteCursors view={v.id} tick={tick} />}
         </div>

@@ -17,6 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The MR window that was called "Soft tissue" is now "Mid range". Soft tissue is a CT window with a fixed meaning; the MR one is worked out from the image. The window itself is the same.
 - The Pancreas preset (W 150, L 65) is described as what it is: a narrow window chosen for a contrast-enhanced pancreas, not a standard preset. Its numbers are unchanged.
 - The hint under "Remove island" says that a segment in one piece is removed whole.
+- Joining a shared-copy room with a full-size scan: the sender waits for the receiver, so a slow connection is no longer flooded and dropped; a transfer cut by a lost connection picks up with the image slabs it already has; one person can no longer make the host send the image many times at once.
+- Large edits in a room (a whole segment cleared, a cut through all slices) are sent at a pace the room server accepts. Before, an edit of more than about 20 MB closed the connection, again on every retry.
+- Confirming a large edit of your own no longer rewrites the whole edit once per piece.
+- `docs/reviews/rooms-scale.md`: rooms measured on a 512 x 512 x 300 scan, and `W_SCALE=1 pnpm e2e e2e/room-scale.spec.ts` to measure again.
 
 ### Fixed
 
@@ -30,11 +34,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Low contrast: the W and L numbers beside a preset and the segment number were hard to read on a selected or pointed-at row.
 - The view name and the slice counter were hard to read over a bright image. Each now has a small dark backing.
 - The README and Settings → Help gave CC BY 4.0 for both sources of the sample. LIDC-IDRI is CC BY 3.0.
+- A guest of a view-through-host room whose own connection dropped was told after 15 seconds that the host had ended the session, and could not come back without a new link. The guest is now told "Offline. Reconnecting…", stays a member and is retried for as long as it takes. What was shown is cleared from memory after 15 seconds and fetched again on return.
+- A guest of a view-through-host room got window presets and threshold limits worked out from an empty image, and Hounsfield presets for grey levels. A guest now has one window (Full range), threshold limits from 0 to 255, the value under the cursor labelled Grey, and the host's window shown in the status bar to read. The mask is named Room mask, and the 3D pane says that the 3D view stays on the host's computer.
+- The host of a shared-copy room is asked before leaving and told what it means, Leave room no longer looks like Delete room, and the others are told that the host left and that they can keep working.
+- The cover over a guest's views is drawn above the view names.
 - Esc restores a maximised view only when nothing else took it. Holding Esc a moment too long to close a menu, or pressing it in the middle of a brush stroke or a pan, no longer changes the layout or the tool.
 - A tooltip is no longer read out as part of a button's name. A screen reader says "Apply", not "Apply Apply Enter".
 - In the Grow, Shrink, Smooth, Remove small islands and Combine popovers of a segment, Tab and Shift+Tab reach every control and stay inside, also on a Mac.
 - Opening a mask, showing a hidden comparison mask or switching the mask being edited no longer sends the views back to the middle slice and the fitted zoom.
 - Undo of "Split into separate segments" also removes the segments the split made, for everyone in a room, and redo brings them back with their names and colours.
+
+### Security
+
+- A security review of rooms: `docs/reviews/rooms-security.md` lists what was found, what was fixed and what is accepted. Apps and relays from 0.1.2 keep working with newer ones; the protections that need both sides apply once everyone has updated.
+- An app no longer takes the room server's word for what kind of room it is in or who its host is. A room server could turn a view-through-host room into a shared copy and have the host send the image.
+- The room server can no longer repeat an edit or pass one member's edit, name or picture off as another's.
+- Compressed data from another member is unpacked only up to the size it must have. A few kilobytes could ask for gigabytes of memory.
+- A transfer of the image and mask must be complete to be opened. One with slices missing was opened as if whole.
+- A patch that reaches outside the mask is refused whole; before, the part that fitted was written.
+- Invite links with `user@host` or other unusual hosts are refused. Names and segment names lose control characters and invisible direction marks, and the host's name is never the one that gets a number.
+- Relay: a connection that never finishes its request is closed after 10 seconds, a replay too long for a member's queue no longer closes that member, one member can no longer get another closed by sending them file frames, and pings count towards the rate limit.
+- A room hosted by the desktop app on a computer with no network address listens on that computer only.
 
 ## [0.1.2] - 2026-11-21
 

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSettings } from '../state/settings';
 import { set, useStore } from '../state/store';
 import { fitAll } from '../viewer/engine';
-import { PRESET_MAX, PRESET_NAME_MAX, formatWindow, matchChoice, presetNameError, windowChoices, type WindowChoice } from '../viewer/window';
+import { PRESET_MAX, PRESET_NAME_MAX, formatWindow, matchChoice, presetNameError, windowChoices, windowSetFor, type WindowChoice } from '../viewer/window';
 import { applyWindowChoice, removeWindowPreset, saveWindowPreset, setWindowSet, zoomActive, zoomActualSize } from '../windowing';
 import { Choice, Modal, useDismiss, useKeyHint } from './common';
 
@@ -68,7 +68,7 @@ export function WindowReadout() {
   const custom = useSettings((s) => s.windowPresets);
   const m = useStatusMenu();
   if (!voi || !image) return null;
-  const which = asked ?? (image.ct ? 'ct' : 'mr');
+  const which = windowSetFor(image, asked);
   const choices = windowChoices(image, custom, which);
   const current = matchChoice(choices, voi);
   const { w, l } = formatWindow(voi);
@@ -95,6 +95,8 @@ export function WindowReadout() {
       </button>
       {m.open && (
         <div className="menu statuspop" role="menu" aria-label="Window" ref={m.menu} style={m.place} onKeyDown={m.keys}>
+          {/* Grey levels of a picture have no CT or MR presets, and a window saved in other units would not fit them. */}
+          {which !== 'grey' && (
           <div className="row">
             <span id="window-set">Presets for</span>
             <Choice
@@ -108,7 +110,8 @@ export function WindowReadout() {
               onChange={setWindowSet}
             />
           </div>
-          <hr />
+          )}
+          {which !== 'grey' && <hr />}
           {choices.map((c, i) => {
             const item = (
               <button
@@ -143,19 +146,44 @@ export function WindowReadout() {
               </div>
             );
           })}
-          <hr />
-          <button
-            className="item"
-            role="menuitem"
-            onClick={() => {
-              m.close();
-              set({ savePreset: true });
-            }}
-          >
-            Save current as preset…
-          </button>
+          {which !== 'grey' && (
+            <>
+              <hr />
+              <button
+                className="item"
+                role="menuitem"
+                onClick={() => {
+                  m.close();
+                  set({ savePreset: true });
+                }}
+              >
+                Save current as preset…
+              </button>
+            </>
+          )}
         </div>
       )}
+    </span>
+  );
+}
+
+/**
+ * For a guest who views through the host: the window the host looks through, to read and not
+ * to change. The pictures a guest gets are made with it.
+ */
+export function HostWindow() {
+  const voi = useStore((s) => s.room?.hostVoi ?? null);
+  if (!voi) {
+    return (
+      <span data-testid="host-window" title="The pictures you see are made with the host's window">
+        Window set by the host
+      </span>
+    );
+  }
+  const { w, l } = formatWindow(voi);
+  return (
+    <span data-testid="host-window" title="The pictures you see are made with the host's window" aria-label={`Host's window: width ${w}, level ${l}`}>
+      Host's window <b>W</b> {w} <b>L</b> {l}
     </span>
   );
 }

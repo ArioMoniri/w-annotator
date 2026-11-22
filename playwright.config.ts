@@ -15,10 +15,12 @@ const project =
 
 // The real-data checks need a downloaded case, so they are only part of the run when asked for.
 const realData = process.env.W_REALDATA_DIR ? [] : ['**/real-data.spec.ts'];
+// Rooms on a full-size scan take minutes and gigabytes: `W_SCALE=1 pnpm e2e e2e/room-scale.spec.ts`.
+const scale = process.env.W_SCALE ? [] : ['**/room-scale.spec.ts'];
 
 export default defineConfig({
   testDir: 'e2e',
-  testIgnore: realData,
+  testIgnore: [...realData, ...scale],
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

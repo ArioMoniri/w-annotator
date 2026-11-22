@@ -6,7 +6,8 @@
  * the file and its tags stay on the host's computer.
  */
 
-import { gunzipSync, gzipSync } from 'fflate';
+import { gzipSync } from 'fflate';
+import { gunzipExactly } from './transfer';
 
 export type Axis = 0 | 1 | 2;
 type Dims = [number, number, number];
@@ -70,14 +71,10 @@ export function encodeSlice(image: Uint8Array, labels: Uint8Array): Uint8Array {
   return gzipSync(both, { level: 1 });
 }
 
+/** Null unless the data unpacks to exactly one picture and one set of labels of `length` voxels each. */
 export function decodeSlice(bytes: Uint8Array, length: number): { image: Uint8Array; labels: Uint8Array } | null {
-  try {
-    const both = gunzipSync(bytes);
-    if (both.length !== length * 2) return null;
-    return { image: both.subarray(0, length), labels: both.subarray(length) };
-  } catch {
-    return null;
-  }
+  const both = gunzipExactly(bytes, length * 2);
+  return both && { image: both.subarray(0, length), labels: both.subarray(length) };
 }
 
 export interface Grid {
