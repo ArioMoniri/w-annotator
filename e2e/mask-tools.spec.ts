@@ -5,11 +5,13 @@ import {
   countVoxels as count,
   drag,
   isTinted,
+  joinRoom,
   jumpToVoxel,
   maskDump as dump,
   maskVoxels,
   openPhantom,
   pixelAt,
+  startRoom,
   tintedPixels,
   trace,
   type Voxel,
@@ -401,8 +403,29 @@ test('split gives each island a segment of its own', async ({ page }) => {
   expect(await maskVoxels(page, 1)).toBe(one);
   expect(await maskVoxels(page, 3)).toBe(stray);
   await expect(page.locator('.toast', { hasText: 'Split Segment 1 into 2 segments.' })).toBeVisible();
+  const split = await dump(page);
+  // Undo takes the split back in one step: the voxels, and the segment it made.
+  await page.locator('.segrow[data-segment="3"]').click();
   await page.keyboard.press('Control+z');
   expect(await dump(page)).toBe(withStray);
+  await expect(page.locator('.segrow')).toHaveCount(2);
+  await expect(page.locator('.segrow[data-segment="3"]')).toHaveCount(0);
+  // The segment in hand went with it, so the one it was split from is in hand again.
+  await expect(page.locator('.segrow[data-segment="1"]')).toHaveAttribute('aria-selected', 'true');
+  // Redo brings the segment back as it was, name and colour too.
+  await page.keyboard.press('Control+Shift+z');
+  expect(await dump(page)).toBe(split);
+  await expect(page.locator('.segrow')).toHaveCount(3);
+  await expect(page.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.segrow')).toHaveCount(2);
+  // What the split made is all that undo removes: a segment added by hand stays when its paint is undone.
+  await page.getByRole('button', { name: 'Add segment' }).first().click();
+  await trace(page, 'axial', [[10, 8, 24], [16, 8, 24]]);
+  expect(await maskVoxels(page, 3)).toBeGreaterThan(0);
+  await page.keyboard.press('Control+z');
+  expect(await maskVoxels(page, 3)).toBe(0);
+  await expect(page.locator('.segrow')).toHaveCount(3);
 
   // One island: nothing to split.
   await page.locator('.segrow', { hasText: 'Segment 2' }).hover();
@@ -432,6 +455,60 @@ test('a split that would make many segments asks first and stops at twenty', asy
   await expect(page.locator('.segrow')).toHaveCount(21);
   expect(await maskVoxels(page, 1)).toBe(4 + 10);
   expect(await maskVoxels(page)).toBe(34);
+  // One undo for all twenty.
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.segrow')).toHaveCount(1);
+  expect(await maskVoxels(page, 1)).toBe(34);
+  await page.keyboard.press('Control+Shift+z');
+  await expect(page.locator('.segrow')).toHaveCount(21);
+  await expect(page.locator('.segrow[data-segment="2"] .name')).toHaveText('Lesions 2');
+});
+
+test('in a room, undoing a split removes its segments for everyone, and redo brings them back', async ({ browser }) => {
+  const host = await (await browser.newContext()).newPage();
+  const guest = await (await browser.newContext()).newPage();
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina');
+  await joinRoom(guest, 'Ario', link);
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  await expect.poll(() => maskVoxels(guest)).toBe(await maskVoxels(host));
+
+  // A second island of segment 1, then the split.
+  await host.keyboard.press('b');
+  await trace(host, 'axial', [[10, 40, 24], [16, 40, 24]]);
+  const withStray = await dump(host);
+  await expect.poll(() => dump(guest)).toBe(withStray);
+  await host.locator('.segrow', { hasText: 'Segment 1' }).hover();
+  await host.getByRole('button', { name: 'More for Segment 1' }).click();
+  await host.getByRole('menuitem', { name: 'Split into separate segments' }).click();
+  await expect(host.locator('.segrow')).toHaveCount(3);
+  const split = await dump(host);
+  await expect(guest.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await expect.poll(() => dump(guest)).toBe(split);
+
+  await host.keyboard.press('Control+z');
+  await expect(host.locator('.segrow')).toHaveCount(2);
+  expect(await dump(host)).toBe(withStray);
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  await expect.poll(() => dump(guest)).toBe(withStray);
+
+  await host.keyboard.press('Control+Shift+z');
+  await expect(host.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await expect(guest.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await expect.poll(() => dump(guest)).toBe(split);
+
+  // The guest paints in the new segment; the host's undo then leaves it, with the guest's paint in it.
+  await guest.locator('.segrow[data-segment="3"]').click();
+  await guest.keyboard.press('b');
+  await trace(guest, 'axial', [[10, 8, 24], [16, 8, 24]]);
+  const painted = await maskVoxels(guest, 3);
+  await expect.poll(() => maskVoxels(host, 3)).toBe(painted);
+  await host.keyboard.press('Control+z');
+  await expect.poll(() => maskVoxels(host, 3)).toBeLessThan(painted);
+  expect(await maskVoxels(host, 3)).toBeGreaterThan(0);
+  await expect(host.locator('.segrow')).toHaveCount(3);
+  await expect(guest.locator('.segrow')).toHaveCount(3);
+  await expect.poll(() => dump(guest)).toBe(await dump(host));
 });
 
 for (const size of [

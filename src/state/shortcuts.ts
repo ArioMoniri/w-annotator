@@ -88,6 +88,35 @@ export function comboFromEvent(e: KeyLike): string | null {
   return parts.join('+');
 }
 
+/** What is going on when Esc is pressed. */
+export interface EscapeState {
+  /** The key is being held and this is one of its repeats. */
+  repeat: boolean;
+  /** A menu, popover or dialog is open. */
+  overlay: boolean;
+  /** A pointer button is down: a stroke, a pan, an outline or any other drag is under way. */
+  dragging: boolean;
+  /** A fill preview is waiting for a yes or a no. */
+  preview: boolean;
+  maximised: boolean;
+  /** An edit tool is in hand. */
+  editTool: boolean;
+}
+
+/**
+ * The one rule for an Esc press that reaches the app's own key handler, that is, one no text
+ * field, menu, popover or dialog stopped on the way. While one of those is still open the press
+ * is theirs, and a drag keeps it for itself. Only a press that none of them
+ * took reaches the views, where it cancels a fill preview, or else restores a maximised view,
+ * or else puts an edit tool down. A held key counts once.
+ */
+export function escapeGoesTo(s: EscapeState): 'nothing' | 'preview' | 'maximise' | 'tool' {
+  if (s.repeat || s.overlay || s.dragging) return 'nothing';
+  if (s.preview) return 'preview';
+  if (s.maximised) return 'maximise';
+  return s.editTool ? 'tool' : 'nothing';
+}
+
 export function isReserved(combo: string): boolean {
   return RESERVED.has(combo);
 }

@@ -391,7 +391,13 @@ kbd {
 }
 
 [data-tip]::after {
+  /*
+   * A tip is for the eye only. The empty text after the slash is what the tip is to a screen
+   * reader: nothing, so a control keeps the name its label or its own text gives it. A webview
+   * too old to know the slash keeps the line before it.
+   */
   content: attr(data-tip);
+  content: attr(data-tip) / '';
   position: absolute;
   top: calc(100% + 6px);
   left: 50%;

@@ -4,6 +4,7 @@ import {
   actionFor,
   comboFromEvent,
   defaultBindings,
+  escapeGoesTo,
   formatCombo,
   isReserved,
   rebind,
@@ -127,5 +128,35 @@ describe('settings shortcut', () => {
     expect(actionFor(defaultBindings(), comboFromEvent({ key: ',', ctrlKey: true, metaKey: false, shiftKey: false, altKey: false })!)).toBe('app.settings');
     const { bindings } = rebind(defaultBindings(), 'app.settings', 'mod+shift+p');
     expect(actionFor(bindings, 'mod+shift+p')).toBe('app.settings');
+  });
+});
+
+describe('where an Esc press goes', () => {
+  const free = { repeat: false, overlay: false, dragging: false, preview: false, maximised: false, editTool: false };
+
+  it('goes to nothing while a menu, popover or dialog is open', () => {
+    expect(escapeGoesTo({ ...free, maximised: true, overlay: true })).toBe('nothing');
+    expect(escapeGoesTo({ ...free, preview: true, overlay: true })).toBe('nothing');
+  });
+
+  it('does one thing however long the key is held', () => {
+    expect(escapeGoesTo({ ...free, maximised: true, repeat: true })).toBe('nothing');
+    expect(escapeGoesTo({ ...free, preview: true, repeat: true })).toBe('nothing');
+    expect(escapeGoesTo({ ...free, editTool: true, repeat: true })).toBe('nothing');
+  });
+
+  it('leaves the layout and the tool alone in the middle of a drag', () => {
+    expect(escapeGoesTo({ ...free, maximised: true, dragging: true })).toBe('nothing');
+    expect(escapeGoesTo({ ...free, editTool: true, dragging: true })).toBe('nothing');
+  });
+
+  it('cancels a fill preview before anything else', () => {
+    expect(escapeGoesTo({ ...free, preview: true, maximised: true, editTool: true })).toBe('preview');
+  });
+
+  it('restores a maximised view, and only then puts the edit tool down', () => {
+    expect(escapeGoesTo({ ...free, maximised: true, editTool: true })).toBe('maximise');
+    expect(escapeGoesTo({ ...free, editTool: true })).toBe('tool');
+    expect(escapeGoesTo(free)).toBe('nothing');
   });
 });

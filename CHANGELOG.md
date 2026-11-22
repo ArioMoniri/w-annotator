@@ -30,6 +30,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Low contrast: the W and L numbers beside a preset and the segment number were hard to read on a selected or pointed-at row.
 - The view name and the slice counter were hard to read over a bright image. Each now has a small dark backing.
 - The README and Settings → Help gave CC BY 4.0 for both sources of the sample. LIDC-IDRI is CC BY 3.0.
+- Esc restores a maximised view only when nothing else took it. Holding Esc a moment too long to close a menu, or pressing it in the middle of a brush stroke or a pan, no longer changes the layout or the tool.
+- A tooltip is no longer read out as part of a button's name. A screen reader says "Apply", not "Apply Apply Enter".
+- In the Grow, Shrink, Smooth, Remove small islands and Combine popovers of a segment, Tab and Shift+Tab reach every control and stay inside, also on a Mac.
+- Opening a mask, showing a hidden comparison mask or switching the mask being edited no longer sends the views back to the middle slice and the fitted zoom.
+- Undo of "Split into separate segments" also removes the segments the split made, for everyone in a room, and redo brings them back with their names and colours.
 
 ## [0.1.2] - 2026-11-21
 

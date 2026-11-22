@@ -513,6 +513,8 @@ export function showMask(vol: VolumeData): void {
   forgetComparisons();
   forgetPreview();
   removeVolume(MASK_VOLUME_ID);
+  // Opening or swapping a mask is not a reason to leave the slice, zoom and place on screen.
+  keepSlicesWhileAdding();
   geometry.set(MASK_VOLUME_ID, vol);
   // Tie the mask to the image so the threshold brush reads image values, not mask values.
   const imageIds = cache.getVolume(IMAGE_VOLUME_ID)?.imageIds;
@@ -580,6 +582,7 @@ export function showComparisons(list: Comparison[]): void {
   }
   forgetComparisons();
   const imageIds = cache.getVolume(IMAGE_VOLUME_ID)?.imageIds;
+  if (list.length > 0) keepSlicesWhileAdding(list.length);
   for (const item of list) {
     const volumeId = compareVolume(item.id);
     const segmentationId = compareSegmentation(item.id);
@@ -664,30 +667,44 @@ export function showPreview(vol: VolumeData, color: string): void {
   repaintMask();
 }
 
+/** Camera resets still to come in each slice view from labelmaps that were just added. */
+const resetsToCome = new Map<string, number>();
+let stopKeeping: (() => void) | null = null;
+
 /**
  * Adding a labelmap makes the viewer reset each slice view's camera and put it straight
- * back. The reference lines answer a reset by sending every view to its middle slice,
- * which would lose the user's place, so they sit out the resets this one addition causes.
+ * back. The reference lines answer a reset by sending every view to its middle slice at
+ * its fitted zoom, which would lose the user's place, so they sit out the resets that
+ * adding `count` labelmaps causes: one for each labelmap in each slice view.
  */
-function keepSlicesWhileAdding(): void {
-  const e = engine;
-  if (!e) return;
-  const waiting = new Set<string>(ORTHO_IDS);
+function keepSlicesWhileAdding(count = 1): void {
+  if (!engine || count <= 0) return;
+  for (const id of ORTHO_IDS) resetsToCome.set(id, (resetsToCome.get(id) ?? 0) + count);
+  LinkedLinesTool.followResets = false;
+  // One watch for every addition that is still on its way.
   const offs: (() => void)[] = [];
+  stopKeeping?.();
   const done = () => {
-    clearTimeout(timer);
-    offs.forEach((off) => off());
+    stop();
+    resetsToCome.clear();
     LinkedLinesTool.followResets = true;
   };
   // Long enough for the largest labelmap to reach the views; the resets normally end it sooner.
   const timer = setTimeout(done, 5000);
-  LinkedLinesTool.followResets = false;
+  const stop = () => {
+    clearTimeout(timer);
+    offs.forEach((off) => off());
+    stopKeeping = null;
+  };
+  stopKeeping = stop;
   for (const id of ORTHO_IDS) {
     const el = orthoViewport(id).element;
     const onReset = () => {
-      waiting.delete(id);
-      // After the lines have had their turn with this event.
-      if (waiting.size === 0) setTimeout(done, 0);
+      const left = (resetsToCome.get(id) ?? 1) - 1;
+      if (left > 0) resetsToCome.set(id, left);
+      else resetsToCome.delete(id);
+      // After the lines have had their turn with this event, unless more was added meanwhile.
+      if (resetsToCome.size === 0) setTimeout(() => resetsToCome.size === 0 && stopKeeping === stop && done(), 0);
     };
     el.addEventListener(Enums.Events.CAMERA_RESET, onReset);
     offs.push(() => el.removeEventListener(Enums.Events.CAMERA_RESET, onReset));
