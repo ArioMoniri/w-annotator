@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { cleanLabels } from './rooms';
 import { MEMBERSHIP_DAYS, parseRooms, pruneRooms, upsertRoom, withoutRoom, type SavedRoom } from './rooms';
 
 const DAY = 86_400_000;
@@ -33,5 +34,25 @@ describe('my rooms', () => {
     expect(parseRooms('not json')).toEqual([]);
     expect(parseRooms(null)).toEqual([]);
     expect(parseRooms('{}')).toEqual([]);
+  });
+
+  it('keeps that a room is hosted on the host’s computer, and the host’s notes for links', () => {
+    const base = { id: 'K7Q2M9XA4TDP', server: 'ws://127.0.0.1:8787', role: 'host', seed: 's', key: 'k', host: null, at: 5 };
+    const [plain] = parseRooms(JSON.stringify([base]));
+    expect(plain).toEqual(base);
+    const [kept] = parseRooms(JSON.stringify([{ ...base, hosted: true, labels: { abc: 'for Sam', bad: 7, long: 'x'.repeat(40) } }]));
+    expect(kept.hosted).toBe(true);
+    expect(kept.labels).toEqual({ abc: 'for Sam' });
+    // Anything else in those places is dropped, not passed on.
+    const [odd] = parseRooms(JSON.stringify([{ ...base, hosted: 'yes', labels: ['x'] }]));
+    expect(odd).toEqual(base);
+  });
+
+  it('holds no more notes than a room has links', () => {
+    const many = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`id${i}`, `note ${i}`]));
+    const kept = cleanLabels(many);
+    expect(Object.keys(kept)).toHaveLength(64);
+    expect(kept.id79).toBe('note 79');
+    expect(kept.id0).toBeUndefined();
   });
 });

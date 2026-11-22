@@ -143,7 +143,10 @@ impl Host {
 
     /// Stops the relay and waits until its port is free. Does nothing if not hosting.
     pub async fn stop(&self) {
-        let Some(running) = self.0.lock().await.take() else {
+        // The slot stays locked until the port is free: a start that comes right
+        // after waits, and so gets the same port again.
+        let mut slot = self.0.lock().await;
+        let Some(running) = slot.take() else {
             return;
         };
         if let Some((dir, keeper)) = running.keeper {

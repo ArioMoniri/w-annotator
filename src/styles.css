@@ -3243,6 +3243,66 @@ button.avatar {
   min-width: 0;
 }
 
+/* Choices for the next invite link: folded away until asked for. */
+.linkoptions summary {
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.linkoptions .fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.linkoptions label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.linkoptions .help {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: normal;
+}
+
+.linkoptions .select {
+  width: 100%;
+}
+
+.roommenu .linkoptions {
+  padding: 4px 8px 8px;
+}
+
+.roommenu .linkoptions input[type='text'] {
+  height: 28px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--text-1);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.people .person .rolebox {
+  position: relative;
+  flex: none;
+}
+
+.people .person .select.role {
+  height: 24px;
+  font-size: 12px;
+  max-width: 96px;
+}
+
 .people .person .who {
   display: flex;
   align-items: center;

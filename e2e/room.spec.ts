@@ -194,7 +194,7 @@ test('the host can switch a link off before it is used', async ({ browser }) => 
   await openPhantom(host);
   const link = await startRoom(host, 'Mina');
   await host.getByTestId('room-pill').click();
-  await expect(host.getByTestId('room-links')).toContainText('Link 1 · expires in 24 h');
+  await expect(host.getByTestId('room-links')).toContainText('Link 1 · 1 use left · 24 h left');
   await host.getByRole('button', { name: 'Switch off' }).click();
   await expect(host.getByTestId('room-links')).toHaveCount(0);
 

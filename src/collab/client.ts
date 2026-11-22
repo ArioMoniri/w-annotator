@@ -193,6 +193,8 @@ export interface RoomEvents {
   onFrame(header: FrameHeader, meta: Meta | null, body: Uint8Array): void;
   /** The connection is over for good. */
   onEnded(code: number, reason: string): void;
+  /** A connection closed and another will be tried. `code` says why, e.g. 4404 when the room server does not know the room. */
+  onRetry?(code: number): void;
   /** Everyone else in the room, for a host that has to open it again. */
   members(): MemberKey[];
 }
@@ -333,6 +335,7 @@ export class RoomClient {
       }
       if (next === 'recreate') this.mode = { t: 'create', type: this.kind, members: this.events.members() };
       this.events.onStatus('offline');
+      this.events.onRetry?.(ev.code);
       this.timer = setTimeout(() => this.connect(), retryDelay(this.attempts++));
     };
   }
