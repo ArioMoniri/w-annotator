@@ -426,3 +426,15 @@ test('at 1024 wide the window hint moves to a tooltip and is not lost', async ({
   await page.getByLabel('Window width').focus();
   await expect.poll(tipOpacity).toBe('1');
 });
+
+test('the sample can be opened from the empty state after the tour was skipped', async ({ page }) => {
+  await skipTour(page);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Drop an image and a mask' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open the sample', exact: true }).click();
+  await page.locator('[data-view="axial"] canvas').first().waitFor({ timeout: 30_000 });
+  await expect(page.locator('.filebtn')).toContainText('chest_ct');
+  await expect(page.locator('.segrow', { hasText: 'Left lung' })).toBeVisible();
+  // The sample, not the tour: no card comes up.
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

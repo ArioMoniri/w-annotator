@@ -204,12 +204,13 @@ Rail, strip, right panel and status bar are hidden; only the top bar (app name, 
             │      [ Open image ]   [ Open mask ]         │
             │                                             │
             └─────────────────────────────────────────────┘
-                              Join a room                    text button
+               Join a room · Open the sample · Settings      text buttons
                       Recent                                 up to 5 rows, if any
 ```
 
 - Drop zone: 560 × 320 max (shrinks to 80 % of width), 1px dashed `--border-strong`, radius `--radius-lg`, centred.
 - `Open image` is the primary button, `Open mask` secondary and disabled until an image is loaded.
+- `Open the sample` opens the scan the welcome tour uses, without the tour, so someone who skipped the tour can still find it.
 - Appearance: the same three-way control, icons only (sun, moon, monitor; 28 × 24 each), in the bottom-right corner, 12 from the edges. Tooltips: `Light appearance`, `Dark appearance`, `Match system appearance`.
 - The whole window is the real drop target; the box is the affordance. Once an image is open, dragging a file over the app shows a full-window overlay: `Drop to add as mask` or `Drop to replace image`, decided by file type and dimensions.
 
@@ -673,7 +674,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Body | MHA, NIfTI, NRRD or a DICOM folder. The mask is optional. |
 | Buttons | Open image · Open mask |
 | Open mask disabled tooltip | Open an image first. |
-| Link | Join a room |
+| Links | Join a room · Open the sample · Settings |
 | Recent heading | Recent |
 | Dragging over (empty) | Drop to open |
 | Dragging over (image open, mask file) | Drop to add as mask |
