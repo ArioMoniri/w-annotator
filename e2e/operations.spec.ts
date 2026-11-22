@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { formatVoxels } from '../src/mask/ops';
 import { copiedText, drag, maskVoxels, openPhantom } from './helpers';
 
 const dump = (page: Page) =>
@@ -98,7 +99,7 @@ test('keep largest island removes a stray painted blob', async ({ page }) => {
 
   await openMenu(page, 'Segment 1');
   await page.getByRole('menuitem', { name: 'Keep largest island' }).click();
-  await expect(page.locator('.toast')).toContainText(`Removed ${painted - voxels} voxels outside the largest island of Segment 1`);
+  await expect(page.locator('.toast')).toContainText(`Removed ${formatVoxels(painted - voxels, [1, 1, 1])} outside the largest island of Segment 1`);
   expect(await maskVoxels(page, 1)).toBe(voxels);
 
   await page.keyboard.press('Control+z');
@@ -135,7 +136,7 @@ test('fill holes closes a cavity erased inside a segment', async ({ page }) => {
 
   await openMenu(page, 'Segment 1');
   await page.getByRole('menuitem', { name: 'Fill holes' }).click();
-  await expect(page.locator('.toast')).toContainText(`Filled ${voxels - hollow} voxels in Segment 1`);
+  await expect(page.locator('.toast')).toContainText(`Filled ${formatVoxels(voxels - hollow, [1, 1, 1])} in Segment 1`);
   expect(await maskVoxels(page, 1)).toBe(voxels);
 
   await openMenu(page, 'Segment 1');

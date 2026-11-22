@@ -135,7 +135,7 @@ interface State {
   /** What painting may write over: everything, empty voxels only, or the inside of one segment (its index). */
   paintOver: PaintOver;
   /** A fill between slices that is shown but not yet done. */
-  preview: { count: number; view: string; segment: number } | null;
+  preview: { count: number; /** The same amount as a volume, ready to show. */ size: string; view: string; segment: number } | null;
 
   segments: SegmentInfo[];
   activeSegment: number;

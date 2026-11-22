@@ -24,7 +24,7 @@ import {
   combine,
   countIslands,
   fillHoles,
-  formatVolume,
+  formatVoxels,
   grow,
   islandAt,
   keepLargestIsland,
@@ -50,7 +50,7 @@ import {
 } from './mask/patch';
 import { segmentAt } from './mask/pick';
 import { FillPreview } from './mask/preview';
-import { cut, sliceRange, viewMap, type Cut, type Point } from './mask/scissors';
+import { cut, offScreen, sliceRange, viewMap, type Cut, type Point } from './mask/scissors';
 import { RoomClient, type JoinMode, type TextMessage } from './collab/client';
 import { makeRoomKey, unwrapRoomKey, wrapRoomKey } from './collab/crypto';
 import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane, type Axis } from './collab/hostview';
@@ -1078,7 +1078,7 @@ export function fillBetweenSlices(): void {
   }
   previewVol = shown;
   engine.showPreview(shown, seg.color);
-  set({ preview: { count, view, segment: seg.index } });
+  set({ preview: { count, size: volumeOf(count), view, segment: seg.index } });
 }
 
 function endPreview(): void {
@@ -1098,7 +1098,7 @@ export function applyFillPreview(): void {
     fillPreview.apply(d, dims, shown);
   });
   endPreview();
-  if (n > 0) toast('info', `Filled ${n.toLocaleString('en-US')} voxels between ${p.view} slices`, { label: 'Undo', run: undo });
+  if (n > 0) toast('info', `Filled ${volumeOf(n)} between ${p.view} slices`, { label: 'Undo', run: undo });
   else toast('info', 'There was nothing left to fill.');
 }
 
@@ -1133,11 +1133,17 @@ export async function cutOutline(view: ViewId, outline: Point[]): Promise<void> 
     label: seg.index,
     writable: writableValues(s.paintOver, s.segments),
   };
+  // Erasing outside the outline on one slice also takes what is beyond the edge of a zoomed-in view.
+  const size = c.action === 'eraseOutside' && !all ? engine.viewSize(view) : null;
+  let unseen = 0;
   const n = await runOperation(fill ? `Filling ${seg.name}…` : `Erasing ${seg.name}…`, (d) => {
+    if (size) unseen = offScreen(d, dims, c, size);
     cut(d, dims, c);
+    if (size && unseen > 0) unseen -= offScreen(d, dims, c, size);
   });
-  // A cut through the stack changes slices that are not on screen, so it says what it did.
-  if (n > 0 && all) toast('info', `${fill ? 'Filled' : 'Erased'} ${voxels(n)} of ${seg.name} on all ${view} slices`, { label: 'Undo', run: undo });
+  // A cut that changed what is not on screen says what it did: other slices, or parts out of view.
+  if (n > 0 && all) toast('info', `${fill ? 'Filled' : 'Erased'} ${volumeOf(n)} of ${seg.name} on all ${view} slices`, { label: 'Undo', run: undo });
+  else if (n > 0 && unseen > 0) toast('info', `Erased ${volumeOf(n)} of ${seg.name} on this slice, some of it outside the view`, { label: 'Undo', run: undo });
   else if (n === 0 && fill) limitHint();
 }
 
@@ -1172,9 +1178,12 @@ export async function editIslandAt(view: ViewId, x: number, y: number): Promise<
   const n = await runOperation(`Looking for islands in ${seg.name}…`, (d) => {
     islandAt(d, dims, seg.index, ijk, action);
   });
-  const size = formatVolume((n * spacing[0] * spacing[1] * spacing[2]) / 1000);
+  const size = formatVoxels(n, spacing);
   if (n > 0) {
-    toast('info', action === 'remove' ? `Removed an island of ${seg.name}, ${size}` : `Removed ${size} of ${seg.name} outside this island`, { label: 'Undo', run: undo });
+    // One click on a segment in one piece takes all of it, so the toast says so.
+    const whole = action === 'remove' && !(mask.data as Uint8Array).includes(seg.index);
+    const text = whole ? `Removed all of ${seg.name}, ${size}. It was one island.` : action === 'remove' ? `Removed an island of ${seg.name}, ${size}` : `Removed ${size} of ${seg.name} outside this island`;
+    toast('info', text, { label: 'Undo', run: undo });
   } else if (n === 0) toast('info', `${seg.name} is already one island.`);
 }
 
@@ -1271,7 +1280,8 @@ async function runOperation(label: string, fn: (data: Uint8Array) => void): Prom
   }
 }
 
-const voxels = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'voxel' : 'voxels'}`;
+/** How much `n` voxels of the open mask are, in mL or mm³, as the measurements write a volume. */
+const volumeOf = (n: number) => formatVoxels(n, mask?.spacing ?? [1, 1, 1]);
 
 /** Grow, shrink, smooth (mm), fill holes, keep the largest island or remove small islands (mm³) on one segment. */
 export async function refineSegment(index: number, op: RefineOp, amount = 0): Promise<void> {
@@ -1301,19 +1311,19 @@ export async function refineSegment(index: number, op: RefineOp, amount = 0): Pr
     fillHoles: {
       busy: `Filling holes in ${name}…`,
       run: (d) => fillHoles(d, dims, index),
-      done: (n) => `Filled ${voxels(n)} in ${name}`,
+      done: (n) => `Filled ${volumeOf(n)} in ${name}`,
       none: `No holes in ${name}.`,
     },
     keepLargest: {
       busy: `Looking for islands in ${name}…`,
       run: (d) => keepLargestIsland(d, dims, index),
-      done: (n) => `Removed ${voxels(n)} outside the largest island of ${name}`,
+      done: (n) => `Removed ${volumeOf(n)} outside the largest island of ${name}`,
       none: `${name} is already one island.`,
     },
     removeSmall: {
       busy: `Looking for islands in ${name}…`,
       run: (d) => removeSmallIslands(d, dims, spacing, index, amount),
-      done: (n) => `Removed ${voxels(n)} in small islands of ${name}`,
+      done: (n) => `Removed ${volumeOf(n)} in small islands of ${name}`,
       none: `No islands under ${amount} mm³ in ${name}.`,
     },
   };
@@ -1333,7 +1343,7 @@ export async function addSegmentInto(target: number, other: number): Promise<voi
   const n = await runOperation(`Adding ${from.name} to ${seg.name}…`, (d) => {
     combine(d, target, other, 'union');
   });
-  if (n > 0) toast('info', `Added ${from.name} to ${seg.name}, ${voxels(n)}`, { label: 'Undo', run: undo });
+  if (n > 0) toast('info', `Added ${from.name} to ${seg.name}, ${volumeOf(n)}`, { label: 'Undo', run: undo });
   else if (n === 0) toast('info', `${from.name} is empty.`);
 }
 

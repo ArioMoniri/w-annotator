@@ -345,7 +345,7 @@ export function OptionsStrip() {
             {fillAction === 'fill'
               ? 'Click an enclosed area to fill it on this slice.'
               : fillAction === 'remove'
-                ? 'Click a separate piece of the segment to remove it.'
+                ? 'Click a piece of the segment to remove it. A segment in one piece is removed whole.'
                 : 'Click the piece of the segment to keep. The rest is removed.'}
           </span>
         </>
@@ -357,7 +357,7 @@ export function OptionsStrip() {
     body = (
       <>
         <span className="hint keep" role="status">
-          Preview: {preview.count.toLocaleString('en-US')} voxels between {preview.view} slices.
+          Preview: {preview.size} between {preview.view} slices.
         </span>
         <button className="btn primary" data-tip="Apply  Enter" data-tip-side="bottom" onClick={applyFillPreview}>
           Apply

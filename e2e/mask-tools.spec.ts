@@ -14,6 +14,10 @@ import {
   trace,
   type Voxel,
 } from './helpers';
+import { formatVoxels } from '../src/mask/ops';
+
+/** How a toast writes a number of voxels of the phantom, whose voxels are 1 mm each way. */
+const size = (voxels: number) => formatVoxels(voxels, [1, 1, 1]);
 
 const chip = (page: Page) => page.locator('.strip .chip');
 
@@ -93,7 +97,7 @@ test('erase outside through all slices crops the segment to the outline, with a 
   expect(await maskVoxels(page, 1)).toBe(inside);
   expect(await count(page, 'v === 1 && x < 29')).toBe(0);
   expect(await maskVoxels(page, 2)).toBe(two);
-  const toast = page.locator('.toast', { hasText: `Erased ${(all - inside).toLocaleString('en-US')} voxels of Segment 1 on all axial slices` });
+  const toast = page.locator('.toast', { hasText: `Erased ${size(all - inside)} of Segment 1 on all axial slices` });
   await expect(toast).toBeVisible();
   await toast.getByRole('button', { name: 'Undo' }).click();
   expect(await dump(page)).toBe(before);
@@ -276,7 +280,7 @@ test('fill between slices shows a preview and writes nothing until it is applied
   expect(await tintedPixels(page, 'axial')).toBe(0);
 
   await page.keyboard.press('i');
-  await expect(page.locator('.strip [role="status"]')).toHaveText(/^Preview: [\d,]+ voxels between axial slices\.$/);
+  await expect(page.locator('.strip [role="status"]')).toHaveText(/^Preview: [\d,.]+ (mm³|mL) between axial slices\.$/);
   await page.waitForTimeout(400);
   expect(await tintedPixels(page, 'axial')).toBeGreaterThan(200);
   expect(await dump(page)).toBe(painted);
@@ -299,7 +303,7 @@ test('fill between slices shows a preview and writes nothing until it is applied
   await page.getByRole('button', { name: 'Apply' }).click();
   const filled = await maskVoxels(page, 1);
   expect(filled).toBeGreaterThan(two * 1.5);
-  await expect(page.locator('.toast', { hasText: `Filled ${(filled - two).toLocaleString('en-US')} voxels between axial slices` })).toBeVisible();
+  await expect(page.locator('.toast', { hasText: `Filled ${size(filled - two)} between axial slices` })).toBeVisible();
   await page.keyboard.press('Control+z');
   expect(await dump(page)).toBe(painted);
   await page.keyboard.press('i');

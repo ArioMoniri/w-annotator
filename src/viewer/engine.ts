@@ -1069,6 +1069,13 @@ function canvasSize(vp: { canvas: HTMLCanvasElement }): { w: number; h: number }
   return w > 0 && h > 0 ? { w, h } : null;
 }
 
+/** A slice view's size on screen, in the pixels `viewFrame` counts in. Null while it is not shown. */
+export function viewSize(id: string): [number, number] | null {
+  if (!engine || !imageLoaded) return null;
+  const size = canvasSize(orthoViewport(id));
+  return size ? [size.w, size.h] : null;
+}
+
 /** Draws now whatever is waiting for the next frame. */
 function renderNow(): void {
   if (!engine) return;

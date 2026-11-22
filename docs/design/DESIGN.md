@@ -100,10 +100,10 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
 | Window / Level | Preset select (the same list as the window menu in the status bar, 2.6; `Custom` when the window is no preset) · `W` number · `L` number · `Reset` (the Auto window) · hint `Ctrl-drag a box to set the window from it.` (`⌘-drag` on a Mac; the hint is shown whole or not at all). Ctrl-drag (⌘-drag) on a slice view draws a box, a dashed white line with a dark edge in the layer the scissors outline uses; on release the window becomes the 1st–99th percentile of the values under it on that slice. Esc drops the box. Nothing is written. On a trackpad a two-finger scroll changes the level (up and down) or the width (sideways) instead of the slice; Shift+scroll changes slice. |
 | Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. · `Fill between slices` button. |
-| Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1,204 voxels between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, or saving cancels with a toast. Scrolling, zoom and window work as usual. |
+| Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1.2 mL between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, undo, redo or saving cancels with a toast. Scrolling, zoom and window work as usual. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
 | Threshold brush | Range dual slider + two numbers (image units) · Size slider + number · Paint over select (`Everything`, `Empty only`, `Only <segment>` for each other segment) |
-| Scissors | Shape `Rectangle / Circle / Freehand / Sphere` · Action `Erase inside / Erase outside / Fill inside` (no Erase outside for Sphere) · Depth `This slice / All slices` (not for Sphere) · Paint over select, only with Fill inside. Freehand: drag a loop, release to close it; where it crosses itself the even-odd rule decides. The outline being drawn is a dashed white line with a dark edge, in a layer over the view. Esc while dragging drops it. Erasing changes the active segment only. A cut through all slices answers with a toast and Undo. |
+| Scissors | Shape `Rectangle / Circle / Freehand / Sphere` · Action `Erase inside / Erase outside / Fill inside` (no Erase outside for Sphere) · Depth `This slice / All slices` (not for Sphere) · Paint over select, only with Fill inside. Freehand: drag a loop, release to close it; where it crosses itself the even-odd rule decides. The outline being drawn is a dashed white line with a dark edge, in a layer over the view. Esc while dragging drops it. Erasing changes the active segment only. A cut that changed something not on screen answers with a toast and Undo: a cut through all slices, and Erase outside on one slice when part of what it erased was beyond the edge of the view. |
 | Fill | Action `Fill area / Remove island / Keep island` · Paint over select, only with Fill area · hint for the action. An island is a piece of the active segment joined through voxel faces, in 3D. |
 
 Where the strip is tight (compact level 2 and up) segmented buttons show a short label and keep the full one as their accessible name: `Rect`, `Free`, `Erase in`, `Erase out`, `Fill`, `Slice`, `All`, `Remove`, `Keep`. The chip names the paint over limit for tools that add voxels: `Tumour, inside Liver` or `Tumour, empty only`.
@@ -415,7 +415,9 @@ Click selects. Double-click the name or press F2 renames. Click the swatch opens
 - Box: `--bg-raised`, `--shadow-2`, radius `--radius-md`, padding 8 × 12, min 240, max 420 wide, 13px. Layout: `[icon 16] message [action] [×]`.
 - Icon colour carries the type: info `--text-2`, success `--ok`, warning `--warn`, error `--danger`. No coloured backgrounds.
 - One optional action as a text button in `--accent` (`Undo`, `Retry`).
-- Lifetime: 4 s; 6 s with an action; errors stay until dismissed. Timer pauses on hover and focus.
+- Lifetime: 4 s; 6 s with an action; errors stay until dismissed. Timer pauses on hover and focus, and goes on with the time that was left.
+- Amounts of mask are written as a volume, in mL, or mm³ under half a millilitre, as in the measurements. Toasts do not count voxels.
+- `Undo` on a toast means the step that toast describes. A newer edit, an undo or a redo takes the button off older toasts; the message stays for its time.
 - Info/success: `role="status"`. Errors: `role="alert"`.
 - Routine feedback that has a home elsewhere (saved, synced) goes to the status bar, not a toast.
 
@@ -592,14 +594,14 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Window / Level | Preset · Custom · Soft tissue · Abdomen · Liver · Pancreas · Lung · Bone · Brain · Stroke · Subdural · Auto · Full range · Bright fluid · Dark detail · W · L · Reset · Ctrl-drag a box to set the window from it. (⌘-drag on a Mac) · toast when the box misses the image: Drag the box over the image to set the window from it. |
 | Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices (short: Fill gaps) |
 | Paint over tooltip | Empty only keeps other segments as they are. (select: … Only paints inside one segment.) · list tooltip: Paint only inside one segment |
-| Fill preview | Preview: 1,204 voxels between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
+| Fill preview | Preview: 1.2 mL between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
 | Eraser | Size · px · Shape · Circle · Sphere · Active segment only |
 | Threshold brush | Range · to · Size · px |
 | Threshold brush tooltip | Paints only where the image value is inside the range. |
 | Scissors | Shape · Rectangle · Circle · Freehand · Sphere · Action · Erase inside · Erase outside · Fill inside · Depth · This slice · All slices · Paint over |
 | Depth tooltip | All slices cuts through the whole stack of this view. |
 | Fill | Action · Fill area · Remove island · Keep island · Paint over |
-| Fill hints | Click an enclosed area to fill it on this slice. / Click a separate piece of the segment to remove it. / Click the piece of the segment to keep. The rest is removed. |
+| Fill hints | Click an enclosed area to fill it on this slice. / Click a piece of the segment to remove it. A segment in one piece is removed whole. / Click the piece of the segment to keep. The rest is removed. |
 | Size tooltip | Brush size `[` `]` |
 | Active segment chip tooltip | Painting on Liver |
 | No segment chip | No segment |
@@ -700,16 +702,17 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Mask saved to new file | Saved to liver_mask.nii.gz |
 | Segment deleted | Liver deleted · Undo |
 | Segment cleared | Liver cleared · Undo |
-| Large operation done (fill, whole volume) | Filled 18,204 voxels · Undo |
+| Large operation done (fill, whole volume) | Filled 18.2 mL · Undo |
 | Nothing to fill | Nothing to fill here. |
 | Grow, shrink, smooth | Grew Liver by 2 mm · Undo / Shrank Liver by 2 mm · Undo / Smoothed Liver by 2 mm · Undo |
-| Fill holes | Filled 1,204 voxels in Liver · Undo / No holes in Liver. |
-| Islands | Removed 310 voxels outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 voxels in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
-| Combine | Added Tumour to Liver, 1,204 voxels · Undo |
-| Scissors, all slices | Erased 1,204 voxels of Liver on all axial slices · Undo / Filled 1,204 voxels of Liver on all axial slices · Undo |
-| Clicked island | Removed an island of Liver, 320 mm³ · Undo / Removed 1.2 mL of Liver outside this island · Undo / Liver is already one island. / Click a part of Liver. |
+| Fill holes | Filled 1.2 mL in Liver · Undo / No holes in Liver. |
+| Islands | Removed 310 mm³ outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 mm³ in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
+| Combine | Added Tumour to Liver, 1.2 mL · Undo |
+| Scissors, all slices | Erased 1.2 mL of Liver on all axial slices · Undo / Filled 1.2 mL of Liver on all axial slices · Undo |
+| Scissors, Erase outside on this slice, when part of what it erased was out of view | Erased 320 mm³ of Liver on this slice, some of it outside the view · Undo |
+| Clicked island | Removed an island of Liver, 320 mm³ · Undo / Removed all of Liver, 1,480 mL. It was one island. · Undo / Removed 1.2 mL of Liver outside this island · Undo / Liver is already one island. / Click a part of Liver. |
 | Split | Split Liver into 3 segments. · Undo / Split Liver into 21 segments. The 12 smallest islands stay in Liver. · Undo / Liver is already one island. |
-| Fill between slices | Filled 1,204 voxels between axial slices · Undo / Fill preview cancelled. / There was nothing left to fill. / Paint Liver on two axial slices with a gap between them, then fill. |
+| Fill between slices | Filled 1.2 mL between axial slices · Undo / Fill preview cancelled. / There was nothing left to fill. / Paint Liver on two axial slices with a gap between them, then fill. |
 | Paint over limit | Nothing was painted: Paint over is set to Only Liver. / Nothing was painted: Paint over is set to Empty only. (once per choice) / Paint over is back to Everything. (its segment was deleted or became the active one) |
 | Operation changed nothing | Liver did not change. |
 | Go to an empty segment | Liver is empty. |
