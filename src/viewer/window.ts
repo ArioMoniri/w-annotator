@@ -20,25 +20,32 @@ export interface WindowPreset {
 /**
  * CT windows in Hounsfield units, abdominal ones together.
  *
- * All but Pancreas follow Radiopaedia, "Windowing (CT)", https://doi.org/10.53347/rID-52108
- * (revised 7 Jan 2025): soft tissues W 350–400 L 20–60, liver W 150 L 30, lungs W 1500
- * L −600, bone W 1800 L 400, brain W 80 L 40, stroke W 40 L 40, subdural W 130–300 L 50–100.
- * Where that page gives a range (Soft tissue, Abdomen, Subdural), the value here is one
- * inside it.
+ * All but the two pancreas windows follow Radiopaedia, "Windowing (CT)",
+ * https://doi.org/10.53347/rID-52108 (revised 7 Jan 2025): soft tissues W 350–400 L 20–60,
+ * liver W 150 L 30, lungs W 1500 L −600, bone W 1800 L 400, brain W 80 L 40, stroke W 40 L 40,
+ * subdural W 130–300 L 50–100. Where that page gives a range (Soft tissue, Abdomen, Subdural),
+ * the value here is one inside it.
  *
- * Pancreas is not a standard preset and is not on that list. It is a narrow window chosen
- * by this project, at the owner's request, for a contrast-enhanced pancreas: W 150, L 65,
- * which shows −10 to 140 HU. The width and the range L 50–80 are taken from one paper on
- * a pancreatitis severity index ("Management of Acute Pancreatitis by Using Modified Computed
- * Tomography Severity Index", Int J Contemp Med Surg Radiol 2018;3(1)), which is not a
- * windowing reference; L 65 is the middle of that range, picked here. On an unenhanced scan
- * the gland is dark grey in this window. A site with its own value saves it as a preset.
+ * Pancreas: there is no dedicated standard pancreas window. Published pancreas CT studies show
+ * the gland on the abdominal soft-tissue window, and this preset is the one in Marin D, et al.,
+ * "Detection of Pancreatic Tumors, Image Quality, and Radiation Dose during the Pancreatic
+ * Parenchymal Phase: Effect of a Low-Tube-Voltage, High-Tube-Current CT Technique — Preliminary
+ * Results", Radiology 2010, https://doi.org/10.1148/radiol.10091819: a preset soft-tissue
+ * window, width 350 HU, level 40 HU. A later study uses nearly the same (width 400 HU, level
+ * 40 HU; Cancer Imaging 2023, https://doi.org/10.1186/s40644-023-00637-9), which is Soft
+ * tissue here.
+ *
+ * "Pancreas, narrow" is not a published preset. It is a narrow window chosen by this project
+ * for low-attenuation lesions on a contrast-enhanced scan: W 150, L 65, which shows −10 to
+ * 140 HU. On an unenhanced scan the gland is dark grey in it. A site with its own value saves
+ * it as a preset.
  */
 export const CT_PRESETS: readonly WindowPreset[] = [
   { name: 'Soft tissue', w: 400, l: 40 },
   { name: 'Abdomen', w: 350, l: 50 },
   { name: 'Liver', w: 150, l: 30 },
-  { name: 'Pancreas', w: 150, l: 65 },
+  { name: 'Pancreas', w: 350, l: 40 },
+  { name: 'Pancreas, narrow', w: 150, l: 65 },
   { name: 'Lung', w: 1500, l: -600 },
   { name: 'Bone', w: 1800, l: 400 },
   { name: 'Brain', w: 80, l: 40 },
