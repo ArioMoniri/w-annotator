@@ -82,13 +82,14 @@ The relay prints one line when it starts and nothing afterwards.
 | Members per room | 16 |
 | Per connection | 200 messages/s and 20 MiB/s; over that it is closed with 4429 |
 | Per room | 800 frames/s and 80 MiB/s; over that frames are dropped |
-| Outbound queue per connection | 16 MiB or 1024 messages; a member that falls behind is closed with 4002 and catches up by sequence number |
+| Outbound queue per connection | 16 MiB or 4096 messages; a member that falls behind is closed with 4002 and catches up by sequence number. From half full, file frames from other members are refused (`busy`) |
+| New TCP connection | 10 s to send a whole request; at most 8256 open at once (twice the connection limit plus 64) |
 | Invites per room | 64; default 24 h and single use, at most 7 days |
 | Wrong invite proofs | 5, then that invite is locked for 10 minutes |
 | Connection attempts | 30 per minute per IP address |
 | Rooms | 1024 (`--max-rooms`) |
 | Connections | 4096 |
-| Memory per room, worst case | 8 MiB of log plus the queues of its connected members |
+| Memory per room, worst case | 8 MiB of log plus the queues of its connected members (16 MiB each). Measured with a 512 x 512 x 300 scan going to a guest: 7 MB idle, 15 to 20 MB at the peak (`docs/reviews/rooms-scale.md`) |
 
 Anyone who can reach the relay can create a room. Until admin controls exist (phase 2), run it where only your people can reach it, or keep `--max-rooms` at what you need: rooms left behind by strangers take up to 30 days to expire.
 

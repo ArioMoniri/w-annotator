@@ -180,3 +180,13 @@ describe('a segment name from someone else', () => {
     expect(parseSegOp({ op: 'set', seg: { index: 1, name: '\u200B\u202E', color: '#ff0000' } })).toBeNull();
   });
 });
+
+describe("the host's window, for a guest who sees through the host", () => {
+  it('travels with the message that says the window changed', () => {
+    expect(parseSegOp({ op: 'window', voi: [-1350, 150] })).toEqual({ op: 'window', voi: [-1350, 150] });
+    // An older host says only that it changed.
+    expect(parseSegOp({ op: 'window' })).toEqual({ op: 'window' });
+    // Anything that is not two finite numbers in order is left out.
+    for (const voi of [[1], [1, 'x'], [5, 5], [9, 1], [Number.NaN, 1], 'x', null]) expect(parseSegOp({ op: 'window', voi })).toEqual({ op: 'window' });
+  });
+});

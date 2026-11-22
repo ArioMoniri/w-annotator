@@ -1564,7 +1564,7 @@ function bytesOf(d: ScalarArray): Uint8Array {
 const ROOM_IMAGE_LIMIT = 2 * 1024 ** 3;
 /** Encoded size of one edit on the wire; the relay takes 2 MiB a message. */
 const PATCH_BYTES = 1 << 20;
-/** A guest of a view-through-host room is dropped this long after losing the host. */
+/** A guest of a view-through-host room who cannot reach the host has what is in memory cleared after this long. */
 const HOST_LOST_MS = 15_000;
 const SAVE_OFF = "Saving is off in this room. The mask is kept on the host's computer.";
 const WHOLE_MASK_OFF = "This works on the whole mask, which stays on the host's computer.";
@@ -1901,7 +1901,7 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
     room = r;
     conflicts = null;
     set({
-      room: { status: 'connecting', id: o.id, kind: r.kind, role: r.role, selfId: r.selfId, name: o.name, hosting: o.hosting, hostName: null, hostAway: false, veil: null, review: null, note: null },
+      room: { status: 'connecting', id: o.id, kind: r.kind, role: r.role, selfId: r.selfId, name: o.name, hosting: o.hosting, hostName: null, hostAway: false, veil: null, hostVoi: null, review: null, note: null },
       peers: [],
     });
     client.connect();
@@ -2053,9 +2053,12 @@ function onRoomStatus(r: RoomCtx, status: 'connecting' | 'online' | 'offline'): 
   for (const s of r.serving.values()) s.cancelled = true;
   r.serving.clear();
   if (isGuestView()) {
-    // Without the host there is nothing to look at: blank now, and let go if they do not come back.
-    patchRoom({ veil: waitingText(r) });
-    r.lostTimer ??= setTimeout(() => room === r && onRoomEnded(r, 4410, 'host lost'), HOST_LOST_MS);
+    // This device's own connection is down. Whether the host is still there cannot be known from here,
+    // so nothing is said about the host: the view is covered, the app keeps trying, and the guest stays
+    // a member. What is in memory is cleared after a while, as it is when a room ends; it is fetched
+    // again on return. If the room did end meanwhile, the room server says so on reconnecting.
+    patchRoom({ veil: OFFLINE_VEIL });
+    r.lostTimer ??= setTimeout(() => room === r && clearGuestPictures(r), HOST_LOST_MS);
     r.log.reset(r.log.head);
     return;
   }
@@ -2072,6 +2075,21 @@ function onRoomStatus(r: RoomCtx, status: 'connecting' | 'online' | 'offline'): 
 }
 
 const waitingText = (r: RoomCtx) => `Waiting for ${hostName(r) ?? 'the host'}…`;
+const OFFLINE_VEIL = 'Offline. Reconnecting…';
+
+/** A guest long out of reach of the host: the pictures and labels in memory are zeroed. The image stays open, empty, to be filled again. */
+function clearGuestPictures(r: RoomCtx): void {
+  r.lostTimer = null;
+  if (!isGuestView() || !r.offline) return;
+  if (image) bytesOf(image.data).fill(0);
+  if (mask) (mask.data as Uint8Array).fill(0);
+  shadow?.fill(0);
+  r.have.clear();
+  r.asked.clear();
+  engine.refreshImage();
+  engine.refreshMask();
+  patchRoom({ veil: `${OFFLINE_VEIL} What you were shown has been cleared from this device.` });
+}
 
 function noteOfflineSeg(r: RoomCtx, op: RoomOp): void {
   if (op.k !== 'seg') return;
@@ -2388,6 +2406,7 @@ function applyRemoteSeg(r: RoomCtx, op: SegOp, announce: boolean): void {
   if (op.op === 'window') {
     // The pictures a guest holds were made with the host's old window.
     if (isGuestView()) {
+      if (op.voi) patchRoom({ hostVoi: { lower: op.voi[0], upper: op.voi[1] } });
       r.have.clear();
       r.asked.clear();
       wantSlices(r);
@@ -2835,7 +2854,7 @@ function serveSlice(r: RoomCtx, to: number, meta: Meta): void {
     flushEdits();
     r.client.sendFrame(
       FrameKind.Slice,
-      { t: 'room', dims: image.dims, spacing: image.spacing, origin: image.origin, direction: Array.from(image.direction), segments: get().segments.map(sharedSegment), head: r.log.head, seen: r.guard.dump(), ...q },
+      { t: 'room', dims: image.dims, spacing: image.spacing, origin: image.origin, direction: Array.from(image.direction), segments: get().segments.map(sharedSegment), head: r.log.head, seen: r.guard.dump(), ...hostWindow(), ...q },
       undefined,
       { to },
     );
@@ -2859,6 +2878,12 @@ function serveSlice(r: RoomCtx, to: number, meta: Meta): void {
     seen.add(sliceKey(axis, index));
     syncPeople(r);
   }
+}
+
+/** The host's window as guests are told it: how the host looks at the image, never anything from the image. */
+function hostWindow(): { voi?: [number, number] } {
+  const voi = get().voi;
+  return voi ? { voi: [voi.lower, voi.upper] } : {};
 }
 
 /** Host: a guest's edit arrives for the host alone; the host applies it and passes it on as its own, in order. */
@@ -2936,15 +2961,21 @@ async function guestOpen(r: RoomCtx, meta: Meta): Promise<void> {
     });
     setVoi(0, 255);
     const shown = get().image;
-    if (shown) set({ image: { ...shown, range: [0, 255] } });
+    // What a guest holds are grey levels from 0 to 255 in the host's window. Everything that reads the
+    // image's values (presets, the threshold brush, the value under the cursor) is told so.
+    const grey = { lower: 0, upper: 255 };
+    if (shown) set({ image: { ...shown, range: [0, 255], ct: false, grey: true, auto: grey, mr: { soft: grey, fluid: grey, dark: grey } }, windowSet: null, threshold: [128, 255] });
   }
   if (room !== r || !image) return;
   const segments = (Array.isArray(meta.segments) ? meta.segments : [])
     .slice(0, 255)
     .map((seg) => parseSegOp({ op: 'set', seg }))
     .flatMap((op) => (op?.op === 'set' ? [{ ...op.seg, visible: true }] : []));
-  set({ segments, activeSegment: segments.some((x) => x.index === get().activeSegment) ? get().activeSegment : (segments[0]?.index ?? 0), maskName: null, dirty: false, busy: null });
+  // A neutral name, as in a shared-copy room: the host's file name never leaves their computer.
+  set({ segments, activeSegment: segments.some((x) => x.index === get().activeSegment) ? get().activeSegment : (segments[0]?.index ?? 0), maskName: 'Room mask', dirty: false, busy: null });
   pushSegments();
+  const hostVoi = parseSegOp({ op: 'window', voi: meta.voi });
+  patchRoom({ hostVoi: hostVoi?.op === 'window' && hostVoi.voi ? { lower: hostVoi.voi[0], upper: hostVoi.voi[1] } : null });
   r.log.reset(Number(meta.head) || 0);
   r.guard.load(meta.seen);
   r.ready = true;
@@ -2967,7 +2998,8 @@ function wantSlices(r: RoomCtx): void {
       // Asked and not answered within three seconds: ask again.
       if (r.have.has(key) || now - (r.asked.get(key)?.at ?? -Infinity) < 3000) continue;
       if (!r.askBucket.take(1, now)) return;
-      const q = randomId();
+      // Asking again keeps the number: a slow answer to the first asking is still the answer.
+      const q = r.asked.get(key)?.q ?? randomId();
       r.asked.set(key, { at: now, q });
       r.client.sendFrame(FrameKind.SliceRequest, { axis, index, q });
     }
@@ -2982,6 +3014,6 @@ useStore.subscribe((now, before) => {
   if (now.slices !== before.slices && isGuestView()) wantSlices(r);
   if (now.voi !== before.voi && r.kind === 'host-view' && r.role === 'host') {
     if (windowTimer) clearTimeout(windowTimer);
-    windowTimer = setTimeout(() => room === r && sendOp(r, { k: 'seg', op: { op: 'window' } }), 250);
+    windowTimer = setTimeout(() => room === r && sendOp(r, { k: 'seg', op: { op: 'window', ...hostWindow() } }), 250);
   }
 });

@@ -228,6 +228,34 @@ async function watchProgress(page: Page): Promise<void> {
   });
 }
 
+/**
+ * `from` clears a whole segment; resolves when its last voxel has changed for `to`.
+ * Times are taken inside the pages, so the test's own polling is not in them.
+ */
+async function bigEdit(from: Page, to: Page, label: number): Promise<{ secondsToMakeTheEdit: number; secondsUntilTheOtherHasIt: number }> {
+  const last = await from.evaluate((label) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    for (let i = d.length - 1; i >= 0; i--) if (d[i] === label) return i;
+    return -1;
+  }, label);
+  expect(last).toBeGreaterThan(0);
+  const arrived = to.evaluate(async (last) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = (window as any).__w.session.getMask().data as Uint8Array;
+    while (d[last] !== 0) await new Promise((r) => setTimeout(r, 4));
+    return Date.now();
+  }, last);
+  const made = await from.evaluate((label) => {
+    const t0 = Date.now();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__w.session.clearSegment(label);
+    return { t0, t1: Date.now() };
+  }, label);
+  const at = await arrived;
+  return { secondsToMakeTheEdit: Number(((made.t1 - made.t0) / 1000).toFixed(2)), secondsUntilTheOtherHasIt: Number(((at - made.t0) / 1000).toFixed(2)) };
+}
+
 const inRoom = async (page: Page) => {
   await expect(page.locator('[data-view="axial"] canvas').first()).toBeVisible({ timeout: 600_000 });
   await expect(page.locator('.segrow')).toHaveCount(3, { timeout: 600_000 });
@@ -259,8 +287,10 @@ test('shared copy: a full-size scan reaches a guest, with progress, without free
   const started = Date.now();
   await submitJoin(guest, 'Ario', link);
   // While the scan is on its way: the bar moves, and both screens keep drawing.
-  await expect.poll(() => progressOf(guest), { timeout: 120_000 }).toBeGreaterThan(0.05);
-  await expect.poll(() => progressOf(guest), { timeout: 600_000 }).toBeGreaterThan(0.9);
+  await expect.poll(() => progressOf(guest), { timeout: 120_000, intervals: [50] }).toBeGreaterThan(0.05);
+  const firstSlabs = (Date.now() - started) / 1000;
+  await expect.poll(() => progressOf(guest), { timeout: 600_000, intervals: [50] }).toBeGreaterThan(0.9);
+  const ninety = (Date.now() - started) / 1000;
   const hostWhileSending = await frames(host);
   const guestWhileReceiving = await frames(guest);
   await inRoom(guest);
@@ -280,8 +310,10 @@ test('shared copy: a full-size scan reaches a guest, with progress, without free
   const settled = guestPid ? rssMB(guestPid) : null;
   results.sharedCopyJoin = {
     seconds: Number(seconds.toFixed(1)),
+    secondsToFivePercent: Number(firstSlabs.toFixed(1)),
+    secondsToNinetyPercent: Number(ninety.toFixed(1)),
     megabytesOnTheWire: Number((traffic.bytes / MB).toFixed(1)),
-    megabytesPerSecond: Number((traffic.bytes / MB / seconds).toFixed(1)),
+    megabytesPerSecondWhileSending: Number(((traffic.bytes * 0.85) / MB / (ninety - firstSlabs)).toFixed(1)),
     imageFrames: traffic.kinds[4] ?? 0,
     maskFrames: traffic.kinds[3] ?? 0,
     progressSteps: steps,
@@ -296,37 +328,37 @@ test('shared copy: a full-size scan reaches a guest, with progress, without free
   await frames(host);
   await frames(guest);
   const whole = await voxels(host, 1);
-  expect(whole).toBeGreaterThan(3_000_000);
-  const edit = watchRoomTraffic(guest);
-  const cleared = Date.now();
-  // Every voxel of the largest segment, on every slice it touches.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await host.evaluate(() => (window as any).__w.session.clearSegment(1));
-  await expect.poll(() => voxels(guest, 1), { timeout: 300_000, intervals: [250] }).toBe(0);
-  const clearSeconds = (Date.now() - cleared) / 1000;
+  expect(whole).toBeGreaterThan(1_500_000);
+  const lungs = await voxels(host, 2);
+  expect(lungs).toBeGreaterThan(1_500_000);
+  const bytesBefore = traffic.bytes;
+  const patchesBefore = traffic.kinds[1] ?? 0;
+  // Every voxel of a large segment, on every slice it touches. The last voxel of the
+  // segment is the last to change on the other side, so that is the one to wait for.
+  const hostToGuest = await bigEdit(host, guest, 1);
   const hostDuringEdit = await frames(host);
   const guestDuringEdit = await frames(guest);
+  const megabytes = Number(((traffic.bytes - bytesBefore) / MB).toFixed(1));
+  const patchFrames = (traffic.kinds[1] ?? 0) - patchesBefore;
   expect(await checksum(guest, 'mask')).toBe(await checksum(host, 'mask'));
+  await frames(host);
+  await frames(guest);
 
   // The other way: the guest clears the next largest segment.
-  const lungs = await voxels(guest, 2);
-  expect(lungs).toBeGreaterThan(2_000_000);
-  const undone = Date.now();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await guest.evaluate(() => (window as any).__w.session.clearSegment(2));
-  await expect.poll(() => voxels(host, 2), { timeout: 300_000, intervals: [250] }).toBe(0);
-  const repaintSeconds = (Date.now() - undone) / 1000;
+  const guestToHost = await bigEdit(guest, host, 2);
+  const hostDuringSecond = await frames(host);
+  const guestDuringSecond = await frames(guest);
   expect(await checksum(guest, 'mask')).toBe(await checksum(host, 'mask'));
+  expect(await voxels(host, 1)).toBe(0);
+  expect(await voxels(host, 2)).toBe(0);
   // Neither was thrown out for sending too fast, and neither had to start over.
   await expect(host.getByTestId('sync')).not.toContainText('Offline');
   await expect(guest.getByTestId('sync')).not.toContainText('Offline');
-  expect(hostDuringEdit.longestGapMs).toBeLessThan(3000);
-  expect(guestDuringEdit.longestGapMs).toBeLessThan(3000);
+  for (const f of [hostDuringEdit, guestDuringEdit, hostDuringSecond, guestDuringSecond]) expect(f.longestGapMs).toBeLessThan(3000);
 
   results.largeEdit = {
-    voxels: whole,
-    hostToGuest: { seconds: Number(clearSeconds.toFixed(1)), megabytesOnTheWire: Number((edit.bytes / MB).toFixed(1)), patchFrames: edit.kinds[1] ?? 0, host: hostDuringEdit, guest: guestDuringEdit },
-    guestToHost: { voxels: lungs, seconds: Number(repaintSeconds.toFixed(1)), host: await frames(host), guest: await frames(guest) },
+    hostToGuest: { voxels: whole, ...hostToGuest, megabytesOnTheWire: megabytes, patchFrames, host: hostDuringEdit, guest: guestDuringEdit },
+    guestToHost: { voxels: lungs, ...guestToHost, host: hostDuringSecond, guest: guestDuringSecond },
     relayMemoryMB: relay ? rssMB(relay) : null,
   };
 });

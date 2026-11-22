@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- A security review of rooms: `docs/reviews/rooms-security.md` lists what was found, what was fixed and what is accepted. Apps and relays from 0.1.2 keep working with newer ones; the protections that need both sides apply once everyone has updated.
+- An app no longer takes the room server's word for what kind of room it is in or who its host is. A room server could turn a view-through-host room into a shared copy and have the host send the image.
+- The room server can no longer repeat an edit or pass one member's edit, name or picture off as another's.
+- Compressed data from another member is unpacked only up to the size it must have. A few kilobytes could ask for gigabytes of memory.
+- A transfer of the image and mask must be complete to be opened. One with slices missing was opened as if whole.
+- A patch that reaches outside the mask is refused whole; before, the part that fitted was written.
+- Invite links with `user@host` or other unusual hosts are refused. Names and segment names lose control characters and invisible direction marks, and the host's name is never the one that gets a number.
+- Relay: a connection that never finishes its request is closed after 10 seconds, a replay too long for a member's queue no longer closes that member, one member can no longer get another closed by sending them file frames, and pings count towards the rate limit.
+- A room hosted by the desktop app on a computer with no network address listens on that computer only.
+
+### Changed
+
+- Joining a shared-copy room with a full-size scan: the sender waits for the receiver, so a slow connection is no longer flooded and dropped; a transfer cut by a lost connection picks up with the image slabs it already has; one person can no longer make the host send the image many times at once.
+- Large edits in a room (a whole segment cleared, a cut through all slices) are sent at a pace the room server accepts. Before, an edit of more than about 20 MB closed the connection, again on every retry.
+- Confirming a large edit of your own no longer rewrites the whole edit once per piece.
+- `docs/reviews/rooms-scale.md`: rooms measured on a 512 x 512 x 300 scan, and `W_SCALE=1 pnpm e2e e2e/room-scale.spec.ts` to measure again.
+
 ## [0.1.2] - 2026-11-21
 
 ### Added
