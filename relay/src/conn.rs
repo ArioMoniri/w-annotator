@@ -483,12 +483,12 @@ mod tests {
 
     #[test]
     fn version_is_checked_before_anything_else() {
-        assert_eq!(code(r#"{"t":"auth","proto":1}"#), close::VERSION);
-        assert_eq!(code(r#"{"t":"auth","proto":3,"key":5}"#), close::VERSION);
+        assert_eq!(code(r#"{"t":"auth","proto":2}"#), close::VERSION);
+        assert_eq!(code(r#"{"t":"auth","proto":4,"key":5}"#), close::VERSION);
         assert_eq!(code(r#"{"t":"auth"}"#), close::BAD_REQUEST);
-        assert_eq!(code(r#"{"t":"auth","proto":"2"}"#), close::BAD_REQUEST);
-        assert_eq!(code(r#"{"t":"auth","proto":2.5}"#), close::BAD_REQUEST);
-        let old = parse_handshake(r#"{"proto":1}"#, ROOM, NONCE, 8192, 16)
+        assert_eq!(code(r#"{"t":"auth","proto":"3"}"#), close::BAD_REQUEST);
+        assert_eq!(code(r#"{"t":"auth","proto":3.5}"#), close::BAD_REQUEST);
+        let old = parse_handshake(r#"{"proto":2}"#, ROOM, NONCE, 8192, 16)
             .err()
             .unwrap();
         assert_eq!(old.1, "Update W Annotator to join this room");
@@ -508,29 +508,29 @@ mod tests {
             "[]".into(),
             "{".into(),
             "\"auth\"".into(),
-            r#"{"proto":2}"#.into(),
-            r#"{"proto":2,"t":"join"}"#.into(),
-            r#"{"proto":2,"t":"auth"}"#.into(),
-            r#"{"proto":2,"t":"auth","key":7,"sig":7}"#.into(),
-            r#"{"proto":2,"t":"auth","key":"","sig":""}"#.into(),
-            format!(r#"{{"proto":2,"t":"auth","key":"{key}"}}"#),
-            format!(r#"{{"proto":2,"t":"auth","key":"{key}=","sig":"{sig}"}}"#),
+            r#"{"proto":3}"#.into(),
+            r#"{"proto":3,"t":"join"}"#.into(),
+            r#"{"proto":3,"t":"auth"}"#.into(),
+            r#"{"proto":3,"t":"auth","key":7,"sig":7}"#.into(),
+            r#"{"proto":3,"t":"auth","key":"","sig":""}"#.into(),
+            format!(r#"{{"proto":3,"t":"auth","key":"{key}"}}"#),
+            format!(r#"{{"proto":3,"t":"auth","key":"{key}=","sig":"{sig}"}}"#),
             format!(
-                r#"{{"proto":2,"t":"auth","key":"{}","sig":"{sig}"}}"#,
+                r#"{{"proto":3,"t":"auth","key":"{}","sig":"{sig}"}}"#,
                 "A".repeat(100_000)
             ),
             "\u{0}".repeat(100),
-            "{\"proto\":2,\"t\":\"auth\",\"key\":\"".to_owned() + &"é".repeat(43) + "\"}",
+            "{\"proto\":3,\"t\":\"auth\",\"key\":\"".to_owned() + &"é".repeat(43) + "\"}",
         ];
         for raw in &cases {
             let got = code(raw);
             assert_eq!(got, close::BAD_REQUEST, "{raw:.60}");
         }
         // Well-formed but signed by nobody.
-        let unsigned = format!(r#"{{"proto":2,"t":"auth","key":"{key}","sig":"{sig}"}}"#);
+        let unsigned = format!(r#"{{"proto":3,"t":"auth","key":"{key}","sig":"{sig}"}}"#);
         assert_eq!(code(&unsigned), close::NOT_MEMBER);
         // Too large is refused before it is parsed.
-        let huge = format!(r#"{{"proto":2,"pad":"{}"}}"#, "x".repeat(9000));
+        let huge = format!(r#"{{"proto":3,"pad":"{}"}}"#, "x".repeat(9000));
         assert_eq!(code(&huge), close::BAD_REQUEST);
     }
 }

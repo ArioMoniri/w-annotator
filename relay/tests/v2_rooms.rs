@@ -43,7 +43,7 @@ async fn only_a_member_key_with_a_valid_signature_signs_in() {
     // A member's key with someone else's signature.
     let closed = relay
         .handshake("AUTH0001", &member, |nonce| {
-            json!({ "t": "auth", "proto": 2, "key": member.key(), "sig": stranger.sign("auth", "AUTH0001", nonce) })
+            json!({ "t": "auth", "proto": 3, "key": member.key(), "sig": stranger.sign("auth", "AUTH0001", nonce) })
         })
         .await
         .err()
@@ -63,7 +63,7 @@ async fn only_a_member_key_with_a_valid_signature_signs_in() {
         .handshake(
             "AUTH0001",
             &member,
-            |_| json!({ "t": "auth", "proto": 2, "key": member.key(), "sig": stale }),
+            |_| json!({ "t": "auth", "proto": 3, "key": member.key(), "sig": stale }),
         )
         .await
         .err()
@@ -79,7 +79,7 @@ async fn only_a_member_key_with_a_valid_signature_signs_in() {
     ] {
         let closed = relay
             .handshake("AUTH0001", &member, |nonce| {
-                json!({ "t": "auth", "proto": 2, "key": member.key(), "sig": member.sign(op, room, nonce) })
+                json!({ "t": "auth", "proto": 3, "key": member.key(), "sig": member.sign(op, room, nonce) })
             })
             .await
             .err()
@@ -698,7 +698,7 @@ async fn after_a_relay_restart_the_host_makes_the_room_again_with_its_members() 
     let seeded = relay
         .handshake("RESTART1", &me, |nonce| {
             json!({
-                "t": "create", "proto": 2, "type": "shared", "key": me.key(),
+                "t": "create", "proto": 3, "type": "shared", "key": me.key(),
                 "sig": me.sign("create", "RESTART1", nonce),
                 "members": [
                     { "key": people[0].key(), "role": "editor" },
@@ -726,7 +726,7 @@ async fn after_a_relay_restart_the_host_makes_the_room_again_with_its_members() 
     ] {
         let closed = relay
             .handshake("RESTART2", &me, |nonce| {
-                json!({ "t": "create", "proto": 2, "type": "shared", "key": me.key(),
+                json!({ "t": "create", "proto": 3, "type": "shared", "key": me.key(),
                         "sig": me.sign("create", "RESTART2", nonce), "members": bad })
             })
             .await
