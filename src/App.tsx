@@ -235,6 +235,7 @@ function useFileDrop(): string[] | null {
 
 export function App() {
   const hasImage = useStore((s) => !!s.image);
+  const imageName = useStore((s) => s.image?.name);
   const panelOpen = useStore((s) => s.panelOpen);
   const dragged = useFileDrop();
   const dragging = dragged !== null;
@@ -290,7 +291,7 @@ export function App() {
       ) : (
         <EmptyState dragging={dragging} />
       )}
-      {hasImage && dragging && <div className="dropveil">{DROP_TEXT[dropHint(dragged.length > 0 ? dragged : null, true)]}</div>}
+      {hasImage && dragging && <div className="dropveil">{DROP_TEXT[dropHint(dragged.length > 0 ? dragged : null, true, imageName)]}</div>}
       <Busy />
       <Toasts />
       <UpdateBanner />

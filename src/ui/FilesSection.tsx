@@ -5,6 +5,7 @@ import { REVEAL_LABEL, isTauri, revealFile } from '../platform';
 import { closeImage, closeMask, saveMaskById, setActiveMask, setImageDimmed, setMaskVisible } from '../session';
 import { set, toast, useStore } from '../state/store';
 import { useDismiss } from './common';
+import { pickScanForMask } from './files';
 
 async function reveal(path: string): Promise<void> {
   if (!(await revealFile(path))) toast('error', "Couldn't show the file. It may have been moved.");
@@ -16,6 +17,8 @@ function Row({ row }: { row: FileRow }) {
   const close = useCallback(() => setMenu(false), []);
   const ref = useDismiss<HTMLDivElement>(menu, close);
   const image = row.kind === 'image';
+  // An image of segment labels was most likely meant as a mask.
+  const labels = useStore((s) => !!s.image?.labels) && image;
   const pick = (fn: () => void) => () => {
     setMenu(false);
     fn();
@@ -85,12 +88,17 @@ function Row({ row }: { row: FileRow }) {
               </button>
             </>
           )}
+          {labels && (
+            <button className="item" role="menuitem" onClick={pick(pickScanForMask)}>
+              Use as mask on a scan…
+            </button>
+          )}
           {canReveal && (
             <button className="item" role="menuitem" onClick={pick(() => void reveal(row.path!))}>
               {REVEAL_LABEL}
             </button>
           )}
-          {(!image || canReveal) && <hr />}
+          {(!image || canReveal || labels) && <hr />}
           <button className="item" role="menuitem" onClick={pick(() => (image ? closeImage() : closeMask(row.id)))}>
             {image ? 'Close image' : 'Close'}
           </button>

@@ -1,18 +1,18 @@
 import type { InputFile } from '../io';
-import { openFiles } from '../session';
+import { openFiles, imageToMask } from '../session';
 
 export async function toInputFiles(files: File[]): Promise<InputFile[]> {
   return Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
 }
 
-function pick(role: 'image' | 'mask' | undefined, folder = false): void {
+function pick(role: 'image' | 'mask' | undefined, folder = false, open: (files: InputFile[]) => Promise<void> = (f) => openFiles(f, role)): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
   if (folder) input.setAttribute('webkitdirectory', '');
   input.onchange = async () => {
     const files = Array.from(input.files ?? []);
-    if (files.length) await openFiles(await toInputFiles(files), role);
+    if (files.length) await open(await toInputFiles(files));
   };
   // Some webviews ignore a click on an input that is not in the document.
   input.style.display = 'none';
@@ -25,6 +25,8 @@ function pick(role: 'image' | 'mask' | undefined, folder = false): void {
 export const pickImage = () => pick('image');
 export const pickDicomFolder = () => pick('image', true);
 export const pickMask = () => pick('mask');
+/** Picks the scan that the open label volume belongs to, then shows the labels on it as a mask. */
+export const pickScanForMask = () => pick('image', false, imageToMask);
 
 interface Entry {
   isFile: boolean;

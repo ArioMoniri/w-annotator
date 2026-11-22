@@ -18,7 +18,7 @@ import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
 import { brushRadius, cleanBrushSize, minBrushSize } from './mask/brush';
 import { MaskSet, TOO_MANY_MASKS, compareColor, shortName } from './mask/collection';
-import { assignRoles, labelLook } from './files/roles';
+import { assignRoles, labelLook, openChoice } from './files/roles';
 import { sliceAxisFor } from './mask/interpolate';
 import {
   combine,
@@ -235,7 +235,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
     const looks = loaded.map((l) => labelLook(l.vol.data));
     const roles = assignRoles(
       loaded.map((l, i) => ({ name: l.name, look: looks[i] })),
-      { role, hasImage: !!image },
+      { role, hasImage: !!image, imageName: image?.name },
     );
     const img = roles.image === null ? undefined : loaded[roles.image];
     const msks = roles.masks.map((i) => loaded[i]);
@@ -256,14 +256,40 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
         await loadImage(next.vol, next.path);
         await addMasks();
         emit('opened');
+        // Opened on its own, a mask can only be the image. Say how to put it on its scan.
+        if (get().image?.labels && msks.length === 0) {
+          toast('info', `${next.name} holds segment labels. To edit them, open them on their scan.`, {
+            label: 'Pick scan',
+            run: () => void import('./ui/files').then((m) => m.pickScanForMask()),
+          });
+        }
       };
+      const addAsMask = () => void guarded(async () => void ((await loadMask(next.vol, next.path)) && emit('opened')));
+      // The rules are in files/roles.ts: asked for by name (Open image) it replaces at
+      // once; dropped or handed over by the system, it asks; a file of labels picked
+      // with Open image is most likely the mask of the open image.
+      const unsaved = anyUnsaved();
+      const look = loaded.length === 1 && roles.image !== null ? looks[roles.image] : 'image';
+      const choice = openChoice({ role, hasImage: !!image, unsaved, look });
+      if (image && choice === 'ask-mask') {
+        set({
+          confirm: {
+            title: `Add ${next.name} as a mask?`,
+            body: unsaved
+              ? 'Its values are segment labels. Replacing the image instead loses unsaved mask changes.'
+              : `Its values are segment labels. It can also open in place of ${image.name}.`,
+            confirm: 'Add as mask',
+            run: addAsMask,
+            other: room ? undefined : { label: 'Replace image', run: () => void guarded(go) },
+          },
+        });
+        return;
+      }
       if (room && image) {
         toast('error', 'Leave the room before opening another image.');
         return;
       }
-      // Asked for by name (Open image) it replaces at once; dropped or handed over by the system, it asks.
-      const unsaved = anyUnsaved();
-      if (image && (unsaved || role !== 'image')) {
+      if (image && choice === 'ask-replace') {
         const maybeMask = loaded.length === 1 && roles.image !== null && looks[roles.image] !== 'image';
         set({
           confirm: {
@@ -273,9 +299,7 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
             danger: true,
             run: () => void guarded(go),
             // Its values could be labels: the app took it for an image, the user may know better.
-            other: maybeMask
-              ? { label: 'Add as mask', run: () => void guarded(async () => void ((await loadMask(next.vol, next.path)) && emit('opened'))) }
-              : undefined,
+            other: maybeMask ? { label: 'Add as mask', run: addAsMask } : undefined,
           },
         });
         return;
@@ -286,6 +310,45 @@ export async function openFiles(files: InputFile[], role?: 'image' | 'mask'): Pr
     }
   } catch (err) {
     unexpected(err, files[0].name);
+  } finally {
+    set({ busy: null });
+  }
+}
+
+/**
+ * The open image is a volume of segment labels, opened before its scan (Slicer's
+ * "convert labelmap to segmentation"). Opens the scan in `files` as the image and
+ * puts the label volume on it as a mask, saved back to the label file.
+ */
+export async function imageToMask(files: InputFile[]): Promise<void> {
+  if (!image || files.length === 0) return;
+  if (room) {
+    toast('error', 'Leave the room before opening another image.');
+    return;
+  }
+  if (anyUnsaved()) {
+    toast('error', 'Save or close the mask you edited first.');
+    return;
+  }
+  const label = image;
+  const labelPath = get().image?.path;
+  for (const file of files) appLog.noteName(file.name);
+  const group = groupFiles(files)[0];
+  const name = group[0].name;
+  try {
+    set({ busy: `Opening ${name}…` });
+    await nextFrame();
+    const scan = { ...(await readVolumeAsync(group)), name };
+    for (const warning of scan.warnings ?? []) toast('warning', warning);
+    if (labelLook(scan.data) === 'labels') {
+      toast('error', `${name} holds segment labels too. Pick the scan that ${label.name} belongs to.`);
+      return;
+    }
+    await loadImage(scan, group[0].path);
+    await loadMask(label, labelPath);
+    emit('opened');
+  } catch (err) {
+    toast('error', describeError(err, name));
   } finally {
     set({ busy: null });
   }
@@ -331,7 +394,16 @@ async function loadImage(vol: VolumeData, path?: string): Promise<void> {
   // Masks belong to the image they were opened on.
   masks.clear();
   set({
-    image: { name: vol.name, dims: vol.dims, range, ct: looksLikeCt, auto, mr: mrWindows(sampleValues(renderable.data, 200_003)), path },
+    image: {
+      name: vol.name,
+      dims: vol.dims,
+      range,
+      ct: looksLikeCt,
+      auto,
+      mr: mrWindows(sampleValues(renderable.data, 200_003)),
+      path,
+      labels: labelLook(renderable.data) === 'labels',
+    },
     windowSet: null,
     voi,
     hover: null,

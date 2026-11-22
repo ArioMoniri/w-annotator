@@ -439,3 +439,94 @@ test('a second image dropped on an open one asks before replacing', async ({ pag
   await expect(rows(page)).toHaveCount(2);
   await expect(rows(page).nth(1)).toContainText('New mask');
 });
+
+/** A 48³ 16-bit NIfTI scan: a bright ball on dark, so its values are no labels. */
+async function scanFile(page: Page): Promise<number[]> {
+  return page.evaluate(() => {
+    const n = 48;
+    const data = new Int16Array(n * n * n);
+    for (let z = 0; z < n; z++)
+      for (let y = 0; y < n; y++)
+        for (let x = 0; x < n; x++) data[z * n * n + y * n + x] = Math.hypot(x - 24, y - 24, z - 24) < 20 ? 300 - x : -1000;
+    const buf = new ArrayBuffer(352 + data.byteLength);
+    const v = new DataView(buf);
+    v.setInt32(0, 348, true);
+    v.setInt16(40, 3, true);
+    [n, n, n].forEach((d, i) => v.setInt16(42 + i * 2, d, true));
+    v.setInt16(70, 4, true);
+    v.setInt16(72, 16, true);
+    v.setFloat32(76, 1, true);
+    [1, 1, 1].forEach((s, i) => v.setFloat32(80 + i * 4, s, true));
+    v.setFloat32(108, 352, true);
+    v.setFloat32(112, 1, true);
+    v.setInt16(254, 1, true);
+    [
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+    ].forEach((row, r) => row.forEach((x, c) => v.setFloat32(280 + r * 16 + c * 4, x, true)));
+    new Uint8Array(buf, 344, 4).set([0x6e, 0x2b, 0x31, 0]);
+    new Uint8Array(buf, 352).set(new Uint8Array(data.buffer));
+    return Array.from(new Uint8Array(buf));
+  });
+}
+
+test('a file of labels picked with Open image is offered as a mask first', async ({ page }) => {
+  await openPhantom(page, false);
+  const ball = await ballFile(page, 'x', [24, 34, 24], 5);
+  // nnU-Net names a label like this: no "seg" or "mask" in it.
+  const open = (name: string) =>
+    page.evaluate(
+      async ({ name, bytes }) => {
+        await window.__w.session.openFiles([{ name, bytes: new Uint8Array(bytes) }], 'image');
+      },
+      { name, bytes: ball },
+    );
+  await open('10000_0001.nii');
+  await expect(page.getByRole('heading', { name: 'Add 10000_0001.nii as a mask?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add as mask', exact: true }).click();
+  await expect(rows(page).nth(0)).toContainText('phantom_ct');
+  await expect(radio(page, '10000_0001')).toBeChecked();
+  expect(await maskVoxels(page)).toBeGreaterThan(0);
+
+  // The other choice still opens it in place of the image.
+  await open('labels_as_image.nii');
+  await page.getByRole('button', { name: 'Replace image' }).click();
+  await expect(rows(page).nth(0)).toContainText('labels_as_image');
+  await expect(rows(page).nth(0)).toHaveAttribute('data-kind', 'image');
+});
+
+test('a label volume opened as the image can be used as a mask on its scan', async ({ page }) => {
+  await skipTour(page);
+  await page.goto('/');
+  await page.waitForFunction(() => '__w' in window);
+  const ball = await ballFile(page, 'x', [24, 34, 24], 5);
+  const scan = await scanFile(page);
+  // Opened alone, a label volume can only be the image.
+  await page.evaluate(async (bytes) => {
+    await window.__w.session.openFiles([{ name: '10000_0001.nii', bytes: new Uint8Array(bytes) }]);
+  }, ball);
+  await expect(rows(page).nth(0)).toHaveAttribute('data-kind', 'image');
+  await expect(rows(page).nth(0)).toContainText('10000_0001');
+  // The app says what it is and offers the way out at once.
+  await expect(page.getByText('10000_0001.nii holds segment labels. To edit them, open them on their scan.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pick scan' })).toBeVisible();
+
+  // The same step is in the image's row menu.
+  await rows(page).nth(0).hover();
+  await rows(page).nth(0).getByRole('button', { name: /^More for/ }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'Use as mask on a scan…' }).click();
+  await (await chooser).setFiles({ name: '10000_0001_0000.nii', mimeType: 'application/octet-stream', buffer: Buffer.from(scan) });
+
+  await expect(rows(page).nth(0)).toContainText('10000_0001_0000');
+  await expect(rows(page)).toHaveCount(2);
+  await expect(radio(page, '10000_0001')).toBeChecked();
+  expect(await maskVoxels(page, 1)).toBeGreaterThan(0);
+
+  // A real scan has no such entry.
+  await rows(page).nth(0).hover();
+  await rows(page).nth(0).getByRole('button', { name: /^More for/ }).click();
+  await expect(page.getByRole('menuitem', { name: 'Close image' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Use as mask on a scan…' })).toHaveCount(0);
+});
