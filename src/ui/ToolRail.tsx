@@ -1,6 +1,7 @@
 import { Blend, Brush, Contrast, Crosshair, Eraser, Hand, PaintBucket, Redo2, Ruler, Scissors, Undo2, ZoomIn, Keyboard } from 'lucide-react';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { EDIT_TOOLS, set, useStore, type ToolId } from '../state/store';
+import { VIEW_ONLY } from '../collab/roles';
 import { redo, setTool, undo } from '../session';
 import { formatCombo, useShortcuts, type ActionId } from '../state/shortcuts';
 import { isMac } from './common';
@@ -21,6 +22,7 @@ export const TOOLS: { id: ToolId; name: string; key: string; icon: ReactNode }[]
 export function ToolRail() {
   const tool = useStore((s) => s.tool);
   const hasSegments = useStore((s) => s.segments.length > 0);
+  const viewOnly = useStore((s) => s.room?.role === 'viewer' && s.room.status !== 'connecting');
   const canUndo = useStore((s) => s.canUndo);
   const canRedo = useStore((s) => s.canRedo);
   const bindings = useShortcuts((s) => s.bindings);
@@ -34,7 +36,7 @@ export function ToolRail() {
   }, [tool]);
 
   const button = (t: (typeof TOOLS)[number]) => {
-    const disabled = EDIT_TOOLS.includes(t.id) && !hasSegments;
+    const disabled = EDIT_TOOLS.includes(t.id) && (!hasSegments || viewOnly);
     return (
       <button
         key={t.id}
@@ -45,7 +47,7 @@ export function ToolRail() {
         aria-label={t.name}
         data-tool={t.id}
         data-tour={t.id === 'brush' ? 'brush' : undefined}
-        data-tip={disabled ? 'Add a segment to start editing.' : `${t.name}${key(`tool.${t.id}` as ActionId)}`}
+        data-tip={disabled ? (viewOnly ? VIEW_ONLY : 'Add a segment to start editing.') : `${t.name}${key(`tool.${t.id}` as ActionId)}`}
         data-tip-side="right"
         onClick={() => setTool(t.id)}
       >
@@ -60,10 +62,10 @@ export function ToolRail() {
       <hr />
       {TOOLS.slice(5).map(button)}
       <div className="grow" />
-      <button className="toolbtn" aria-label="Undo" data-tour="undo" data-tip={`Undo${key('edit.undo')}`} data-tip-side="right" disabled={!canUndo} onClick={undo}>
+      <button className="toolbtn" aria-label="Undo" data-tour="undo" data-tip={`Undo${key('edit.undo')}`} data-tip-side="right" disabled={!canUndo || viewOnly} onClick={undo}>
         <Undo2 size={18} strokeWidth={1.5} />
       </button>
-      <button className="toolbtn" aria-label="Redo" data-tour="redo" data-tip={`Redo${key('edit.redo')}`} data-tip-side="right" disabled={!canRedo} onClick={redo}>
+      <button className="toolbtn" aria-label="Redo" data-tour="redo" data-tip={`Redo${key('edit.redo')}`} data-tip-side="right" disabled={!canRedo || viewOnly} onClick={redo}>
         <Redo2 size={18} strokeWidth={1.5} />
       </button>
       <button

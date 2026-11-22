@@ -460,13 +460,18 @@ Your name                                 Your name
 - One 12px line above the footer: not for diagnosis or treatment; de-identify before sharing.
 - Validation is inline under the field in `--danger` 12px, shown on submit, cleared on edit.
 - Submitting: primary button shows a 14px spinner and `Starting…` / `Joining…`; fields are disabled.
-- After Start succeeds, the modal content swaps to: title `Room started`, one line saying that each link works for one person and stops working after 24 hours, the link in 12px mono, then `Done`, `Link for another person` (secondary) and `Copy invite link` (primary).
+- After Start succeeds, the modal content swaps to: title `Room started`, one line saying what the link on screen does (by default: each link works for one person and stops working after 24 hours), the link in 12px mono, a folded `Link options` line, then `Done`, `Link for another person` (secondary) and `Copy invite link` (primary).
+- **Link options** is a `details` element, closed until asked for, in the started step and in the room popover. It holds what the next link will be like, never the one on screen: `Stops working after` (list: 1 hour, 24 hours, 7 days), `Works for` (list: One person, Up to 5 people, No limit, with one 12px line under it that says what the chosen one means), and `Note for your own list` (text, 24 characters, "Only you see the note."). A view-through-host room has no `Works for`; one line says each link works for one person. With a choice other than One person the secondary button reads `New link`. The note is emptied after each link. Nothing here adds a control that is visible before it is opened.
 
 **Room pill**: status dot, `Room`, and `Connecting…` or `Offline` when not connected.
 
-**Room popover** (from the room pill once connected): 300 wide menu surface, or the width of the segments panel when it is open. The kind of room as its title; when offline, one line and `Reconnect now`; for the host `New invite link` and the unused links (`Link 1 · expires in 24 h`, `Copy`, `Switch off`); the list of people (avatar, name, `You` tag on self, `Host` tag, click a person to jump to their view; for the host a `Remove` text button per person and, in a view-through-host room, how many slices each has seen); at the bottom `Leave room`, and for the host `Delete room` (shared copy) or `End room` (view through host). Remove, Delete and End ask first, in a confirm dialog that says what the other person keeps.
+**Room popover** (from the room pill once connected): 300 wide menu surface, or the width of the segments panel when it is open. The kind of room as its title; when offline, one line and `Reconnect now`; for the host `New invite link`, the folded `Link options`, and the links that can still let someone in, one row each: the host's note or `Link 1`, the uses left and the time left as the room server has them (`for Sam · 3 of 5 uses left · 6 days left`), `Copy` (for a link made in this run of the app) and `Switch off`; the list of people (avatar, name, `You` tag on self, `Host` tag, click a person to jump to their view; for the host, per person, a small list `Can edit` / `Can view` and a `Remove` text button and, in a view-through-host room, how many slices each has seen; for everyone else a `View only` tag on a person who can only look); at the bottom `Leave room`, and for the host `Delete room` (shared copy) or `End room` (view through host). Remove, Delete and End ask first, in a confirm dialog that says what the other person keeps.
 
-**Room bar** (same place and look as the recovery bar, above the views): for a guest of a view-through-host room, "Viewing through Mina's computer. Nothing is saved on this device." for as long as they are in it; after a merge that left differences, the count of slices and voxels with `Use mine` (primary) and `Keep the room's` (secondary).
+**Room bar** (same place and look as the recovery bar, above the views): for a guest of a view-through-host room, "Viewing through Mina's computer. Nothing is saved on this device." for as long as they are in it; after a merge that left differences, the **review bar**.
+
+**Review bar** (`ROOMS.md` C6, rule 3): one sentence with the count of slices and voxels, then, left to right: a list `Slices to review` (each entry the view's name, the number that view's own counter shows for the slice, and the voxels that differ: `Axial slice 13 · 140 voxels`), `Previous` and `Next` as 28px icon buttons (chevrons, tooltip with the key), `Use mine` (primary) and `Keep the room's` (secondary) for the slice on screen, and `Use mine for all` and `Keep the room's for all` as text buttons. The two buttons for one slice are dimmed with a reason while the view is on a slice that has nothing to decide. With one slice left there is no list, no Previous and Next and no "for all": the bar is the sentence, `Go to the slice` (text button, only while the view is elsewhere), `Use mine` and `Keep the room's`. The bar wraps to a second row in a narrow window; it never shortens a word. It stays after leaving the room, until every slice is decided, for seven days at most.
+
+**My version, outlined**: on each slice still to decide, my version of that slice is drawn as one white outline, 2px, never filled, over the room's version, in the slice views only. White is no segment's colour, so the line cannot be taken for a segment. It is a layer of its own: the mask and the image are not touched, and nothing is animated. It goes with the slice's decision.
 
 **Blank view**: while a guest of a view-through-host room cannot reach the host, an opaque black layer covers the views with one line, "Waiting for Mina…". It is a layer above the views; the image itself is never animated or altered.
 
@@ -697,9 +702,15 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Join helper | Rooms you have joined on this device |
 | Start helper (no image) | Open an image first, then start a room. |
 | Buttons | Cancel · Start · Join · Starting… · Joining… |
-| Started | Room started · Each link works for one person and stops working after 24 hours. · Copy invite link · Another link · Done |
-| Started, hosted here | This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app. / No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others. |
-| Popover | Shared copy or View through my computer · New invite link · Link 1 · expires in 23 h · Copy · Switch off · People · You · host · Remove · Leave room · Delete room (shared copy) or End room (view through my computer) |
+| Started | Room started · Send this link to one person. They paste it under Join a room. Each link works for one person and stops working after 24 hours. · Link options · Copy invite link · Link for another person · Done |
+| Started, a link for several | Send this link to the people you invite. They paste it under Join a room. This link works for up to 5 people and stops working after 7 days. (or: works for anyone who has it and stops working after 1 hour.) · New link |
+| Link options | Link options · Stops working after: 1 hour, 24 hours, 7 days · Works for: One person (The link stops working once one person has joined.), Up to 5 people (The link stops working once five people have joined.), No limit (Anyone who has the link can join until it expires.) · Note for your own list · For example: for Sam · Only you see the note. · In this kind of room each link works for one person. (view through my computer) |
+| Started, hosted here | This room runs on your computer, so others need to be on the same network or VPN. It is down while the app is closed; open it again from Join a room. (shared copy) / … It stops when you close the app. (view through my computer) / No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others. |
+| Popover | Shared copy or View through my computer · New invite link · Link options · Link 1 · 1 use left · 23 h left / for Sam · 3 of 5 uses left · 6 days left / for the team · no limit, 2 joined · 40 min left · Copy · Switch off · People · You · host / You · view only · Can edit · Can view · View only · Remove · Leave room · Delete room (shared copy) or End room (view through my computer) |
+| Popover, the room server does not know the room | Waiting for the host to reopen the room. / Can't reach Mina's computer, where this room runs. Waiting for the host to reopen the room. |
+| Rooms you have joined | Your room · Mina's room · last opened … · Rejoin · Reopen (a room hosted on this computer) · Forget |
+| Review bar | Your version differs from the room's on 3 slices (412 voxels). The room's version is shown; yours is the white outline, kept until you choose. · This slice: 140 voxels. · Slices to review · Axial slice 13 · 140 voxels · Previous slice to review · Next slice to review · Use mine · Keep the room's · Use mine for all · Keep the room's for all · Go to the slice · Go to a slice that differs to choose for it. (tooltip) |
+| Edit tools of someone who can only view | You can view this room but not edit it. The host can change that. |
 | Popover, offline | Offline. Your changes are merged when you reconnect. (shared copy) / Offline. Reconnecting… (view through the host) · Reconnect now |
 | Person row tooltip | Go to Mina's view |
 | Leave confirm (host, shared copy) | Leave the room? · Others can keep working. Nobody can invite or remove people until you come back. Your copy of the mask stays open here. · Cancel · Leave |
@@ -721,6 +732,10 @@ There are no room codes: a room is joined with an invite link (4.6).
 | Someone left | Mina left |
 | The host of a shared-copy room left | Mina, the host, left. You can keep working. Nobody can invite or remove people until they come back. |
 | You left | You left the room |
+| The host changed what you can do | Mina changed you to view only. / Mina changed you back to editing. |
+| You changed what someone can do | Ben can view only now. / Ben can edit again. |
+| A viewer came back with changes made while away | You can view this room but not edit it, so the changes you made while away were not added. |
+| Merged after being away | Merged your offline work: 1,240 voxels on 6 slices added. 3 slices need review. / Back online. 3 slices need review. |
 | Reconnected | Back online. Changes are synced. |
 | Mask saved to new file | Saved to liver_mask.nii.gz |
 | Segment deleted | Liver deleted · Undo |
@@ -761,6 +776,10 @@ There are no room codes: a room is joined with an invite link (4.6).
 | Invite malformed | Paste the whole invite link, including the part after #. |
 | Room not found | No room at that link. Check the link and try again. |
 | Invite expired, used, switched off or not valid | This invite link has expired. Ask the host for a new one. (or: was already used · was switched off · is not valid) |
+| Room hosted on the host's computer is not open | This room is not open right now. Ask the host to open it again. |
+| Reopening a room without its image | Open the image and the mask of this room first, then open the room again. / This room was started on another image. Open that image and its mask, then open the room again. |
+| The record of a hosted room is gone | This room is no longer kept on this computer. Start a new room. |
+| Role change failed | Ben couldn't be changed. Check your connection and try again. |
 | Removed | Mina removed you from this room. Your copy stays on this computer. (shared copy) / Nothing was saved on this device. (view through the host) |
 | Room ended | Mina deleted this room. Your copy stays on this computer. / The host ended the session. Nothing was saved on this device. |
 | Room server says something that cannot be true | The room server sent something that does not fit this room, so you left it. |

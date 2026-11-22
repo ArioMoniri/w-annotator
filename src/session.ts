@@ -52,11 +52,12 @@ import {
 import { segmentAt } from './mask/pick';
 import { FillPreview } from './mask/preview';
 import { cut, offScreen, sliceRange, viewMap, type Cut, type Point } from './mask/scissors';
-import { CLOSE_MISFIT, RoomClient, parseRoster, type JoinMode, type TextMessage } from './collab/client';
-import { makeRoomKey, unwrapRoomKey, wrapRoomKey } from './collab/crypto';
+import { CLOSE_MISFIT, RoomClient, parseRoster, type JoinMode, type MemberKey, type TextMessage } from './collab/client';
+import { OpChain } from './collab/chain';
 import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane, type Axis } from './collab/hostview';
 import { inviteKeys, makeInviteSecret, makeSeed, memberId, publicKey } from './collab/identity';
-import { ReplayGuard } from './collab/guard';
+import { ReplayGuard, type GuardEntry } from './collab/guard';
+import { RoomKeys, wrapInvite } from './collab/keys';
 import { OpLog } from './collab/oplog';
 import {
   FrameKind,
@@ -79,10 +80,13 @@ import {
   type SegmentInfo,
   type Welcome,
 } from './collab/protocol';
-import { forgetRoom, rememberRoom, savedRooms } from './collab/rooms';
+import { DEFAULT_INVITE, cleanLabel, inviteRequest, parseInviteList, type InviteOptions } from './collab/invites';
+import { VIEW_ONLY, roleChangeText } from './collab/roles';
+import { cleanLabels, forgetRoom, rememberRoom, savedRooms } from './collab/rooms';
 import { applySegOp, parseSegOp, segmentOps, type SegOp } from './collab/segops';
 import { PartAssembler, SLAB_SLICES, TokenBucket, gunzipExactly, maxPacked, slabRanges, splitParts } from './collab/transfer';
 import { conflictPatch, mergeMasks, mergeSummary, type Conflicts } from './mask/merge';
+import { addConflicts, conflictSlices, mineOutline, reviewExpired, settledConflicts, sliceFocus, splitSlice, stepSlice } from './mask/review';
 import { fingerprint } from './mask/recovery';
 import * as engine from './viewer/engine';
 import { indexToWorld, voxelAt } from './viewer/geometry';
@@ -135,9 +139,10 @@ export function getMaskData(id: string): Uint8Array | null {
 /**
  * What autosave listens for. `edit`: the mask or its segments changed. `opened`: an image
  * or mask finished loading. `saved`: the mask was written to a file. `discarded`: the user
- * chose not to save. `closed`: nothing is open any more.
+ * chose not to save. `closed`: nothing is open any more. `room`: what a shared-copy room left on
+ * this device to merge with or to decide changed (`roomCopy`).
  */
-export type SessionEvent = 'edit' | 'opened' | 'saved' | 'discarded' | 'closed';
+export type SessionEvent = 'edit' | 'opened' | 'saved' | 'discarded' | 'closed' | 'room';
 const watchers = new Set<(event: SessionEvent) => void>();
 
 export function onSessionEvent(fn: (event: SessionEvent) => void): () => void {
@@ -146,6 +151,8 @@ export function onSessionEvent(fn: (event: SessionEvent) => void): () => void {
 }
 
 function emit(event: SessionEvent): void {
+  // My version kept aside is outlined over the mask as it is, so it follows every edit.
+  if (event === 'edit' && review) scheduleReviewRefresh();
   for (const fn of watchers) fn(event);
 }
 
@@ -403,7 +410,7 @@ async function loadMask(vol: VolumeData, path?: string): Promise<boolean> {
     toast('error', TOO_MANY_MASKS);
     return false;
   }
-  if (!untouched && room) {
+  if (room && (!untouched || viewOnly())) {
     // Everyone in a room edits the room's mask. This one stays on this computer, read-only, and is never sent.
     const entry = newEntry(next, path);
     Object.assign(entry, { name: vol.name, segments, activeSegment: segments[0]?.index ?? 0 });
@@ -450,6 +457,7 @@ function installMask(vol: VolumeData, add = false, path?: string): void {
   engine.set3dImageVisible(get().show3dImage);
   set({ stats: {} });
   showOthers();
+  syncReview();
   scheduleStats();
 }
 
@@ -523,6 +531,7 @@ function mount(entry: MaskEntry): void {
   engine.setMaskStyle(get().opacity, get().outlineOnly);
   engine.set3dImageVisible(get().show3dImage);
   showOthers();
+  syncReview();
   scheduleStats();
   // The edit tools need a segment to paint with.
   if (EDIT_TOOLS.includes(get().tool) && entry.segments.length === 0) setTool('crosshair');
@@ -603,6 +612,8 @@ function dropImage(): void {
   // Leaving as a guest of a view-through-host room has already let go of everything.
   if (!image) return;
   kept = null;
+  review = null;
+  set({ review: null });
   image = null;
   mask = null;
   shadow = null;
@@ -653,6 +664,10 @@ export function closeImage(force = false): void {
 export function setTool(tool: ToolId): void {
   const s = get();
   if (!image) return;
+  if (EDIT_TOOLS.includes(tool) && viewOnly()) {
+    toast('info', VIEW_ONLY);
+    return;
+  }
   if (EDIT_TOOLS.includes(tool) && s.segments.length === 0) {
     toast('info', 'Add a segment to start editing.');
     return;
@@ -790,6 +805,12 @@ function flushEdits(): void {
   const data = mask.data as Uint8Array;
   let patch = diffMask(shadow, data, sliceSize(), which);
   if (!patch) return;
+  if (viewOnly()) {
+    // Someone who may only look: whatever a tool wrote is put back, and nothing is sent.
+    applyPatch(data, patch, 'before');
+    engine.refreshMask(patchSlices(patch, sliceSize()));
+    return;
+  }
   const s = get();
   const limit = strokeRule(s.paintOver);
   // Scissors erase the segment being edited and leave its neighbours.
@@ -899,6 +920,7 @@ function dropSplitSegments(patch: Patch): void {
 }
 
 export function undo(): void {
+  if (refusedForViewer()) return;
   flushEdits();
   // A preview was worked out from the mask as it was; it goes before the mask changes under it.
   cancelFillPreview(PREVIEW_CANCELLED);
@@ -915,6 +937,7 @@ export function undo(): void {
 }
 
 export function redo(): void {
+  if (refusedForViewer()) return;
   flushEdits();
   cancelFillPreview(PREVIEW_CANCELLED);
   const patches = history.redo();
@@ -931,7 +954,7 @@ let lastEdit: Patch | null = null;
 
 /** Run a direct edit of the mask buffer as one undo step. Returns changed voxel count. */
 function editMask(fn: (data: Uint8Array) => void): number {
-  if (!mask || !shadow) return 0;
+  if (!mask || !shadow || refusedForViewer()) return 0;
   flushEdits();
   history.commit();
   lastEdit = null;
@@ -957,7 +980,7 @@ function editMask(fn: (data: Uint8Array) => void): number {
  * other edit. Returns false when the copy does not fit the mask on screen.
  */
 export function restoreMask(data: Uint8Array, segments: Omit<SegmentInfo, 'visible'>[], maskName: string | null): boolean {
-  if (!mask || data.length !== mask.data.length || isGuestView()) return false;
+  if (!mask || data.length !== mask.data.length || isGuestView() || viewOnly()) return false;
   editMask((d) => d.set(data));
   ensureSegments(data);
   const s = get();
@@ -990,6 +1013,8 @@ const NEW_ROW_MS = 600;
 
 function updateSegments(list: SegmentInfo[], active = get().activeSegment): void {
   const before = get().segments;
+  // Showing and hiding is each person's own; anything the room would hear of is not for a viewer.
+  if (segmentOps(before, list).length > 0 && refusedForViewer()) return;
   set({ segments: list, activeSegment: active });
   pushSegments();
   // The room hears about each segment that changed, not the whole list.
@@ -999,7 +1024,7 @@ function updateSegments(list: SegmentInfo[], active = get().activeSegment): void
 
 export function addSegment(): void {
   const s = get();
-  if (!image) return;
+  if (!image || refusedForViewer()) return;
   const used = new Set(s.segments.map((x) => x.index));
   let index = 1;
   while (used.has(index)) index++;
@@ -1040,7 +1065,7 @@ export function showOnly(index: number): void {
 
 export function clearSegment(index: number): void {
   const seg = get().segments.find((x) => x.index === index);
-  if (!seg) return;
+  if (!seg || refusedForViewer()) return;
   const n = editMask((d) => {
     for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
   });
@@ -1050,7 +1075,7 @@ export function clearSegment(index: number): void {
 export function deleteSegment(index: number): void {
   const s = get();
   const seg = s.segments.find((x) => x.index === index);
-  if (!seg) return;
+  if (!seg || refusedForViewer()) return;
   const n = editMask((d) => {
     for (let i = 0; i < d.length; i++) if (d[i] === index) d[i] = 0;
   });
@@ -1070,6 +1095,7 @@ function activeEditable(): SegmentInfo | null {
     toast('info', 'Add a segment to start editing.');
     return null;
   }
+  if (refusedForViewer()) return null;
   if (isGuestView()) {
     toast('info', WHOLE_MASK_OFF);
     return null;
@@ -1633,6 +1659,10 @@ const WHOLE_MASK_OFF = "This works on the whole mask, which stays on the host's 
 type RoomOp = ({ k: 'patch'; patch: Patch } | { k: 'seg'; op: SegOp } | { k: 'none' }) & {
   /** Who made the edit, the tag of their visit and its number in that visit: what tells a repeat from a new edit. */
   sig?: [from: number, tag: string, n: number];
+  /** The key epoch the edit was sealed under. Once the room has moved on, an edit under an older key is left out. */
+  epoch?: number;
+  /** Who made it, as its signature says. */
+  from?: number;
 };
 
 /** Edits kept while the mask is still on its way. Past this the transfer starts again rather than fill the memory. */
@@ -1657,6 +1687,11 @@ interface SyncBegin {
   dims: [number, number, number];
   /** The sender's list of edits already in the mask (`ReplayGuard`). */
   seen: unknown;
+  /** The sender's place in the chain over the room's edits, and the newest key epoch among them. */
+  chain: unknown;
+  /** Who may only look, at the sender's place in the order. */
+  viewers?: unknown;
+  ep: unknown;
 }
 
 /** Getting the mask, and the image when it is not open yet, from another member. */
@@ -1711,9 +1746,17 @@ interface RoomCtx {
   role: Role;
   selfId: number;
   seed: Uint8Array;
-  key: Uint8Array | null;
-  /** The secret of the link this device joined with, until the room key is unwrapped. */
+  /** The secret of the link this device joined with, until the first sign-in. */
   secret: Uint8Array | null;
+  /** The first sign-in of someone the host has not let in yet: the rest of it waits for the keys. */
+  pending: { w: Welcome; first: boolean } | null;
+  /** The running hash over the room's edits as this device applied them (`collab/chain.ts`). */
+  chain: OpChain;
+  /** The newest key epoch among the edits applied. An edit under an older key after that is not taken. */
+  minEpoch: number;
+  /** True once this device and another were found to have been shown different edits. Nothing more is taken or sent. */
+  forked: boolean;
+  headTimer: ReturnType<typeof setTimeout> | null;
   creator: boolean;
   welcomed: boolean;
   name: string;
@@ -1729,7 +1772,7 @@ interface RoomCtx {
   /** True when my mask reflects the room and edits flow both ways. */
   ready: boolean;
   offline: boolean;
-  queued: { seq: number; op: RoomOp; settles?: number }[];
+  queued: { seq: number; op: RoomOp; settles?: number; from: number; digest: Uint8Array | null }[];
   queuedBytes: number;
   /** The highest sequence number the relay has shown this device. */
   topSeq: number;
@@ -1748,6 +1791,17 @@ interface RoomCtx {
   offlineSegs: Set<number>;
   /** Invite links made here, by invite id, so the list can offer them again. */
   links: Map<string, string>;
+  /** The host's own notes for links, by invite id. Kept on this device only. */
+  labels: Map<string, string>;
+  /**
+   * Who may only look, at this device's place in the room's order. The host says so in the list it
+   * signs and, for the exact place, in an ordered edit: an edit of theirs after it is left out by everyone.
+   */
+  viewers: Set<number>;
+  /** The room runs on the host's own computer, so it is only there while the host has it open. */
+  hostedRoom: boolean;
+  /** Why the last connection that is being retried closed. */
+  lastClose: number;
   selfEnded: boolean;
   settle: ((result: true | string) => void) | null;
   /* Host of a view-through-host room. */
@@ -1764,14 +1818,30 @@ interface RoomCtx {
 }
 
 /** What is left of a shared-copy room after leaving it, so coming back merges instead of replacing. */
-let kept: { id: string; session: string | null; synced: Uint8Array; head: number; offlineSegs: Set<number>; guard: ReplayGuard } | null = null;
-/** My voxels the last merge put aside, waiting for "Use mine" or "Keep the room's". */
-let conflicts: Conflicts | null = null;
+let kept: { id: string; session: string | null; synced: Uint8Array; head: number; offlineSegs: Set<number>; guard: ReplayGuard; chain: OpChain; minEpoch: number; viewers: Set<number> } | null = null;
+/**
+ * My voxels that merges put aside, waiting for "Use mine" or "Keep the room's" slice by slice.
+ * They belong to the mask they were made on and stay until every slice is decided, or for
+ * seven days. Leaving the room does not drop them.
+ */
+let review: { conflicts: Conflicts; at: number; room: string; mask: VolumeData; outline: VolumeData | null } | null = null;
 let nextRid = 1;
 
 /** True for a guest of a view-through-host room: nothing may be kept on this device. */
 export function isGuestView(): boolean {
   return !!room && room.welcomed && room.kind === 'host-view' && room.role !== 'host';
+}
+
+/** True for someone the host lets look but not edit. */
+function viewOnly(): boolean {
+  return !!room && room.welcomed && room.role === 'viewer';
+}
+
+/** Says why and returns true when an edit is asked for by someone who may only look. */
+function refusedForViewer(): boolean {
+  if (!viewOnly()) return false;
+  toast('info', VIEW_ONLY);
+  return true;
 }
 
 function patchRoom(patch: Partial<RoomState>): void {
@@ -1807,13 +1877,15 @@ export async function startRoom(name: string, kind: RoomKind = 'shared'): Promis
     server = hosted.connect;
     share = hosted.share;
   }
+  const id = makeRoomId();
+  const seed = makeSeed();
   const entered = await enterRoom({
     server,
     shareServer: share ?? server,
     hosting: !!hosted,
-    id: makeRoomId(),
-    seed: makeSeed(),
-    key: makeRoomKey(),
+    id,
+    seed,
+    keys: RoomKeys.host(id, seed),
     mode: { t: 'create', type: kind },
     name,
   });
@@ -1832,18 +1904,21 @@ export async function joinRoom(name: string, invite: string): Promise<true | str
   if (blocked) return blocked;
   // Someone who is already a member signs in with their own key; the link is not spent again.
   const known = savedRooms().find((r) => r.id === parsed.room);
-  const seed = known ? b64decode(known.seed) : null;
+  const mine = known ? b64decode(known.seed) : null;
+  const keys = mine && known ? RoomKeys.load(parsed.room, mine, known.key) : null;
+  const seed = keys ? mine : null;
   return enterRoom({
     server: parsed.server,
     shareServer: parsed.server,
     hosting: false,
     id: parsed.room,
     seed: seed ?? makeSeed(),
-    key: (seed && known && b64decode(known.key)) || null,
+    keys,
     mode: { t: 'redeem', secret: parsed.secret },
     name,
     // Only shared-copy rooms are remembered, and a room never changes its kind or its host.
     known: seed && known ? { kind: 'shared', host: known.role === 'host' } : undefined,
+    hostedRoom: !!(seed && known?.hosted),
   });
 }
 
@@ -1851,14 +1926,44 @@ export async function joinRoom(name: string, invite: string): Promise<true | str
 export async function rejoinRoom(name: string, id: string): Promise<true | string> {
   const known = savedRooms().find((r) => r.id === id);
   const seed = known && b64decode(known.seed);
-  const key = known && b64decode(known.key);
-  if (!known || !seed || !key) return 'This room is no longer on this device. Ask the host for a new invite link.';
+  const keys = known && seed ? RoomKeys.load(id, seed, known.key) : null;
+  if (!known || !seed || !keys) return 'This room is no longer on this device. Ask the host for a new invite link.';
   const blocked = joinBlocked(id);
   if (blocked) return blocked;
-  return enterRoom({ server: known.server, shareServer: known.server, hosting: false, id, seed, key, mode: { t: 'auth' }, name, known: { kind: 'shared', host: known.role === 'host' } });
+  let server = known.server;
+  let share = known.server;
+  let hosting = false;
+  if (known.hosted && known.role === 'host') {
+    // The room ran on this computer: its server is started again, with the members and links it had.
+    if (!image || !mask) return 'Open the image and the mask of this room first, then open the room again.';
+    if (known.image && known.image !== imageFingerprint()) return 'This room was started on another image. Open that image and its mask, then open the room again.';
+    const hosted = await platform.hostRoom();
+    if (!hosted) return 'This room runs on this computer, in the desktop app. Open it there.';
+    server = hosted.connect;
+    share = hosted.share;
+    hosting = true;
+  }
+  const entered = await enterRoom({
+    server,
+    shareServer: share,
+    hosting,
+    id,
+    seed,
+    keys,
+    mode: { t: 'auth' },
+    name,
+    known: { kind: 'shared', host: known.role === 'host' },
+    hostedRoom: known.hosted,
+    labels: known.labels,
+  });
+  if (hosting && entered !== true) void platform.stopHosting();
+  return entered;
 }
 
 export function forgetSavedRoom(id: string): void {
+  // A room this computer hosted: what its room server kept goes too, since nobody could open it again.
+  const known = savedRooms().find((r) => r.id === id);
+  if (known?.hosted && known.role === 'host') void platform.forgetHostedRoom(id);
   forgetRoom(id);
   if (kept?.id === id) kept = null;
 }
@@ -1876,29 +1981,37 @@ interface EnterOptions {
   hosting: boolean;
   id: string;
   seed: Uint8Array;
-  key: Uint8Array | null;
+  keys: RoomKeys | null;
   mode: JoinMode;
   name: string;
   known?: { kind?: RoomKind; host?: boolean };
+  hostedRoom?: boolean;
+  labels?: Record<string, string>;
 }
 
 function enterRoom(o: EnterOptions): Promise<true | string> {
   return new Promise((resolve) => {
     const prior = kept && kept.id === o.id && mask && kept.synced.length === mask.data.length ? kept : null;
     kept = null;
-    const client = new RoomClient(
+    const client: RoomClient = new RoomClient(
       o.server,
       o.id,
       o.seed,
       o.mode,
-      o.key,
+      o.keys,
       {
         onStatus: (status) => r === room && onRoomStatus(r, status),
         onWelcome: (msg, first) => r === room && onWelcome(r, msg, first),
         onText: (msg) => r === room && onRoomText(r, msg),
-        onFrame: (header, meta, body) => r === room && onRoomFrame(r, header, meta, body),
+        onFrame: (header, meta, body, digest) => r === room && onRoomFrame(r, header, meta, body, digest),
+        onKeys: (replay) => r === room && onRoomKeys(r, replay),
         onEnded: (code, reason) => r === room && onRoomEnded(r, code, reason),
-        members: () => r.roster.filter((m) => m.role !== 'host').map((m) => ({ key: m.key, role: m.role as 'editor' | 'viewer' })),
+        onRetry: (code) => r === room && onRoomRetry(r, code),
+        // Who is in the room is the host's own signed list; the relay's list only says who may edit.
+        members: (): MemberKey[] =>
+          (client.keys?.members() ?? [])
+            .filter((m) => m.id !== r.selfId)
+            .map((m) => ({ key: m.k, xkey: m.x, role: m.viewOnly ? ('viewer' as const) : ('editor' as const) })),
       },
       o.known,
     );
@@ -1912,8 +2025,12 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
       role: o.mode.t === 'create' ? 'host' : 'editor',
       selfId: memberId(publicKey(o.seed)),
       seed: o.seed,
-      key: o.key,
       secret: o.mode.t === 'redeem' ? o.mode.secret : null,
+      pending: null,
+      chain: prior?.chain ?? new OpChain(o.id),
+      minEpoch: prior?.minEpoch ?? 0,
+      forked: false,
+      headTimer: null,
       creator: o.mode.t === 'create',
       welcomed: false,
       name: o.name,
@@ -1944,6 +2061,10 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
       quietMerge: false,
       offlineSegs: prior?.offlineSegs ?? new Set(),
       links: new Map(),
+      labels: new Map(Object.entries(cleanLabels(o.labels))),
+      viewers: prior?.viewers ?? new Set(),
+      hostedRoom: o.hosting || !!o.hostedRoom,
+      lastClose: 0,
       selfEnded: false,
       settle: resolve,
       seen: new Map(),
@@ -1957,11 +2078,10 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
       lostTimer: null,
       work: Promise.resolve(),
     };
-    if (prior) r.log.reset(prior.head);
+    if (prior) resetLog(r, prior.head);
     room = r;
-    conflicts = null;
     set({
-      room: { status: 'connecting', id: o.id, kind: r.kind, role: r.role, selfId: r.selfId, name: o.name, hosting: o.hosting, hostName: null, hostAway: false, veil: null, hostVoi: null, review: null, note: null },
+      room: { status: 'connecting', id: o.id, kind: r.kind, role: r.role, selfId: r.selfId, name: o.name, hosting: o.hosting, hostName: null, hostAway: false, veil: null, hostVoi: null, note: null },
       peers: [],
     });
     client.connect();
@@ -1980,18 +2100,23 @@ function teardown(r: RoomCtx, opts: { keep?: boolean; wipe?: boolean } = {}): vo
   if (r.pump) clearInterval(r.pump);
   if (r.lostTimer) clearTimeout(r.lostTimer);
   if (r.sync?.timer) clearTimeout(r.sync.timer);
+  if (r.headTimer) clearTimeout(r.headTimer);
   for (const s of r.serving.values()) s.cancelled = true;
   r.serving.clear();
   r.partial = null;
   const base = r.base ?? r.synced;
-  if (opts.keep && r.kind === 'shared' && base && image && r.session) {
+  // After a fork there is no room state to come back to and merge with: what is on screen is this device's copy.
+  if (opts.keep && !r.forked && r.kind === 'shared' && base && image && r.session) {
     // Edits the room has not numbered are simply part of my mask again.
     for (const op of r.log.unconfirmed()) noteOfflineSeg(r, op);
-    kept = { id: r.id, session: r.session, synced: base, head: r.base ? r.baseHead : r.log.head, offlineSegs: r.offlineSegs, guard: r.guard };
+    const head = r.base ? r.baseHead : r.log.head;
+    r.chain.rewind(head);
+    kept = { id: r.id, session: r.session, synced: base, head, offlineSegs: r.offlineSegs, guard: r.guard, chain: r.chain, minEpoch: r.minEpoch, viewers: r.viewers };
   }
   if (room === r) room = null;
-  conflicts = null;
-  set({ room: null, peers: [], progress: null, busy: get().busy && r.sync ? null : get().busy });
+  const waiting = get().busy === WAITING_FOR_KEYS;
+  set({ room: null, peers: [], progress: null, busy: (get().busy && r.sync) || waiting ? null : get().busy });
+  emit('room');
   if (r.hosting) void platform.stopHosting();
   if (opts.wipe) wipeGuestCopy();
 }
@@ -2034,33 +2159,89 @@ export async function removeMember(id: number): Promise<boolean> {
     toast('error', `${name} couldn't be removed. Check your connection and try again.`);
     return false;
   }
+  // The relay no longer delivers to them. A new room key makes sure they could not read it anyway.
+  await rekeyRoom([id]);
   toast('info', `${name} was removed`);
   return true;
+}
+
+/**
+ * Host only. Lets a member edit, or only look. Three things say so, in this order: the list of
+ * members the host signs, so no room server can change it; an edit in the room's order, so
+ * everyone agrees on which of that member's edits came before it; and the room server, which
+ * refuses a viewer's edits from then on. No new room key is needed.
+ */
+export async function setMemberRole(id: number, role: 'editor' | 'viewer'): Promise<boolean> {
+  const r = room;
+  if (!r || r.role !== 'host') return false;
+  const name = get().peers.find((p) => p.id === id)?.name ?? 'This person';
+  const view = role === 'viewer';
+  if (r.viewers.has(id) === view && r.client.keys?.viewOnly(id) === view) return true;
+  const fail = () => {
+    toast('error', `${name} couldn't be changed. Check your connection and try again.`);
+    return false;
+  };
+  if (!r.ready || !r.client.open || !r.client.setViewOnly(id, view)) return fail();
+  rememberThis(r);
+  sendOp(r, { k: 'seg', op: { op: 'role', member: id, view } });
+  const answer = await r.client.request({ t: 'member-role', member: id, role });
+  // The apps hold to the signed list either way; the room server not answering is still worth knowing.
+  if (answer.t !== 'ok') return fail();
+  toast('info', view ? `${name} can view only now.` : `${name} can edit again.`);
+  return true;
+}
+
+/**
+ * Host only. Makes a new room key and hands it to everyone on the host's list of members,
+ * each under the key only they and the host share. `removed` are the member ids taken off
+ * that list first: they never get the new key. Call it after the relay has removed someone.
+ * A change of role needs no new key. False when the relay could not be told (offline).
+ */
+export async function rekeyRoom(removed: number[] = []): Promise<boolean> {
+  const r = room;
+  if (!r || r.role !== 'host') return false;
+  return r.client.rotate(removed);
 }
 
 export interface InviteRow extends InviteInfo {
   /** The link, when it was made on this device in this session. */
   link: string | null;
+  /** The host's own note for the link, or empty. */
+  label: string;
 }
 
-/** Host only. A new link that works once and stops working after `ttl` seconds (a day unless said otherwise). */
-export async function createInvite(ttl = 86_400): Promise<string | null> {
+/**
+ * Host only. A new link. The room server counts its uses and keeps its time; here they are only
+ * asked for. A number is a lifetime in seconds for a link that works once.
+ */
+export async function createInvite(options: Partial<InviteOptions> | number = {}): Promise<string | null> {
   const r = room;
-  if (!r || r.role !== 'host' || !r.key) return null;
+  const mine = r?.client.keys;
+  if (!r || r.role !== 'host' || !mine) return null;
+  const chosen: InviteOptions = { ...DEFAULT_INVITE, ...(typeof options === 'number' ? {} : options) };
+  const asked = typeof options === 'number' ? { ttl: options, maxUses: 1 } : inviteRequest(chosen, r.kind);
   const secret = makeInviteSecret();
   const keys = inviteKeys(secret);
+  // The host remembers how to check the proof of whoever comes in with this link, and how many people it is for (0: any number).
+  mine.addInvite(keys.id, keys.bindKey, asked.maxUses);
+  rememberThis(r);
   const answer = await r.client.request({
     t: 'invite-add',
     id: keys.id,
     authKey: b64encode(keys.authKey),
-    wrappedKey: wrapRoomKey(keys.wrapKey, r.key),
+    // Not the room key: who the host is and what kind of room this is. The host hands over keys itself.
+    wrappedKey: wrapInvite(keys.wrapKey, { k: mine.k, x: mine.x, kind: r.kind }),
     role: 'editor',
-    ttl,
-    maxUses: 1,
+    ...asked,
   });
   if (answer.t !== 'invite-added') return null;
   const link = inviteLink(r.shareServer, r.id, secret);
   r.links.set(keys.id, link);
+  const label = cleanLabel(chosen.label);
+  if (label) {
+    r.labels.set(keys.id, label);
+    rememberThis(r);
+  }
   return link;
 }
 
@@ -2068,14 +2249,25 @@ export async function listInvites(): Promise<InviteRow[]> {
   const r = room;
   if (!r || r.role !== 'host') return [];
   const answer = await r.client.request({ t: 'invite-list' });
-  const list = answer.t === 'invites' && Array.isArray(answer.list) ? (answer.list as InviteInfo[]) : [];
-  return list.map((i) => ({ ...i, link: r.links.get(i.id) ?? null }));
+  const list = answer.t === 'invites' ? parseInviteList(answer.list) : [];
+  if (answer.t === 'invites' && r.labels.size > 0) {
+    // A note for a link the room server has forgotten is of no use to anyone.
+    const known = new Set(list.map((i) => i.id));
+    const before = r.labels.size;
+    for (const id of [...r.labels.keys()]) if (!known.has(id)) r.labels.delete(id);
+    if (r.labels.size !== before) rememberThis(r);
+  }
+  return list.map((i) => ({ ...i, link: r.links.get(i.id) ?? null, label: r.labels.get(i.id) ?? '' }));
 }
 
 export async function revokeInvite(id: string): Promise<boolean> {
   const r = room;
   if (!r || r.role !== 'host') return false;
-  return (await r.client.request({ t: 'invite-revoke', id })).t === 'ok';
+  if ((await r.client.request({ t: 'invite-revoke', id })).t !== 'ok') return false;
+  // The host's app lets nobody in through it either, whatever the room server does from here on.
+  r.client.keys?.dropInvite(id);
+  rememberThis(r);
+  return true;
 }
 
 // Closing the window is a clean exit: the relay hears a proper goodbye, so the guests of a
@@ -2119,17 +2311,17 @@ function onRoomStatus(r: RoomCtx, status: 'connecting' | 'online' | 'offline'): 
     // again on return. If the room did end meanwhile, the room server says so on reconnecting.
     patchRoom({ veil: OFFLINE_VEIL });
     r.lostTimer ??= setTimeout(() => room === r && clearGuestPictures(r), HOST_LOST_MS);
-    r.log.reset(r.log.head);
+    resetLog(r, r.log.head);
     return;
   }
   if (r.base) {
     // Cut off while catching up: start again from the same base next time.
     r.synced = r.base;
     r.base = null;
-    r.log.reset(r.baseHead);
+    resetLog(r, r.baseHead);
   } else {
     for (const op of r.log.unconfirmed()) noteOfflineSeg(r, op);
-    r.log.reset(r.log.head);
+    resetLog(r, r.log.head);
   }
   toast('warning', r.kind === 'shared' ? 'Connection lost. Keep working: your changes are merged when you reconnect.' : 'Connection lost. Reconnecting…');
 }
@@ -2163,20 +2355,55 @@ function onWelcome(r: RoomCtx, w: Welcome, first: boolean): void {
   r.lostTimer = null;
   r.welcomed = true;
   r.selfId = w.self.id;
-  r.role = w.self.role;
+  // Host or not is fixed (`welcomeFits`). Whether a member may edit is the host's word, not the relay's.
+  r.role = w.self.role === 'host' ? 'host' : r.viewers.has(r.selfId) ? 'viewer' : 'editor';
   r.kind = w.room.type;
   r.roster = w.roster;
-  if (!r.key && r.secret && w.invite) {
-    r.key = unwrapRoomKey(inviteKeys(r.secret).wrapKey, w.invite.wrappedKey);
-    if (r.key) r.client.setKey(r.key);
-  }
+  r.lastClose = 0;
   r.secret = null;
-  if (!r.key) {
-    // A member, but without the room key: the link was used on another device.
+  const keys = r.client.keys;
+  if (!keys) {
+    // A member, but with nothing from the host: the link was used on another device.
     teardown(r);
     settle(r, closeMessage(4408, 'invite already used', { host: null, kind: null }));
     return;
   }
+  if (!keys.ready || keys.epoch < w.room.epoch) {
+    // Either the host has not let this device in yet: it does that itself, with proof that this device
+    // holds the link, and hands over the keys. Or the room moved to a new key while this device was away,
+    // and the host or someone who stayed hands it over. Until then nothing new can be read, so nothing
+    // is merged or sent; work on this device goes on and is merged afterwards.
+    const text = keys.ready ? WAITING_FOR_NEW_KEY : WAITING_FOR_KEYS;
+    r.pending = { w, first };
+    patchRoom({ status: 'online', kind: r.kind, role: r.role, selfId: r.selfId, hostAway: w.room.state === 'host-away', veil: null, note: text });
+    syncPeople(r);
+    if (!keys.ready) set({ busy: text });
+    settle(r, true);
+    return;
+  }
+  enterWithKeys(r, w, first);
+}
+
+const WAITING_FOR_KEYS = 'Waiting for the host to let you in…';
+const WAITING_FOR_NEW_KEY = "Waiting for the room's new key…";
+
+/** The keys arrived or changed: keep them, carry on with a sign-in that waited for them, fetch edits that did. */
+function onRoomKeys(r: RoomCtx, replay: boolean): void {
+  rememberThis(r);
+  const pending = r.pending;
+  if (pending && r.client.keys?.ready && r.client.keys.epoch >= pending.w.room.epoch) {
+    r.pending = null;
+    if (get().busy === WAITING_FOR_KEYS) set({ busy: null });
+    enterWithKeys(r, pending.w, pending.first);
+    return;
+  }
+  if (r.forked || pending) return;
+  // Whoever was just let in has not heard this device's name yet.
+  sayHi(r);
+  if (replay) r.client.send({ t: 'replay', after: r.log.head });
+}
+
+function enterWithKeys(r: RoomCtx, w: Welcome, first: boolean): void {
   const remade = r.session !== null && r.session !== w.room.session;
   r.session = w.room.session;
   r.topSeq = remade ? w.room.head : Math.max(r.topSeq, w.room.head);
@@ -2190,11 +2417,21 @@ function onWelcome(r: RoomCtx, w: Welcome, first: boolean): void {
     guestEnter(r, w.room.state === 'host-away');
     return;
   }
-  if (image && mask && r.role === 'host' && ((first && r.creator) || remade)) {
+  // A room opened again on the computer that hosts it starts from the mask on that computer:
+  // its server kept the members and the links, not the edits.
+  const reopened = first && r.hosting && w.room.head === 0;
+  if (image && mask && r.role === 'host' && ((first && r.creator) || remade || reopened)) {
     // This computer is the reference: the room starts from the mask on screen.
     flushEdits();
     r.synced = (mask.data as Uint8Array).slice();
+    // Who may only look is what this host signed.
+    r.viewers = new Set((r.client.keys?.members() ?? []).filter((m) => m.viewOnly).map((m) => m.id));
+    syncPeople(r);
     r.log.reset(w.room.head);
+    r.client.forgetSent();
+    // The numbering starts again, and so does the chain over it.
+    r.chain.start(w.room.session);
+    if (w.room.head !== 0) r.chain.lose();
     r.ready = true;
     settle(r, true);
     return;
@@ -2207,8 +2444,98 @@ function onWelcome(r: RoomCtx, w: Welcome, first: boolean): void {
 
 function rememberThis(r: RoomCtx): void {
   // A view-through-host room is one session and leaves nothing behind.
-  if (r.kind !== 'shared' || !r.key) return;
-  rememberRoom({ id: r.id, server: r.server, role: r.role, seed: b64encode(r.seed), key: b64encode(r.key), host: hostName(r), at: Date.now() });
+  const keys = r.client.keys;
+  if (r.kind !== 'shared' || !keys?.ready || !r.welcomed) return;
+  rememberRoom({
+    id: r.id,
+    // The address others reach a room on this computer by; the host itself starts the server again and uses its own.
+    server: r.hosting ? r.shareServer : r.server,
+    role: r.role,
+    seed: b64encode(r.seed),
+    key: keys.dump(),
+    host: hostName(r),
+    at: Date.now(),
+    ...(r.hostedRoom ? { hosted: true } : {}),
+    ...(r.role === 'host' && r.labels.size > 0 ? { labels: Object.fromEntries(r.labels) } : {}),
+    ...(r.hosting && image ? { image: imageFingerprint() ?? undefined } : {}),
+  });
+}
+
+/* The fingerprint reads a few thousand voxels; once per image is enough. */
+const fingerprints = new WeakMap<object, string>();
+function imageFingerprint(): string | null {
+  if (!image) return null;
+  let key = fingerprints.get(image);
+  if (!key) fingerprints.set(image, (key = fingerprint(image)));
+  return key;
+}
+
+/** While the app keeps trying: why the last try failed, and what the member is waiting for. */
+function onRoomRetry(r: RoomCtx, code: number): void {
+  r.lastClose = code;
+  if (r.role === 'host' || r.kind !== 'shared' || !r.welcomed) return;
+  // 4404: the room server is there and does not know the room. Only its host can open it again.
+  if (code === 4404) patchRoom({ note: WAITING_FOR_HOST });
+  else if (r.hostedRoom) patchRoom({ note: `Can't reach ${hostName(r) ?? 'the host'}'s computer, where this room runs. ${WAITING_FOR_HOST}` });
+}
+
+/** `ROOMS.md` C10, "Relay restarted, room unknown". */
+const WAITING_FOR_HOST = 'Waiting for the host to reopen the room.';
+
+/** Tells someone what the host lets them do now, and puts down what they may no longer use. */
+function toldOfRole(r: RoomCtx, say = true): void {
+  patchRoom({ role: r.role });
+  rememberThis(r);
+  if (say) toast('info', roleChangeText(hostName(r), r.role));
+  if (r.role !== 'viewer') return;
+  cancelFillPreview();
+  if (EDIT_TOOLS.includes(get().tool)) setTool('crosshair');
+}
+
+/**
+ * The host's word, at its place in the room's order: `member` may only look, or may edit again.
+ * For this device itself: a new viewer's strokes that have no place in the order yet never count
+ * (they come after this), so they leave the screen and it shows what everyone has.
+ */
+function setViewOnly(r: RoomCtx, member: number, view: boolean): void {
+  if (r.viewers.has(member) === view) return;
+  if (view) r.viewers.add(member);
+  else r.viewers.delete(member);
+  syncPeople(r);
+  if (member !== r.selfId || r.role === 'host') return;
+  const live = r.ready && r.catching === null && !r.offline;
+  if (view && live) {
+    // What a tool has written so far joins the strokes that are waiting, and goes with them.
+    flushEdits();
+    history.commit();
+  }
+  r.role = view ? 'viewer' : 'editor';
+  if (view && live) {
+    r.log.reset(r.log.head);
+    if (r.kind === 'shared' && r.synced && mask && shadow) {
+      const back = diffMask(mask.data as Uint8Array, r.synced, sliceSize());
+      if (back) writePatch(back, 'after');
+    } else if (r.kind === 'host-view') {
+      // The planes are fetched again as the host has them.
+      r.have.clear();
+      r.asked.clear();
+      wantSlices(r);
+    }
+    history.clear();
+    syncHistoryFlags();
+  }
+  toldOfRole(r);
+}
+
+/** Who may only look, as the member who sent the mask had it at that place in the order. */
+function takeViewers(r: RoomCtx, list: unknown): void {
+  const ids = Array.isArray(list) ? list.slice(0, 64).filter((v): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0) : [];
+  const before = r.viewers.has(r.selfId);
+  r.viewers = new Set(ids);
+  syncPeople(r);
+  if (r.role === 'host' || before === r.viewers.has(r.selfId)) return;
+  r.role = before ? 'editor' : 'viewer';
+  toldOfRole(r);
 }
 
 function onRoomEnded(r: RoomCtx, code: number, reason: string): void {
@@ -2217,8 +2544,10 @@ function onRoomEnded(r: RoomCtx, code: number, reason: string): void {
   const rejoin = !wasIn && !r.secret && !r.creator;
   const text = r.selfEnded
     ? null
-    : rejoin && code === 4404
-      ? 'This room is not open right now. Ask the host to open it again.'
+    : rejoin && r.hosting && code === 4404
+      ? 'This room is no longer kept on this computer. Start a new room.'
+      : rejoin && (code === 4404 || (r.hostedRoom && !KNOWN_CLOSES.includes(code)))
+        ? 'This room is not open right now. Ask the host to open it again.'
       : wasIn && r.role === 'host' && code === 4410
         ? 'The room ended while you were disconnected. Start a new room to carry on together.'
         : closeMessage(code, reason, { host: hostName(r), kind: wasIn ? r.kind : null });
@@ -2233,12 +2562,18 @@ function onRoomEnded(r: RoomCtx, code: number, reason: string): void {
   else toast('info', 'The room has ended for everyone.');
 }
 
+/** Close codes that say something about the room; any other means the room server could not be reached. */
+const KNOWN_CLOSES = [4001, 4003, 4400, 4401, 4403, 4404, 4408, 4409, 4410, 4426, 4429, CLOSE_MISFIT];
+
 function onRoomText(r: RoomCtx, msg: TextMessage): void {
   switch (msg.t) {
-    case 'ack':
+    case 'ack': {
+      if (r.forked) break;
       if (Number.isSafeInteger(msg.seq)) r.topSeq = Math.max(r.topSeq, Number(msg.seq));
-      r.log.ack(Number(msg.cid), Number(msg.seq));
+      const digest = r.client.sentDigest(Number(msg.cid));
+      placed(r, Number(msg.seq), r.selfId, digest, () => r.log.ack(Number(msg.cid), Number(msg.seq)));
       break;
+    }
     case 'roster': {
       const before = new Set(r.roster.map((m) => m.id));
       r.roster = parseRoster(msg.members) ?? r.roster;
@@ -2285,7 +2620,7 @@ function onRoomText(r: RoomCtx, msg: TextMessage): void {
         }
         if (r.ready) {
           for (const op of r.log.unconfirmed()) noteOfflineSeg(r, op);
-          r.log.reset(r.log.head);
+          resetLog(r, r.log.head);
           r.quietMerge = true;
         }
         startSync(r, msg.code === 'replay-ahead' ? 'two' : 'three');
@@ -2293,17 +2628,90 @@ function onRoomText(r: RoomCtx, msg: TextMessage): void {
         // The receiver's connection is not keeping up with a transfer from here. Stop; they will ask again.
         const serving = r.serving.get(msg.to);
         if (serving) serving.cancelled = true;
-      } else if (msg.code === 'rate-limited' && (msg.kind === FrameKind.Patch || msg.kind === FrameKind.SegOp)) {
-        // An edit of mine was dropped. A quiet catch-up sends again whatever the room is missing.
-        setTimeout(() => r === room && r.ready && !isGuestView() && quietCatchUp(r), 1000);
+      } else if ((msg.code === 'rate-limited' || msg.code === 'bad-epoch') && (msg.kind === FrameKind.Patch || msg.kind === FrameKind.SegOp)) {
+        // An edit of mine was dropped: sent too fast, or under a room key the room has just moved on from.
+        // A quiet catch-up sends again whatever the room is missing.
+        setTimeout(() => r === room && r.ready && !r.forked && !isGuestView() && quietCatchUp(r), 1000);
       }
       break;
   }
 }
 
-function quietCatchUp(r: RoomCtx): void {
+/**
+ * Starts the order of edits again from `head`. The chain over the edits goes to the same place:
+ * back along what this device remembers, or to `claim`, the place of the member who sent the mask.
+ */
+function resetLog(r: RoomCtx, head: number, claim?: unknown): void {
+  r.log.reset(head);
+  r.client.forgetSent();
+  if (claim === undefined) r.chain.rewind(head);
+  else if (!r.chain.adopt(claim) || r.chain.head !== head) {
+    r.chain.lose();
+    r.chain.head = head;
+  }
+}
+
+/**
+ * Runs `apply`, which may give the edit numbered `seq` its place in the order, and if it did
+ * counts the edit in the chain. A member whose earlier word about that place does not agree
+ * was shown something else by the room server.
+ */
+function placed(r: RoomCtx, seq: number, from: number, digest: Uint8Array | null, apply: () => void): void {
+  const before = r.log.head;
+  apply();
+  if (r.log.head !== before + 1 || r.log.head !== seq) return;
+  if (!digest) return r.chain.lose();
+  if (r.chain.head !== before) r.chain.rewind(before);
+  const differ = r.chain.push(seq, from, digest);
+  if (differ.length > 0) return onFork(r);
+  // Say where this device stands a moment after the room goes quiet, so a difference shows without another edit.
+  if (r.headTimer) clearTimeout(r.headTimer);
+  r.headTimer = setTimeout(() => {
+    r.headTimer = null;
+    const claim = r.chain.claim();
+    if (room === r && r.ready && !r.forked && claim) r.client.sendFrame(FrameKind.Presence, { t: 'head', h: claim });
+  }, 1500);
+}
+
+/** Another member's place in the chain, set against this device's. */
+function checkClaim(r: RoomCtx, from: number, claim: unknown): void {
+  if (claim === undefined || r.forked || from === r.selfId) return;
+  if (r.chain.check(from, claim) === 'fork') onFork(r);
+}
+
+export const FORK_TEXT = "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room.";
+const FORK_TEXT_GUEST = "This room's server delivered different edits to different people. Leave and ask the host for a new room.";
+
+/**
+ * This device and another applied different edits under the same numbers: the room server
+ * dropped, swapped or changed something for one of them. Nothing more from the room is
+ * applied and nothing more is sent; what is on screen stays as this device's own copy.
+ */
+function onFork(r: RoomCtx): void {
+  if (r.forked) return;
+  // The others should know too. Whoever was shown something else finds the same difference from this.
+  const claim = r.chain.claim();
+  if (claim) r.client.sendFrame(FrameKind.Presence, { t: 'head', h: claim });
+  r.forked = true;
+  r.ready = false;
+  r.catching = null;
+  if (r.sync?.timer) clearTimeout(r.sync.timer);
+  r.sync = null;
+  r.queued = [];
+  r.queuedBytes = 0;
+  for (const s of r.serving.values()) s.cancelled = true;
+  r.serving.clear();
   for (const op of r.log.unconfirmed()) noteOfflineSeg(r, op);
   r.log.reset(r.log.head);
+  const text = isGuestView() ? FORK_TEXT_GUEST : FORK_TEXT;
+  set({ busy: null, progress: null });
+  patchRoom({ note: text });
+  toast('error', text);
+}
+
+function quietCatchUp(r: RoomCtx): void {
+  for (const op of r.log.unconfirmed()) noteOfflineSeg(r, op);
+  resetLog(r, r.log.head);
   r.ready = false;
   r.quietMerge = true;
   catchUpByReplay(r);
@@ -2311,11 +2719,11 @@ function quietCatchUp(r: RoomCtx): void {
 
 /* ── people ── */
 
-function sayHi(r: RoomCtx): void {
+function sayHi(r: RoomCtx, to?: number): void {
   const names = r.kind === 'host-view' && r.role === 'host' ? { names: [...r.names] } : {};
   // The host says which kind of room it made: the others only have the room server's word for it.
-  const kind = r.role === 'host' ? { kind: r.kind } : {};
-  r.client.sendFrame(FrameKind.Presence, { t: 'hi', name: r.name, ...names, ...kind });
+  const kind = r.role === 'host' ? { kind: r.kind, ...(r.hosting ? { hosted: true } : {}) } : {};
+  r.client.sendFrame(FrameKind.Presence, { t: 'hi', name: r.name, ...names, ...kind }, undefined, to ? { to } : {});
 }
 
 function syncPeople(r: RoomCtx): void {
@@ -2325,7 +2733,15 @@ function syncPeople(r: RoomCtx): void {
   const old = new Map(get().peers.map((p) => [p.id, p]));
   const peers: Peer[] = r.roster
     .filter((m) => m.id !== r.selfId && m.online)
-    .map((m) => ({ id: m.id, name: shown.get(m.id) ?? 'Someone', color: userColor(m.id), role: m.role, cursor: old.get(m.id)?.cursor, seen: r.seen.get(m.id)?.size }));
+    .map((m) => ({
+      id: m.id,
+      name: shown.get(m.id) ?? 'Someone',
+      color: userColor(m.id),
+      // Host or not is the relay's to say and checked at sign-in; who may only look is the host's word.
+      role: m.role === 'host' ? 'host' : r.viewers.has(m.id) ? 'viewer' : 'editor',
+      cursor: old.get(m.id)?.cursor,
+      seen: r.seen.get(m.id)?.size,
+    }));
   set({ peers });
   patchRoom({ hostName: hostName(r) });
 }
@@ -2346,6 +2762,7 @@ function onPresence(r: RoomCtx, from: number, meta: Meta): void {
     set((s) => ({ peers: s.peers.map((p) => (p.id === from ? { ...p, cursor } : p)) }));
     return;
   }
+  if (meta.t === 'head') return checkClaim(r, from, meta.h);
   if (meta.t !== 'hi') return;
   const fromHost = from === hostOf(r)?.id;
   if (fromHost && r.role !== 'host' && (meta.kind === 'shared' || meta.kind === 'host-view') && meta.kind !== r.kind) {
@@ -2353,6 +2770,10 @@ function onPresence(r: RoomCtx, from: number, meta: Meta): void {
     forgetRoom(r.id);
     r.client.leaveAsMisfit();
     return;
+  }
+  if (fromHost && meta.hosted === true && !r.hostedRoom) {
+    r.hostedRoom = true;
+    rememberThis(r);
   }
   let changed = learnName(r, from, meta.name);
   // In a view-through-host room guests only hear the host, who passes the other names on.
@@ -2366,6 +2787,8 @@ function onPresence(r: RoomCtx, from: number, meta: Meta): void {
   const online = r.roster.some((m) => m.id === from && m.online);
   if (online && !r.greeted.has(from)) {
     r.greeted.add(from);
+    // Someone who has only just been let in could not read what was said before: tell them directly.
+    if (r.kind === 'shared') sayHi(r, from);
     if (performance.now() > r.quietUntil) toast('info', `${get().peers.find((p) => p.id === from)?.name ?? 'Someone'} joined`);
   }
 }
@@ -2389,7 +2812,8 @@ let lastCursor = 0;
 export function shareCursor(vp: ViewId | null, w?: [number, number, number]): void {
   if (!room?.ready || get().peers.length === 0) return;
   const now = performance.now();
-  if (vp && now - lastCursor < 60) return;
+  // Every cursor frame is signed and checked. In a full room each person sends fewer, so the checking stays light.
+  if (vp && now - lastCursor < 60 * Math.max(1, Math.ceil(get().peers.length / 4))) return;
   lastCursor = now;
   const s = get();
   const painting = s.tool === 'brush' || s.tool === 'eraser' || s.tool === 'threshold';
@@ -2415,16 +2839,21 @@ function sendOp(r: RoomCtx, op: RoomOp, extra: Meta = {}): void {
   const cid = r.log.local(op);
   // `s` and `c` tell everyone this edit from a repeat of it (see `ReplayGuard`).
   op.sig = [r.selfId, r.tag, cid];
-  if (op.k === 'patch') r.client.sendFrame(FrameKind.Patch, { c: cid, s: r.tag, ...extra }, encodePatch(op.patch), { seq: cid });
-  else r.client.sendFrame(FrameKind.SegOp, { c: cid, s: r.tag, ...extra, ...op.op }, undefined, { seq: cid });
+  op.from = r.selfId;
+  op.epoch = r.client.keys?.epoch;
+  // `h`: where this device stands in the chain over the room's edits, for the others to set against their own.
+  const claim = r.chain.claim();
+  const meta: Meta = { c: cid, s: r.tag, ...(claim ? { h: claim } : {}), ...extra };
+  if (op.k === 'patch') r.client.sendFrame(FrameKind.Patch, meta, encodePatch(op.patch), { seq: cid });
+  else r.client.sendFrame(FrameKind.SegOp, { ...meta, ...op.op }, undefined, { seq: cid });
 }
 
-function decodeOp(kind: number, meta: Meta | null, body: Uint8Array, from: number): RoomOp {
+function decodeOp(kind: number, meta: Meta | null, body: Uint8Array, from: number, epoch?: number): RoomOp {
   const sig: RoomOp['sig'] = meta && typeof meta.s === 'string' && typeof meta.c === 'number' ? [from, meta.s, meta.c] : undefined;
   try {
-    if (meta && kind === FrameKind.Patch) return { k: 'patch', patch: decodePatch(body), sig };
+    if (meta && kind === FrameKind.Patch) return { k: 'patch', patch: decodePatch(body), sig, epoch, from };
     const op = meta && kind === FrameKind.SegOp ? parseSegOp(meta) : null;
-    if (op) return { k: 'seg', op, sig };
+    if (op) return { k: 'seg', op, sig, epoch, from };
   } catch {
     /* not a patch */
   }
@@ -2432,8 +2861,21 @@ function decodeOp(kind: number, meta: Meta | null, body: Uint8Array, from: numbe
 }
 
 function confirmOp(r: RoomCtx, op: RoomOp, shown: boolean): void {
+  // An edit sealed under a room key the room had already moved on from: made by someone who was removed,
+  // and given a place by the room server afterwards. Left out, by everyone alike.
+  if (op.epoch !== undefined) {
+    if (op.epoch < r.minEpoch) return;
+    r.minEpoch = op.epoch;
+  }
   // The room server sending an old edit again as a new one: left out, by everyone alike.
   if (op.sig && !r.guard.fresh(...op.sig)) return;
+  if (op.k === 'seg' && op.op.op === 'role') {
+    // Only the host says who may edit. From here on in the order, that member's edits count or do not.
+    if (op.from === r.client.keys?.hostId) setViewOnly(r, op.op.member, op.op.view);
+    return;
+  }
+  // An edit by someone who, at this place in the order, may only look: left out, by everyone alike.
+  if (op.from !== undefined && r.viewers.has(op.from)) return;
   if (op.k === 'patch') {
     // Checked whole before any of it is written: a run outside the mask must not leave the others half applied.
     if (!patchFits(op.patch, r.synced?.length ?? mask?.data.length ?? 0)) return;
@@ -2487,19 +2929,22 @@ function applyRemoteSeg(r: RoomCtx, op: SegOp, announce: boolean): void {
   if (next.length === 0 && EDIT_TOOLS.includes(s.tool)) setTool('crosshair');
 }
 
-function onRoomFrame(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8Array): void {
+function onRoomFrame(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8Array, digest: Uint8Array | null): void {
+  if (r.forked) return;
   if (h.kind === FrameKind.Patch || h.kind === FrameKind.SegOp) {
+    if (meta) checkClaim(r, h.from, meta.h);
+    if (r.forked) return;
     if (r.kind === 'host-view' && r.role === 'host') {
       hostTakesGuestEdit(r, h, meta, body);
       return;
     }
-    const op = decodeOp(h.kind, meta, body, h.from);
+    const op = decodeOp(h.kind, meta, body, h.from, h.epoch);
     r.topSeq = Math.max(r.topSeq, h.seq);
     // My own edit coming back: from the host of a view-through-host room, or in a replay.
     const origin = meta && Array.isArray(meta.o) ? meta.o : null;
     const settles = origin ? (origin[0] === r.selfId ? Number(origin[1]) : undefined) : meta && h.from === r.selfId ? Number(meta.c) : undefined;
     if (!r.ready && r.catching === null) {
-      r.queued.push({ seq: h.seq, op, settles });
+      r.queued.push({ seq: h.seq, op, settles, from: h.from, digest });
       r.queuedBytes += op.k === 'patch' ? 64 + op.patch.after.length + op.patch.starts.length * 8 : 256;
       if (r.queued.length > QUEUE_LIMIT_FRAMES || r.queuedBytes > QUEUE_LIMIT_BYTES) {
         // More edits than can be held while the mask is on its way: start again from a newer mask.
@@ -2508,7 +2953,7 @@ function onRoomFrame(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8A
         if (r.sync) startSync(r, r.sync.merge);
         else if (isGuestView()) guestEnter(r, false);
       }
-    } else r.log.remote(h.seq, op, settles);
+    } else placed(r, h.seq, h.from, digest, () => r.log.remote(h.seq, op, settles));
     return;
   }
   if (!meta) return;
@@ -2523,7 +2968,7 @@ function drainQueue(r: RoomCtx): void {
   const queue = r.queued;
   r.queued = [];
   r.queuedBytes = 0;
-  for (const f of queue) r.log.remote(f.seq, f.op, f.settles);
+  for (const f of queue) if (!r.forked) placed(r, f.seq, f.from, f.digest, () => r.log.remote(f.seq, f.op, f.settles));
 }
 
 /* ── coming back: replay, then merge ── */
@@ -2572,14 +3017,25 @@ function finishCatchUp(r: RoomCtx, base: Uint8Array | null, theirs: Uint8Array, 
   drainQueue(r);
   // Whatever I have that the room does not goes out as one edit, like any other.
   const mineOnly = diffMask(r.synced, data, sliceSize());
-  if (mineOnly) roomSend({ k: 'patch', patch: mineOnly });
+  if (mineOnly && r.role === 'viewer') {
+    // Someone who may only look has nothing to add: the room's version is what they see.
+    writePatch(mineOnly, 'before');
+    history.clear();
+    syncHistoryFlags();
+    toast('warning', 'You can view this room but not edit it, so the changes you made while away were not added.');
+  } else if (mineOnly) roomSend({ k: 'patch', patch: mineOnly });
   for (const index of r.offlineSegs) {
     const seg = get().segments.find((x) => x.index === index);
     sendOp(r, { k: 'seg', op: seg ? { op: 'set', seg: sharedSegment(seg) } : { op: 'del', index } });
   }
   r.offlineSegs.clear();
-  conflicts = result.conflicts;
-  patchRoom({ review: result.conflicts ? { slices: result.conflictSlices, voxels: result.conflicts.index.length } : null, note: null });
+  patchRoom({ note: null });
+  if (result.conflicts && r.role !== 'viewer') {
+    // Added to what an earlier merge left, if that is still waiting on this mask.
+    const waiting = review && review.mask === mask ? review : null;
+    review = { conflicts: addConflicts(waiting?.conflicts ?? null, result.conflicts)!, at: Date.now(), room: r.id, mask, outline: waiting?.outline ?? null };
+  }
+  syncReview();
   if (!base && result.conflicts) {
     const n = result.conflictSlices;
     toast('info', `Your mask differs from the room's on ${n} ${n === 1 ? 'slice' : 'slices'}. The room's version is shown.`);
@@ -2590,21 +3046,214 @@ function finishCatchUp(r: RoomCtx, base: Uint8Array | null, theirs: Uint8Array, 
     emit('edit');
   }
   scheduleStats();
+  emit('room');
 }
 
-/** "Use mine": the voxels the merge put aside become an ordinary edit that everyone sees and that can be undone. */
-export function takeMine(): void {
-  const mine = conflicts;
-  if (!mine || !mask) return;
-  conflicts = null;
-  patchRoom({ review: null });
-  editMask((d) => applyPatch(d, conflictPatch(mine, d), 'after'));
+/* ── what a shared-copy room leaves on this device ── */
+
+/**
+ * What is needed to come back to a shared-copy room after the app was closed as if it had only
+ * been offline: the mask as the room had confirmed it, and whatever a merge kept aside.
+ * It is only right for the mask on screen at the moment it is asked for (`recovery/roomcopy.ts`).
+ */
+export interface RoomCopy {
+  room: string;
+  session: string | null;
+  head: number;
+  /** A copy of the confirmed mask, or null when there is none to merge against. */
+  base: Uint8Array | null;
+  offlineSegs: number[];
+  guard: GuardEntry[];
+  /** This device's place in the chain over the room's edits at `head`, the newest key epoch among them, and who may only look there. */
+  claim: unknown;
+  minEpoch: number;
+  viewers: number[];
+  review: { at: number; conflicts: Conflicts } | null;
 }
 
-/** Leaves the room's version where the two differed. */
-export function keepRooms(): void {
-  conflicts = null;
-  patchRoom({ review: null });
+/** Null when there is nothing to keep, and always for a guest of a view-through-host room. */
+export function roomCopy(): RoomCopy | null {
+  if (!mask || isGuestView()) return null;
+  const length = mask.data.length;
+  const r = room;
+  const waiting = review && review.mask === mask ? { at: review.at, conflicts: review.conflicts } : null;
+  if (r) {
+    const base = r.base ?? r.synced;
+    // Mid-transfer, or before the room has said anything, there is no confirmed mask yet.
+    if (r.kind === 'shared' && r.welcomed && r.session && !r.sync && base && base.length === length) {
+      const segs = new Set(r.offlineSegs);
+      for (const op of r.log.unconfirmed()) {
+        if (op.k === 'seg' && op.op.op === 'set') segs.add(op.op.seg.index);
+        else if (op.k === 'seg' && op.op.op === 'del') segs.add(op.op.index);
+      }
+      const head = r.base ? r.baseHead : r.log.head;
+      return { room: r.id, session: r.session, head, base: base.slice(), offlineSegs: [...segs], guard: r.guard.dump(), claim: r.chain.claimAt(head), minEpoch: r.minEpoch, viewers: [...r.viewers], review: waiting };
+    }
+  } else if (kept && kept.synced.length === length) {
+    return { room: kept.id, session: kept.session, head: kept.head, base: kept.synced.slice(), offlineSegs: [...kept.offlineSegs], guard: kept.guard.dump(), claim: kept.chain.claimAt(kept.head), minEpoch: kept.minEpoch, viewers: [...kept.viewers], review: waiting };
+  }
+  return waiting && review ? { room: review.room, session: null, head: 0, base: null, offlineSegs: [], guard: [], claim: null, minEpoch: 0, viewers: [], review: waiting } : null;
+}
+
+/**
+ * Takes up what `roomCopy` gave in an earlier run of the app. The caller has checked that the
+ * mask on screen is the one it was written for. Nothing is taken while in a room.
+ */
+export function adoptRoomCopy(copy: RoomCopy): boolean {
+  if (!mask || room || isGuestView()) return false;
+  const length = mask.data.length;
+  if (copy.base && copy.base.length === length && !kept) {
+    const guard = new ReplayGuard();
+    guard.load(copy.guard);
+    // Its place in the chain over the room's edits comes back with it; without one it says nothing until it is given one.
+    const chain = new OpChain(copy.room);
+    if (!chain.adopt(copy.claim) || chain.head !== copy.head) {
+      chain.lose();
+      chain.head = copy.head;
+    }
+    kept = { id: copy.room, session: copy.session, synced: copy.base, head: copy.head, offlineSegs: new Set(copy.offlineSegs), guard, chain, minEpoch: copy.minEpoch, viewers: new Set(copy.viewers) };
+  }
+  if (copy.review && !review && !reviewExpired(copy.review.at, Date.now())) {
+    review = { conflicts: copy.review.conflicts, at: copy.review.at, room: copy.room, mask, outline: null };
+    syncReview();
+  }
+  return true;
+}
+
+/** True when coming back to this room would be merged against what the room had, not two-way. For tests. */
+export function hasMergeBase(id: string): boolean {
+  return kept?.id === id.toUpperCase();
+}
+
+/* ── going through what a merge put aside, slice by slice ── */
+
+/** The view that shows the mask's stored slices face on. */
+function reviewView(): ViewId {
+  const m = mask;
+  if (!m) return 'axial';
+  return engine.ORTHO_IDS.find((id) => sliceAxisFor(m.direction, id) === 2) ?? 'axial';
+}
+
+/** Where voxel number `at` of the mask is in the world. */
+function voxelWorld(vol: VolumeData, at: number): [number, number, number] {
+  const [nx, ny] = vol.dims;
+  const ijk = [at % nx, Math.floor(at / nx) % ny, Math.floor(at / (nx * ny))];
+  const d = vol.direction;
+  return [0, 1, 2].map((r) => vol.origin[r] + d[r] * vol.spacing[0] * ijk[0] + d[3 + r] * vol.spacing[1] * ijk[1] + d[6 + r] * vol.spacing[2] * ijk[2]) as [number, number, number];
+}
+
+/**
+ * Brings the store and the outline in line with what is still kept aside. Voxels where the
+ * mask has come to hold my value anyway are let go, and so is everything after seven days.
+ */
+function syncReview(): void {
+  if (review && (!masks.all.some((e) => e.vol === review!.mask) || reviewExpired(review.at, Date.now()))) review = null;
+  const here = review && mask && review.mask === mask ? review : null;
+  if (here) {
+    const left = settledConflicts(here.conflicts, mask!.data as Uint8Array);
+    if (left) here.conflicts = left;
+    else review = null;
+  }
+  if (!here || !review) {
+    engine.hideReview();
+    if (get().review) set({ review: null });
+    return;
+  }
+  const slices = conflictSlices(here.conflicts, sliceSize());
+  set({ review: { slices, voxels: here.conflicts.index.length, view: reviewView() } });
+  here.outline ??= { ...mask!, name: 'review', labels: undefined, colors: undefined, data: new Uint8Array(mask!.data.length) };
+  mineOutline(here.conflicts, mask!.data as Uint8Array, sliceSize(), here.outline.data as Uint8Array);
+  engine.showReview(here.outline);
+}
+
+let reviewTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleReviewRefresh(): void {
+  if (reviewTimer) return;
+  reviewTimer = setTimeout(() => {
+    reviewTimer = null;
+    syncReview();
+  }, 150);
+}
+
+/** The stored slice the review's view shows now, or null between slices or with nothing open. */
+export function reviewShownSlice(): number | null {
+  const m = mask;
+  const plane = m && engine.viewPlane(reviewView());
+  if (!m || !plane) return null;
+  // How far along the mask's third axis the plane's point is, in slices.
+  const k = [0, 1, 2].reduce((sum, r) => sum + (plane.point[r] - m.origin[r]) * m.direction[6 + r], 0) / m.spacing[2];
+  const z = Math.round(k);
+  return z >= 0 && z < m.dims[2] ? z : null;
+}
+
+/** The number the view's own counter shows for each slice still to decide. */
+export function reviewSliceNumbers(): Record<number, number> {
+  const out: Record<number, number> = {};
+  const r = review;
+  if (!r || !mask || r.mask !== mask) return out;
+  const view = reviewView();
+  for (const { z } of conflictSlices(r.conflicts, sliceSize())) {
+    out[z] = engine.sliceNumberAt(view, voxelWorld(mask, z * sliceSize()), mask.spacing[2]) ?? z + 1;
+  }
+  return out;
+}
+
+/** Goes to a slice that is still to decide, with what differs on it in the middle of the views' lines. */
+export function goToReviewSlice(z: number): void {
+  const r = review;
+  if (!r || !mask || r.mask !== mask) return;
+  const at = sliceFocus(r.conflicts, z, sliceSize());
+  if (at !== null) engine.jumpTo(voxelWorld(mask, at));
+}
+
+/**
+ * Whether the view's counter goes up with the stored slices (1) or down (-1). "Next" means a
+ * higher number in the view, as it does for the arrow keys, whichever way the file is stored.
+ */
+export function reviewDirection(): 1 | -1 {
+  const m = mask;
+  if (!m || m.dims[2] < 2) return 1;
+  const view = reviewView();
+  const first = engine.sliceNumberAt(view, voxelWorld(m, 0), m.spacing[2]);
+  const last = engine.sliceNumberAt(view, voxelWorld(m, (m.dims[2] - 1) * sliceSize()), m.spacing[2]);
+  return first !== null && last !== null && last < first ? -1 : 1;
+}
+
+/** The next or the previous slice that is still to decide, from the one on screen, by the view's own numbering. */
+export function stepReview(dir: 1 | -1): void {
+  const list = get().review?.slices.map((s) => s.z) ?? [];
+  const along = (dir * reviewDirection()) as 1 | -1;
+  const shown = reviewShownSlice();
+  const next = stepSlice(list, shown ?? (along > 0 ? -1 : Infinity), along);
+  if (next !== null) goToReviewSlice(next);
+}
+
+/**
+ * "Use mine": my voxels of one slice, or of all of them, become an ordinary edit that everyone
+ * sees and that can be undone as one step. A segment they need that was deleted meanwhile comes back.
+ */
+export function takeMine(z?: number): void {
+  const r = review;
+  if (!r || !mask || r.mask !== mask || refusedForViewer()) return;
+  const { slice, rest } = z === undefined ? { slice: r.conflicts, rest: null } : splitSlice(r.conflicts, z, sliceSize());
+  if (!slice) return;
+  if (rest) r.conflicts = rest;
+  else review = null;
+  editMask((d) => applyPatch(d, conflictPatch(slice, d), 'after'));
+  ensureSegments(slice.mine);
+  syncReview();
+  emit('room');
+}
+
+/** "Keep the room's": the room's version stays on one slice, or on all, and mine for it is let go. Nothing changes in the mask. */
+export function keepRooms(z?: number): void {
+  const r = review;
+  if (!r) return;
+  const rest = z === undefined ? null : splitSlice(r.conflicts, z, sliceSize()).rest;
+  if (rest) r.conflicts = rest;
+  else review = null;
+  syncReview();
+  emit('room');
 }
 
 /* ── getting the mask (and the image) from another member ── */
@@ -2732,6 +3381,11 @@ async function sendSync(r: RoomCtx, me: Serving, meta: Meta, reply: (kind: Frame
     ...(flow ? { flow: 1 } : {}),
     // Which edits the mask already holds, so the receiver can tell a repeat from a new one.
     seen: r.guard.dump(),
+    // Where the mask stands in the chain over the room's edits, and the newest key epoch among them.
+    chain: r.chain.claim(),
+    // Who may only look, at that place in the order.
+    viewers: [...r.viewers],
+    ep: r.minEpoch,
   });
   const gone = () => me.cancelled || room !== r || !r.client.open;
   const send = async (kind: FrameKind, source: Uint8Array, m: Meta): Promise<boolean> => {
@@ -2864,7 +3518,7 @@ async function handleSync(r: RoomCtx, job: SyncJob, kind: number, meta: Meta, bo
       .slice(0, 255)
       .map((seg) => parseSegOp({ op: 'set', seg }))
       .flatMap((op) => (op?.op === 'set' ? [{ ...op.seg, visible: true }] : []));
-    job.begin = { head, segments, dims, seen: meta.seen };
+    job.begin = { head, segments, dims, seen: meta.seen, chain: meta.chain, ep: meta.ep, viewers: meta.viewers };
     if (job.merge === 'new') set({ progress: Math.min(1, job.got.size / job.want) });
     return;
   }
@@ -2879,8 +3533,10 @@ async function handleSync(r: RoomCtx, job: SyncJob, kind: number, meta: Meta, bo
     await loadImage({ name: 'Room image', ...job.imageMeta, data: job.imageData });
   }
   if (!image || !mask || !shadow || mask.data.length !== job.theirs.length) throw new Error('No image for the room mask');
-  r.log.reset(begin.head);
+  resetLog(r, begin.head, begin.chain ?? null);
+  r.minEpoch = startEpoch(r, begin.ep);
   r.guard.load(begin.seen);
+  takeViewers(r, begin.viewers);
   if (job.merge !== 'new') {
     finishCatchUp(r, job.merge === 'three' ? r.synced : null, job.theirs, begin.segments);
     return;
@@ -2916,7 +3572,7 @@ function serveSlice(r: RoomCtx, to: number, meta: Meta): void {
     flushEdits();
     r.client.sendFrame(
       FrameKind.Slice,
-      { t: 'room', dims: image.dims, spacing: image.spacing, origin: image.origin, direction: Array.from(image.direction), segments: get().segments.map(sharedSegment), head: r.log.head, seen: r.guard.dump(), ...hostWindow(), ...q },
+      { t: 'room', dims: image.dims, spacing: image.spacing, origin: image.origin, direction: Array.from(image.direction), segments: get().segments.map(sharedSegment), head: r.log.head, seen: r.guard.dump(), chain: r.chain.claim(), ep: r.minEpoch, viewers: [...r.viewers], ...hostWindow(), ...q },
       undefined,
       { to },
     );
@@ -2950,7 +3606,8 @@ function hostWindow(): { voi?: [number, number] } {
 
 /** Host: a guest's edit arrives for the host alone; the host applies it and passes it on as its own, in order. */
 function hostTakesGuestEdit(r: RoomCtx, h: FrameHeader, meta: Meta | null, body: Uint8Array): void {
-  if (!r.ready || !mask) return;
+  // A guest the host lets look but not edit: what they send is not taken, whatever the relay let through.
+  if (!r.ready || !mask || r.viewers.has(h.from)) return;
   const op = decodeOp(h.kind, meta, body, h.from);
   if (op.k === 'none' || (op.k === 'seg' && op.op.op === 'window')) return;
   // The same edit sent again by the room server, or one that reaches outside the mask.
@@ -3038,14 +3695,22 @@ async function guestOpen(r: RoomCtx, meta: Meta): Promise<void> {
   pushSegments();
   const hostVoi = parseSegOp({ op: 'window', voi: meta.voi });
   patchRoom({ hostVoi: hostVoi?.op === 'window' && hostVoi.voi ? { lower: hostVoi.voi[0], upper: hostVoi.voi[1] } : null });
-  r.log.reset(Number(meta.head) || 0);
+  resetLog(r, Number(meta.head) || 0, meta.chain ?? null);
+  r.minEpoch = startEpoch(r, meta.ep);
   r.guard.load(meta.seen);
+  takeViewers(r, meta.viewers);
   r.ready = true;
   drainQueue(r);
   wantSlices(r);
 }
 
 const GUEST_IMAGE = 'Room image';
+
+/** The newest key epoch among the edits in a mask someone sent; never above the newest this device has a key for. */
+function startEpoch(r: RoomCtx, value: unknown): number {
+  const mine = r.client.keys?.epoch ?? 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? Math.min(value, mine) : 0;
+}
 
 /** Guest: ask for the planes on screen that are not here yet, as fast as the allowance lets. */
 function wantSlices(r: RoomCtx): void {

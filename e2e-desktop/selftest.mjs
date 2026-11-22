@@ -15,7 +15,7 @@ import { APP } from './app.mjs';
 import { count, N, readNifti, writeFixtures } from './fixtures.mjs';
 
 const TIMEOUT = Number(process.env.W_SELFTEST_TIMEOUT ?? 180_000);
-const STEPS = ['files opened', 'stroke painted', 'room hosted', 'mask saved'];
+const STEPS = ['files opened', 'stroke painted', 'room hosted', 'mask saved', '3D view drawn', 'image decoders loaded', 'update check ran', 'nothing refused by the content security policy'];
 
 const app = process.argv[2] ? resolve(process.argv[2]) : APP;
 if (!existsSync(app)) {

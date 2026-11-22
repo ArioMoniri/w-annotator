@@ -1,13 +1,21 @@
 //! Hosting a room on the local network with the embedded relay.
+//!
+//! Shared-copy rooms outlive the app: what the relay needs to let their
+//! members sign in again is kept in a file (`hosted_rooms`), read when hosting
+//! starts and written while it runs and when it stops.
 
 use std::io;
 use std::net::Ipv4Addr;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
 use tokio::task::JoinHandle;
+use w_relay::persist::SavedRelay;
+
+use crate::hosted_rooms::{self, Found};
 
 /// Port tried first when the caller does not ask for one.
 pub const DEFAULT_PORT: u16 = 8787;
@@ -21,10 +29,30 @@ pub struct HostInfo {
     pub addresses: Vec<String>,
 }
 
+/// How often the rooms are written while hosting, when they have changed. A
+/// crash loses at most this much: someone who joined in that time needs a new link.
+const SAVE_EVERY: Duration = Duration::from_secs(2);
+
 struct Running {
     port: u16,
     stop: oneshot::Sender<()>,
     task: JoinHandle<io::Result<()>>,
+    relay: w_relay::Relay,
+    /// Where the rooms are kept, and the task that keeps them there.
+    keeper: Option<(PathBuf, JoinHandle<()>)>,
+}
+
+/// Writes the relay's rooms to `dir` whenever they differ from what was last written.
+async fn keep_rooms(relay: w_relay::Relay, dir: PathBuf, port: u16, mut last: SavedRelay) {
+    let mut tick = tokio::time::interval(SAVE_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        let now = relay.export();
+        if now != last && hosted_rooms::write(&dir, port, &now).is_ok() {
+            last = now;
+        }
+    }
 }
 
 /// The relay this app is hosting, if any.
@@ -37,14 +65,23 @@ impl Host {
     /// on this computer only when it has none: then nobody else could use the
     /// link anyway, and nothing needs to be open to a network.
     /// If the wanted port is taken, the system picks a free one.
-    pub async fn start(&self, port: Option<u16>) -> io::Result<HostInfo> {
+    ///
+    /// With `store`, the rooms kept in that folder come back, on the port they
+    /// had if it is free, and are kept there from now on.
+    pub async fn start(&self, port: Option<u16>, store: Option<&Path>) -> io::Result<HostInfo> {
         let mut slot = self.0.lock().await;
         if let Some(running) = slot.as_ref() {
             if !running.task.is_finished() {
                 return Ok(info(running.port));
             }
         }
-        let wanted = port.unwrap_or(DEFAULT_PORT);
+        let found = store.map(hosted_rooms::read);
+        let kept = match &found {
+            Some(Found::Rooms(file)) => Some(file),
+            _ => None,
+        };
+        // The address in people's links carries the port, so the same one is asked for again.
+        let wanted = port.or(kept.map(|file| file.port)).unwrap_or(DEFAULT_PORT);
         let address = bind_address(&lan_addresses());
         let listener = match TcpListener::bind((address, wanted)).await {
             Ok(listener) => listener,
@@ -55,22 +92,97 @@ impl Host {
         let (stop, stopped) = oneshot::channel::<()>();
         // One person's rooms on a local network: the small configuration, protocol v2 only.
         let relay = w_relay::Relay::new(w_relay::RelayConfig::embedded());
+        if let Some(file) = kept {
+            // A record this build cannot read is not taken; hosting goes on without it.
+            let _ = relay.import(file.relay.clone());
+        }
+        // What a newer version of the app wrote is never written over.
+        let keeper = match (store, &found) {
+            (Some(_), Some(Found::Newer)) | (None, _) => None,
+            (Some(dir), _) => {
+                let last = kept.map(|file| file.relay.clone()).unwrap_or_default();
+                let job = keep_rooms(relay.clone(), dir.to_path_buf(), port, last);
+                Some((dir.to_path_buf(), tokio::spawn(job)))
+            }
+        };
+        let serving = relay.clone();
         let task = tokio::spawn(async move {
-            relay
+            serving
                 .serve(listener, async {
                     let _ = stopped.await;
                 })
                 .await
         });
-        *slot = Some(Running { port, stop, task });
+        *slot = Some(Running {
+            port,
+            stop,
+            task,
+            relay,
+            keeper,
+        });
         Ok(info(port))
+    }
+
+    /// Writes the rooms now, without stopping: for the moment the app quits.
+    pub async fn keep_now(&self) {
+        if let Some(running) = self.0.lock().await.as_ref() {
+            if let Some((dir, _)) = &running.keeper {
+                let _ = hosted_rooms::write(dir, running.port, &running.relay.export());
+            }
+        }
+    }
+
+    /// Lets go of what is kept of one room: its host chose to forget it, and
+    /// could not open it again anyway. Its members are no longer members. While
+    /// hosting, the relay drops the room; otherwise it is taken out of the file.
+    pub async fn forget(&self, room: &str, store: Option<&Path>) -> io::Result<()> {
+        let slot = self.0.lock().await;
+        if let Some(running) = slot.as_ref() {
+            if !running.task.is_finished() {
+                running.relay.delete_room(room);
+                if let Some((dir, _)) = &running.keeper {
+                    hosted_rooms::write(dir, running.port, &running.relay.export())?;
+                }
+                return Ok(());
+            }
+        }
+        let Some(dir) = store else {
+            return Ok(());
+        };
+        if let Found::Rooms(mut file) = hosted_rooms::read(dir) {
+            let before = file.relay.rooms.len();
+            file.relay
+                .rooms
+                .retain(|kept| !kept.id.eq_ignore_ascii_case(room));
+            if file.relay.rooms.len() != before {
+                hosted_rooms::write(dir, file.port, &file.relay)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// How many rooms the hosted relay holds; 0 when not hosting.
+    #[cfg(test)]
+    pub async fn rooms(&self) -> usize {
+        match self.0.lock().await.as_ref() {
+            Some(running) => running.relay.stats().rooms,
+            None => 0,
+        }
     }
 
     /// Stops the relay and waits until its port is free. Does nothing if not hosting.
     pub async fn stop(&self) {
-        let Some(running) = self.0.lock().await.take() else {
+        // The slot stays locked until the port is free: a start that comes right
+        // after waits, and so gets the same port again.
+        let mut slot = self.0.lock().await;
+        let Some(running) = slot.take() else {
             return;
         };
+        if let Some((dir, keeper)) = running.keeper {
+            // The last word on the rooms, before they go with the relay.
+            keeper.abort();
+            let _ = hosted_rooms::write(&dir, running.port, &running.relay.export());
+        }
         let _ = running.stop.send(());
         let mut task = running.task;
         if tokio::time::timeout(Duration::from_secs(5), &mut task)
@@ -137,19 +249,19 @@ mod tests {
     #[tokio::test]
     async fn starts_once_serves_and_stops() {
         let host = Host::default();
-        let first = host.start(Some(0)).await.unwrap();
+        let first = host.start(Some(0), None).await.unwrap();
         assert_ne!(first.port, 0);
         assert!(health(first.port).await.unwrap().ends_with("ok"));
 
         // Asking again returns the running relay, whatever port is asked for.
-        let again = host.start(Some(1)).await.unwrap();
+        let again = host.start(Some(1), None).await.unwrap();
         assert_eq!(again.port, first.port);
 
         host.stop().await;
         assert!(TcpStream::connect(local_addr(first.port)).await.is_err());
         host.stop().await; // harmless when not hosting
 
-        let restarted = host.start(Some(0)).await.unwrap();
+        let restarted = host.start(Some(0), None).await.unwrap();
         assert!(health(restarted.port).await.unwrap().ends_with("ok"));
         host.stop().await;
     }
@@ -159,10 +271,126 @@ mod tests {
         let taken = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
         let taken_port = taken.local_addr().unwrap().port();
         let host = Host::default();
-        let info = host.start(Some(taken_port)).await.unwrap();
+        let info = host.start(Some(taken_port), None).await.unwrap();
         assert_ne!(info.port, taken_port);
         assert!(health(info.port).await.unwrap().ends_with("ok"));
         host.stop().await;
+    }
+
+    fn now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+
+    #[tokio::test]
+    async fn kept_rooms_come_back_on_their_port_and_are_kept_again_on_stop() {
+        use crate::hosted_rooms::tests::{sample, TempDir};
+        let dir = TempDir::new("host");
+        // A free port to stand for the one the room was hosted on.
+        let free = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        let kept = sample(now_ms());
+        hosted_rooms::write(&dir.0, port, &kept).unwrap();
+
+        let host = Host::default();
+        assert_eq!(host.rooms().await, 0);
+        let info = host.start(None, Some(&dir.0)).await.unwrap();
+        assert_eq!(info.port, port, "the port people's links carry");
+        assert_eq!(host.rooms().await, 1);
+        assert!(health(port).await.unwrap().ends_with("ok"));
+
+        // Stopping writes the rooms as they are now; nothing changed, so the same rooms.
+        std::fs::remove_file(hosted_rooms::path(&dir.0)).unwrap();
+        host.stop().await;
+        let Found::Rooms(file) = hosted_rooms::read(&dir.0) else {
+            panic!("the rooms were not kept")
+        };
+        assert_eq!(file.port, port);
+        assert_eq!(file.relay, kept);
+
+        // Quitting writes them too, while the relay goes on.
+        host.start(None, Some(&dir.0)).await.unwrap();
+        std::fs::remove_file(hosted_rooms::path(&dir.0)).unwrap();
+        host.keep_now().await;
+        assert!(matches!(hosted_rooms::read(&dir.0), Found::Rooms(_)));
+        assert_eq!(host.rooms().await, 1);
+        host.stop().await;
+
+        // Without a folder nothing is read and nothing is written.
+        let other = Host::default();
+        other.start(Some(0), None).await.unwrap();
+        assert_eq!(other.rooms().await, 0);
+        other.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_forgotten_room_leaves_the_file_hosting_or_not() {
+        use crate::hosted_rooms::tests::{sample, TempDir};
+        let dir = TempDir::new("forget");
+        let mut kept = sample(now_ms());
+        kept.tombstones.clear();
+        let mut other = kept.rooms[0].clone();
+        other.id = "OTHERROOM001".into();
+        kept.rooms.push(other);
+        hosted_rooms::write(&dir.0, 0, &kept).unwrap();
+
+        // Not hosting: the file is edited.
+        let host = Host::default();
+        host.forget("k7q2m9xa4tdp", Some(&dir.0)).await.unwrap();
+        let Found::Rooms(file) = hosted_rooms::read(&dir.0) else {
+            panic!("the other room was not kept")
+        };
+        let ids: Vec<&str> = file.relay.rooms.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["OTHERROOM001"]);
+        host.forget("NOSUCHROOM01", Some(&dir.0)).await.unwrap();
+        host.forget("NOSUCHROOM01", None).await.unwrap();
+
+        // Hosting: the relay drops it, and the file follows at once.
+        host.start(Some(0), Some(&dir.0)).await.unwrap();
+        assert_eq!(host.rooms().await, 1);
+        host.forget("OTHERROOM001", Some(&dir.0)).await.unwrap();
+        assert_eq!(host.rooms().await, 0);
+        match hosted_rooms::read(&dir.0) {
+            Found::Rooms(file) => assert!(file.relay.rooms.is_empty()),
+            other => panic!("unexpected {other:?}"),
+        }
+        host.stop().await;
+    }
+
+    #[tokio::test]
+    async fn rooms_that_lapsed_are_dropped_from_the_file() {
+        use crate::hosted_rooms::tests::{sample, TempDir};
+        let dir = TempDir::new("lapsed");
+        // Last used 40 days ago: past the 30 days a room and its members are kept.
+        let old = now_ms() - 40 * 86_400_000;
+        let mut kept = sample(old);
+        kept.tombstones.clear();
+        hosted_rooms::write(&dir.0, 0, &kept).unwrap();
+        let host = Host::default();
+        host.start(Some(0), Some(&dir.0)).await.unwrap();
+        assert_eq!(host.rooms().await, 0);
+        host.stop().await;
+        assert_eq!(hosted_rooms::read(&dir.0), Found::Nothing);
+    }
+
+    #[tokio::test]
+    async fn a_file_from_a_newer_app_is_left_alone() {
+        use crate::hosted_rooms::tests::TempDir;
+        let dir = TempDir::new("newer-host");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let newer = br#"{"format":99,"port":8787,"relay":{"version":1}}"#;
+        std::fs::write(hosted_rooms::path(&dir.0), newer).unwrap();
+        let host = Host::default();
+        host.start(Some(0), Some(&dir.0)).await.unwrap();
+        assert_eq!(host.rooms().await, 0);
+        host.stop().await;
+        assert_eq!(
+            std::fs::read(hosted_rooms::path(&dir.0)).unwrap(),
+            newer.to_vec()
+        );
     }
 
     #[test]

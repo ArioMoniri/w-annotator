@@ -94,6 +94,9 @@ function useHotkeys() {
       'slice.next': () => scrollActive(1),
       'slice.back5': () => scrollActive(-5),
       'slice.forward5': () => scrollActive(5),
+      // After a merge that kept my version of some slices aside: from one such slice to the next.
+      'review.previous': () => session.stepReview(-1),
+      'review.next': () => session.stepReview(1),
       'view.maximise': () => set({ maximized: get().maximized || currentLayout() === 'single' ? null : get().activeView }),
       'layout.grid': () => chooseLayout('grid'),
       'layout.focus': () => chooseLayout('focus'),

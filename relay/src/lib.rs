@@ -32,6 +32,7 @@ pub mod faults;
 pub mod invites;
 pub mod limits;
 mod listen;
+pub mod persist;
 pub mod proto;
 pub mod rooms;
 mod v1;
@@ -58,10 +59,12 @@ pub struct RelayConfig {
 
 impl RelayConfig {
     /// For the relay inside the desktop app: one person's rooms on a local
-    /// network, so far fewer rooms and connections than a room server.
+    /// network, so far fewer rooms and connections than a room server. Rooms
+    /// kept from earlier runs count too ([`Relay::import`] takes back at most
+    /// half the limit), so the limit is above what one person has open at once.
     pub fn embedded() -> Self {
         let mut config = RelayConfig::default();
-        config.limits.max_rooms = 8;
+        config.limits.max_rooms = 32;
         config.limits.max_connections = 128;
         config
     }
@@ -194,6 +197,22 @@ impl Relay {
     /// The v2 rooms this relay holds, sorted by id.
     pub fn rooms(&self) -> Vec<RoomInfo> {
         rooms::list(&self.shared)
+    }
+
+    /// The shared-copy rooms this relay holds, in a form the embedding app
+    /// can store and give back to [`Relay::import`] after a restart. No
+    /// payload is in it. See [`persist`].
+    pub fn export(&self) -> persist::SavedRelay {
+        rooms::export(&self.shared)
+    }
+
+    /// Takes back what [`Relay::export`] gave, then lets lapse whatever ran
+    /// out meanwhile (links, idle members, idle rooms). Returns how many of
+    /// the rooms are held afterwards. A room id this relay already holds is
+    /// left as it is. Kept rooms never fill the relay: at most half its room
+    /// limit comes back, the most recently used first.
+    pub fn import(&self, saved: persist::SavedRelay) -> Result<usize, persist::ImportError> {
+        rooms::import(&self.shared, saved)
     }
 
     /// Deletes a v2 room as its host would: everyone is closed with 4410.

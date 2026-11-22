@@ -46,6 +46,17 @@ export async function stopHosting(): Promise<void> {
   }
 }
 
+/** Removes what the desktop app keeps of a room it hosted, so its members and links are gone from this computer. */
+export async function forgetHostedRoom(room: string): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('forget_hosted_room', { room });
+  } catch {
+    /* nothing was kept */
+  }
+}
+
 /**
  * Ask where to save, then write. `make` gets the chosen file name so the
  * format can follow the extension. Returns the saved name, or null if cancelled.

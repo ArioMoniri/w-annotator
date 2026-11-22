@@ -8,6 +8,7 @@ mod associations;
 mod batch;
 mod dump;
 mod files;
+mod hosted_rooms;
 mod hosting;
 mod recovery;
 mod testing;
@@ -87,8 +88,19 @@ fn take_paths(app: &AppHandle, paths: &[PathBuf], gather: bool) {
 }
 
 #[tauri::command]
-async fn host_room(host: State<'_, Host>, port: Option<u16>) -> Result<HostInfo, String> {
-    host.start(port)
+async fn host_room(
+    app: AppHandle,
+    host: State<'_, Host>,
+    port: Option<u16>,
+) -> Result<HostInfo, String> {
+    // Rooms hosted here are kept in the app's own data folder, so they are
+    // there again after the app was closed. Without that folder they are not kept.
+    let store = app
+        .path()
+        .app_local_data_dir()
+        .ok()
+        .map(|dir| dir.join(hosted_rooms::FOLDER));
+    host.start(port, store.as_deref())
         .await
         .map_err(|e| format!("Could not start hosting: {e}"))
 }
@@ -97,6 +109,23 @@ async fn host_room(host: State<'_, Host>, port: Option<u16>) -> Result<HostInfo,
 async fn stop_hosting(host: State<'_, Host>) -> Result<(), String> {
     host.stop().await;
     Ok(())
+}
+
+/// Removes what is kept of one hosted room, when its host forgets it.
+#[tauri::command]
+async fn forget_hosted_room(
+    app: AppHandle,
+    host: State<'_, Host>,
+    room: String,
+) -> Result<(), String> {
+    let store = app
+        .path()
+        .app_local_data_dir()
+        .ok()
+        .map(|dir| dir.join(hosted_rooms::FOLDER));
+    host.forget(&room, store.as_deref())
+        .await
+        .map_err(|e| format!("Could not forget the room: {e}"))
 }
 
 /// The bytes of a raw request body. When the webview cannot use the IPC custom
@@ -408,6 +437,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             host_room,
             stop_hosting,
+            forget_hosted_room,
             write_file,
             read_file,
             files_ready,
@@ -427,6 +457,11 @@ pub fn run() {
         .expect("error while building W Annotator");
 
     app.run(|_app, _event| {
+        // Rooms hosted here are written one last time, so someone who joined a
+        // moment ago is still a member when the room is opened again.
+        if let tauri::RunEvent::Exit = &_event {
+            tauri::async_runtime::block_on(_app.state::<Host>().keep_now());
+        }
         // macOS delivers "Open with" and double-clicked files as an event, at
         // launch and while running, and sometimes one selection in several events.
         #[cfg(any(target_os = "macos", target_os = "ios"))]

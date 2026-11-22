@@ -229,7 +229,7 @@ async fn malformed_input_after_sign_in_is_survived() {
     }
     // Every header field at its extreme.
     let mut extreme = vec![0xFFu8; 24];
-    extreme[0] = 2;
+    extreme[0] = 3;
     for kind in 0..=255u8 {
         extreme[1] = kind;
         guest.send_raw(extreme.clone()).await;

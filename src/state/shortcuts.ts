@@ -34,6 +34,8 @@ export const ACTIONS = [
   { id: 'slice.next', label: 'Next slice', group: 'View and file', key: 'arrowdown' },
   { id: 'slice.back5', label: 'Back 5 slices', group: 'View and file', key: 'pageup' },
   { id: 'slice.forward5', label: 'Forward 5 slices', group: 'View and file', key: 'pagedown' },
+  { id: 'review.previous', label: 'Previous slice to review', group: 'View and file', key: 'alt+arrowup' },
+  { id: 'review.next', label: 'Next slice to review', group: 'View and file', key: 'alt+arrowdown' },
   { id: 'view.maximise', label: 'Maximise or restore', group: 'View and file', key: 'm' },
   { id: 'layout.grid', label: 'Layout: 2 × 2', group: 'View and file', key: 'mod+1' },
   { id: 'layout.focus', label: 'Layout: 1 large and 3 stacked', group: 'View and file', key: 'mod+2' },

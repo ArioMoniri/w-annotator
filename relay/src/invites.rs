@@ -6,8 +6,10 @@
 
 use serde_json::{json, Value};
 
+use crate::auth::b64;
 use crate::auth::{unb64, verify_proof};
 use crate::limits::{Limits, Timing};
+use crate::persist::SavedInvite;
 use crate::rooms::Role;
 
 /// Longest wrapped room key the relay stores, in base64 characters.
@@ -176,6 +178,46 @@ impl Invite {
             >= self
                 .expires_ms
                 .saturating_add(timing.invite_forget.as_millis() as u64)
+    }
+
+    /// The invite as an embedding app stores it (`persist`).
+    pub(crate) fn to_saved(&self, id: &str) -> SavedInvite {
+        SavedInvite {
+            id: id.to_owned(),
+            auth_key: b64(&self.auth_key),
+            wrapped_key: self.wrapped_key.clone(),
+            role: self.role.as_str().to_owned(),
+            expires_at: self.expires_ms,
+            max_uses: self.max_uses,
+            uses: self.uses,
+            revoked: self.revoked,
+        }
+    }
+
+    /// An invite read back from storage, or `None` when it is not one. Wrong
+    /// proofs counted before the restart are forgotten.
+    pub(crate) fn from_saved(saved: &SavedInvite) -> Option<(String, Invite)> {
+        let role = match Role::parse(&saved.role) {
+            Some(Role::Host) | None => return None,
+            Some(role) => role,
+        };
+        if !valid_id(&saved.id) || saved.wrapped_key.len() > MAX_WRAPPED_KEY_CHARS {
+            return None;
+        }
+        Some((
+            saved.id.clone(),
+            Invite {
+                auth_key: unb64::<32>(&saved.auth_key)?,
+                wrapped_key: saved.wrapped_key.clone(),
+                role,
+                expires_ms: saved.expires_at,
+                max_uses: saved.max_uses,
+                uses: saved.uses,
+                revoked: saved.revoked,
+                failures: 0,
+                locked_until_ms: 0,
+            },
+        ))
     }
 
     /// What the host sees in `invite-added` and `invites`. Never the auth key.

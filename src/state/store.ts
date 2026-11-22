@@ -54,6 +54,15 @@ export interface Peer {
   seen?: number;
 }
 
+/** What a merge after offline work left for the person to decide (`ROOMS.md` C6, rule 3). */
+export interface MergeReview {
+  /** The stored slices where my version differs from the room's, in order, with how many voxels on each. */
+  slices: { z: number; voxels: number }[];
+  voxels: number;
+  /** The view that shows those slices face on: `axial` for a volume stored the usual way. */
+  view: ViewId;
+}
+
 export interface RoomState {
   status: 'connecting' | 'online' | 'offline';
   id: string;
@@ -71,8 +80,6 @@ export interface RoomState {
   veil: string | null;
   /** View through host, guest side: the window the host looks through, when the host has said it. */
   hostVoi: { lower: number; upper: number } | null;
-  /** After a merge: how much of my work differs from the room and was put aside. */
-  review: { slices: number; voxels: number } | null;
   /** A short line about what the room is waiting for, or null. */
   note: string | null;
 }
@@ -169,6 +176,8 @@ interface State {
   canRedo: boolean;
 
   room: RoomState | null;
+  /** My version put aside by a merge, until every slice is decided. It can outlast the room. */
+  review: MergeReview | null;
   peers: Peer[];
   roomModal: 'start' | 'join' | null;
   /** The settings dialog and the section it shows; null when closed. */
@@ -230,6 +239,7 @@ export const useStore = create<State>(() => ({
   canRedo: false,
 
   room: null,
+  review: null,
   peers: [],
   roomModal: null,
   settings: null,

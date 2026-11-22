@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { guestBanner, reviewText } from './RoomBar';
+import { GO_TO_A_SLICE, guestBanner, reviewText, sliceLabel } from './RoomBar';
 import { LINK_RULE, ROOM_KINDS } from './RoomModal';
 
 describe('room copy', () => {
@@ -10,9 +10,15 @@ describe('room copy', () => {
 
   it('counts what a merge left to review', () => {
     expect(reviewText({ slices: 3, voxels: 412 })).toBe(
-      "Your version differs from the room's on 3 slices (412 voxels). The room's version is shown; yours is kept until you choose.",
+      "Your version differs from the room's on 3 slices (412 voxels). The room's version is shown; yours is the white outline, kept until you choose.",
     );
     expect(reviewText({ slices: 1, voxels: 1 })).toContain('1 slice (1 voxel)');
+  });
+
+  it('names a slice to review by its view and the number that view shows', () => {
+    expect(sliceLabel('axial', 13, 140)).toBe('Axial slice 13 · 140 voxels');
+    expect(sliceLabel('coronal', 1, 1)).toBe('Coronal slice 1 · 1 voxel');
+    expect(GO_TO_A_SLICE).toBe('Go to a slice that differs to choose for it.');
   });
 
   it('describes exactly two kinds of room, and says which one sends the files', () => {

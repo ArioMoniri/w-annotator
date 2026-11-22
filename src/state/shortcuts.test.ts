@@ -122,6 +122,23 @@ describe('formatCombo', () => {
   });
 });
 
+describe('review shortcuts', () => {
+  it('go to the next and previous slice to review with Alt and the arrows, and can be rebound', () => {
+    const b = defaultBindings();
+    expect(b['review.next']).toBe('alt+arrowdown');
+    expect(b['review.previous']).toBe('alt+arrowup');
+    // The plain arrows keep changing slice.
+    expect(actionFor(b, 'arrowdown')).toBe('slice.next');
+    expect(actionFor(b, 'alt+arrowdown')).toBe('review.next');
+    expect(actionFor(b, comboFromEvent({ key: 'ArrowUp', ctrlKey: false, metaKey: false, shiftKey: false, altKey: true })!)).toBe('review.previous');
+    expect(formatCombo('alt+arrowdown', false)).toBe('Alt+↓');
+    expect(formatCombo('alt+arrowdown', true)).toBe('⌥ ↓');
+    const { bindings } = rebind(b, 'review.next', 'j');
+    expect(actionFor(bindings, 'j')).toBe('review.next');
+    expect(actionFor(bindings, 'alt+arrowdown')).toBeNull();
+  });
+});
+
 describe('settings shortcut', () => {
   it('opens settings with mod+, by default and can be rebound', () => {
     expect(defaultBindings()['app.settings']).toBe('mod+,');

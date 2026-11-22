@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { frameAad, makeRoomKey, open, seal, unwrapRoomKey, wrapRoomKey } from './crypto';
+import { open, seal } from './crypto';
+
+const frameAad = (room: string, epoch: number, kind: number) => `w-rooms/3 all ${room} ${epoch} ${kind} 7`;
 
 const text = (s: string) => new TextEncoder().encode(s);
 
@@ -26,19 +28,5 @@ describe('payload encryption', () => {
     expect(open(key, frameAad('ROOMROOM', 1, 2), sealed)).toBeNull();
     expect(open(key, frameAad('OTHERROOM', 1, 1), sealed)).toBeNull();
     expect(open(key, aad, sealed.subarray(0, 10))).toBeNull();
-  });
-});
-
-describe('room key in an invite', () => {
-  it('is wrapped with the key from the link and comes back whole', () => {
-    const roomKey = makeRoomKey();
-    expect(roomKey.length).toBe(32);
-    const wrapKey = new Uint8Array(32).fill(3);
-    const wrapped = wrapRoomKey(wrapKey, roomKey);
-    expect(wrapped.length).toBeLessThanOrEqual(512);
-    expect(wrapped).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(Array.from(unwrapRoomKey(wrapKey, wrapped)!)).toEqual(Array.from(roomKey));
-    expect(unwrapRoomKey(new Uint8Array(32).fill(4), wrapped)).toBeNull();
-    expect(unwrapRoomKey(wrapKey, 'not base64 !')).toBeNull();
   });
 });

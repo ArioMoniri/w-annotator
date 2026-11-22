@@ -62,7 +62,7 @@ Drop files onto the window, use *Open with* from the system file manager (an ima
 A room lets several people edit one mask at the same time. Nobody needs an account, only a display name (kept in Settings). Everyone needs version 0.1.2 or later; an older app is told to update.
 
 1. Open an image, press **Share** and choose the kind of room.
-2. Send each person an invite link. A link works for one person and stops working after 24 hours; make another from the room menu. There are no room codes.
+2. Send each person an invite link. A link works for one person and stops working after 24 hours; make another from the room menu. Under *Link options* a link can instead last 1 hour or 7 days, and work for up to 5 people or for anyone who has it until it expires; the room server counts the uses and keeps the time. A note such as "for Sam" stays on your computer, for your own list. There are no room codes.
 3. They paste it under *Join a room*. Rooms you have joined are listed there, so you can come back to a shared-copy room without a new link.
 
 There are two kinds of room, chosen when it is started:
@@ -70,10 +70,10 @@ There are two kinds of room, chosen when it is started:
 | | Shared copy | View through my computer |
 |---|---|---|
 | What others receive | The image and the mask. They keep a copy. | 8-bit pictures of the slices they look at, and the labels on them. Never the files. |
-| Without the host | They keep working. Offline work is merged when they come back; where both sides changed the same voxels the room's version stays and theirs waits for *Use mine* or *Keep the room's*. | The room ends when the host leaves. Guests are disconnected and what was in memory is cleared. |
+| Without the host | They keep working. Offline work is merged when they come back, also after the app was closed in between. Where both sides changed the same voxels the room's version stays and theirs is kept aside: a bar lists the slices, goes from one to the next (`Alt+↓` / `Alt+↑`), outlines their version in white, and takes *Use mine* or *Keep the room's* for one slice or for all. Each *Use mine* is one undo step. | The room ends when the host leaves. Guests are disconnected and what was in memory is cleared. |
 | Saving | Everyone can save. | Only the host. Guests cannot save and no recovery copy is written. |
 
-The host can remove a person, switch off a link that has not been used, and end or delete the room. Removing someone from a shared-copy room does not delete the copy they already have.
+The host can change a person between *Can edit* and *Can view*, remove a person, switch off a link, and end or delete the room. Someone changed to *Can view* is told and their edit tools are switched off. Who may only view is part of the list of members the host signs, so every app leaves such a person's edits out whatever the room server does, and the room server refuses them as well. Removing someone from a shared-copy room does not delete the copy they already have.
 
 Things to know before sharing:
 
@@ -82,7 +82,7 @@ Things to know before sharing:
 - What a room sends is encrypted between the apps with a key carried in the invite link. Whoever runs the room server sees addresses, times, sizes and who is in which room, not names, voxels or segment names.
 - W Annotator is not for diagnosis or treatment.
 
-With the server field left empty, the desktop app hosts the room itself. That works for people on the same network or VPN, and the room stops when the host closes the app. To work over the internet, or to keep a shared-copy room open while the host is away, run the relay in [`relay/`](relay/README.md) (a small Rust server, with a Dockerfile) and enter its address when starting the room. The relay forwards messages, keeps who is in a room in memory and stores nothing on disk. The design is in [`docs/design/ROOMS.md`](docs/design/ROOMS.md).
+With the server field left empty, the desktop app hosts the room itself. That works for people on the same network or VPN, and the room is down while the host's app is closed. A shared-copy room hosted this way is not lost: who is in it and which links are open is kept on the host's computer (no image, mask or name), and the host opens it again from *Join a room → Rooms you have joined → Reopen* with the same image and mask open. The others, who meanwhile read "Waiting for the host to reopen the room", come back with the membership they had and are merged against the host's mask. To work over the internet, or to keep a shared-copy room open while the host is away, run the relay in [`relay/`](relay/README.md) (a small Rust server, with a Dockerfile) and enter its address when starting the room. The relay forwards messages, keeps who is in a room in memory and stores nothing on disk. The design is in [`docs/design/ROOMS.md`](docs/design/ROOMS.md).
 
 ## Shortcuts
 
@@ -102,6 +102,7 @@ With the server field left empty, the desktop app hosts the room itself. That wo
 | `P` / `Shift+P` | Next / previous window preset | `Shift`+arrows | Brightness and contrast |
 | `=` / `-` / `0` | Zoom in / out / fit | `Alt`-click | Select the segment under the cursor |
 | `Enter` / `Esc` | Apply / cancel the fill preview | `Ctrl+S` | Save mask |
+| `Alt+↓` / `Alt+↑` | Next / previous slice to review after a merge | | |
 
 On macOS use `⌘` in place of `Ctrl` and `⌥` in place of `Alt`. Scroll changes slice (`Shift` for five at a time), `Ctrl`+scroll or a pinch zooms, middle-drag pans and right-drag changes window/level. With the Window / Level tool, `Ctrl`-drag a box to set the window from what is inside it, and a two-finger scroll changes brightness and contrast. A trackpad scrolls through slices in proportion to how far your fingers move; Settings → Mouse and trackpad has the direction, speed and what a two-finger scroll does. Press `?` in the app to see every shortcut and change any of them.
 

@@ -1,11 +1,13 @@
 import { X } from 'lucide-react';
 import { useState } from 'react';
+import { DEFAULT_INVITE, linkRule, type InviteOptions } from '../collab/invites';
 import type { RoomKind } from '../collab/protocol';
 import { savedRooms, type SavedRoom } from '../collab/rooms';
 import { SERVER_HELP, copyText, isTauri, saveName, saveServer, savedName, savedServer } from '../platform';
 import { createInvite, forgetSavedRoom, joinRoom, rejoinRoom, startRoom, type RoomStarted } from '../session';
 import { set, toast, useStore } from '../state/store';
 import { Modal } from './common';
+import { InviteOptionsFields } from './InviteOptions';
 
 /** Once a room is running, its pill in the top bar is where this dialog came from. */
 const ROOM_PILL = '[data-testid="room-pill"]';
@@ -25,8 +27,8 @@ export const ROOM_KINDS: { kind: RoomKind; title: string; text: string; note?: s
   },
 ];
 
-/** What every invite link does, said wherever one is handed out. */
-export const LINK_RULE = 'Each link works for one person and stops working after 24 hours.';
+/** What an invite link does unless the host chose otherwise, said wherever one is handed out. */
+export const LINK_RULE = linkRule(DEFAULT_INVITE, 'shared');
 
 /** Mounted afresh each time it opens, so the name and server always come from Settings. */
 export function RoomModal() {
@@ -154,7 +156,7 @@ function RoomDialog() {
                 <span className="name">{r.role === 'host' ? 'Your room' : r.host ? `${r.host}'s room` : 'A room'}</span>
                 <span className="help">last opened {new Date(r.at).toLocaleDateString()}</span>
                 <button type="button" className="btn text" disabled={working} onClick={() => void run((clean) => rejoinRoom(clean, r.id))}>
-                  Rejoin
+                  {r.role === 'host' && r.hosted ? 'Reopen' : 'Rejoin'}
                 </button>
                 <button
                   type="button"
@@ -205,12 +207,20 @@ function RoomDialog() {
 function Started({ started, onClose }: { started: RoomStarted; onClose: () => void }) {
   const [link, setLink] = useState(started.link);
   const [count, setCount] = useState(1);
+  /** What the next link will be like, and what the one on screen is like. */
+  const [options, setOptions] = useState<InviteOptions>(DEFAULT_INVITE);
+  const [shown, setShown] = useState<InviteOptions>(DEFAULT_INVITE);
   const another = async () => {
-    const next = await createInvite();
+    const next = await createInvite(options);
     if (!next) return toast('error', "Couldn't make a link. Check your connection and try again.");
     setLink(next);
+    setShown(options);
+    // A note belongs to one link.
+    setOptions({ ...options, label: '' });
     setCount(count + 1);
   };
+  const one = started.kind === 'host-view' || shown.uses === 'one';
+  const nextOne = started.kind === 'host-view' || options.uses === 'one';
   return (
     <Modal key="started" title="Room started" onClose={onClose} returnTo={ROOM_PILL}>
       {/* The title and the close button share a row, so neither sits on the other. */}
@@ -220,17 +230,23 @@ function Started({ started, onClose }: { started: RoomStarted; onClose: () => vo
           <X size={16} />
         </button>
       </div>
-      <p>Send this link to one person. They paste it under Join a room. {LINK_RULE}</p>
+      <p data-testid="room-link-rule">
+        {one ? 'Send this link to one person. They paste it under Join a room.' : 'Send this link to the people you invite. They paste it under Join a room.'}{' '}
+        {linkRule(shown, started.kind)}
+      </p>
       <div className="form">
         <div className="linkbox" data-testid="room-link" data-count={count}>
           {link}
         </div>
+        <InviteOptionsFields value={options} kind={started.kind} onChange={setOptions} />
         {started.kind === 'host-view' && <span className="help">{ROOM_KINDS[1].note}</span>}
         {link.startsWith('http://') && isTauri && (
           <span className="help" data-testid="room-note">
             {started.localOnly
               ? 'No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others.'
-              : 'This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app.'}
+              : started.kind === 'shared'
+                ? 'This room runs on your computer, so others need to be on the same network or VPN. It is down while the app is closed; open it again from Join a room.'
+                : 'This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app.'}
           </span>
         )}
       </div>
@@ -239,7 +255,7 @@ function Started({ started, onClose }: { started: RoomStarted; onClose: () => vo
           Done
         </button>
         <button className="btn secondary lg" onClick={() => void another()}>
-          Link for another person
+          {nextOne ? 'Link for another person' : 'New link'}
         </button>
         <button className="btn primary lg" onClick={async () => (await copyText(link)) && toast('success', 'Invite link copied')}>
           Copy invite link

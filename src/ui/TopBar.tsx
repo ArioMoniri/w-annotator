@@ -6,7 +6,10 @@ import type { ActionId } from '../state/shortcuts';
 import { set, toast, useStore, type Peer } from '../state/store';
 import { chooseLayout } from '../state/views';
 import { LAYOUTS, paneRects, parseLayout, type LayoutId } from '../viewer/layout';
-import { closeImage, createInvite, endRoom, leaveRoom, listInvites, reconnectRoom, removeMember, revokeInvite, saveMask, type InviteRow } from '../session';
+import { DEFAULT_INVITE, inviteLine, inviteUsable, linkRule, type InviteOptions } from '../collab/invites';
+import { ROLE_CHOICES } from '../collab/roles';
+import { closeImage, createInvite, endRoom, leaveRoom, listInvites, reconnectRoom, removeMember, revokeInvite, saveMask, setMemberRole, type InviteRow } from '../session';
+import { InviteOptionsFields } from './InviteOptions';
 import { copyText } from '../platform';
 import { jumpTo } from '../viewer/engine';
 import { useDismiss, useKeyHint } from './common';
@@ -82,20 +85,13 @@ function FileMenu() {
   );
 }
 
-/** When an invite link stops working, in a few words. */
-function expiresIn(ms: number): string {
-  if (ms <= 0) return 'expired';
-  const hours = Math.round(ms / 3_600_000);
-  if (hours >= 1) return `expires in ${hours} h`;
-  return `expires in ${Math.max(1, Math.round(ms / 60_000))} min`;
-}
-
 function RoomButton() {
   const room = useStore((s) => s.room);
   const peers = useStore((s) => s.peers);
   const hasImage = useStore((s) => !!s.image);
   const [open, setOpen] = useState(false);
   const [invites, setInvites] = useState<InviteRow[]>([]);
+  const [linkOptions, setLinkOptions] = useState<InviteOptions>(DEFAULT_INVITE);
   const close = useCallback(() => setOpen(false), []);
   const ref = useDismiss<HTMLDivElement>(open, close);
   const host = room?.role === 'host';
@@ -132,10 +128,12 @@ function RoomButton() {
     if (await copyText(text)) toast('success', done);
   };
   const newLink = async () => {
-    const link = await createInvite();
+    const link = await createInvite(linkOptions);
     if (!link) return toast('error', "Couldn't make a link. Check your connection and try again.");
     refresh();
-    await copy(link, 'Invite link copied. It works for one person, for 24 hours.');
+    // A note belongs to one link.
+    setLinkOptions({ ...linkOptions, label: '' });
+    await copy(link, `Invite link copied. ${linkRule(linkOptions, room.kind)}`);
   };
   const remove = (p: Peer) => {
     setOpen(false);
@@ -176,7 +174,8 @@ function RoomButton() {
       },
     });
   };
-  const usable = invites.filter((i) => !i.revoked && i.uses < i.maxUses && i.expiresAt > Date.now());
+  const now = Date.now();
+  const usable = invites.filter((i) => inviteUsable(i, now));
   return (
     <div ref={ref} data-tour="share" style={{ position: 'relative' }}>
       <div className="avatars" style={{ display: 'inline-flex', marginRight: 8, verticalAlign: 'middle' }}>
@@ -230,13 +229,13 @@ function RoomButton() {
               <button className="item" onClick={() => void newLink()}>
                 New invite link
               </button>
+              <InviteOptionsFields value={linkOptions} kind={room.kind} onChange={setLinkOptions} />
               {usable.length > 0 && (
                 <div className="links" data-testid="room-links">
                   {usable.map((i, n) => (
                     <div key={i.id} className="link">
-                      <span>
-                        Link {n + 1} · {expiresIn(i.expiresAt - Date.now())}
-                      </span>
+                      {/* Links without a note are numbered among themselves. */}
+                      <span>{inviteLine(i, i.label, usable.slice(0, n + 1).filter((x) => !x.label).length, now)}</span>
                       {i.link && (
                         <button className="btn text" onClick={() => void copy(i.link!, 'Invite link copied')}>
                           Copy
@@ -259,7 +258,7 @@ function RoomButton() {
                 {initials(room.name)}
               </span>
               {room.name}
-              <span className="tag">{host ? 'You · host' : 'You'}</span>
+              <span className="tag">{host ? 'You · host' : room.role === 'viewer' ? 'You · view only' : 'You'}</span>
             </div>
             {peers.map((p) => (
               <div key={p.id} className="person" data-testid="room-person">
@@ -273,6 +272,23 @@ function RoomButton() {
                 {host && !shared && p.seen !== undefined && (
                   <span className="tag">
                     {p.seen} {p.seen === 1 ? 'slice' : 'slices'} seen
+                  </span>
+                )}
+                {!host && p.role === 'viewer' && <span className="tag">View only</span>}
+                {host && (
+                  <span className="rolebox">
+                    <select
+                      className="select role"
+                      aria-label={`What ${p.name} can do`}
+                      value={p.role === 'viewer' ? 'viewer' : 'editor'}
+                      onChange={(e) => void setMemberRole(p.id, e.target.value as 'editor' | 'viewer')}
+                    >
+                      {ROLE_CHOICES.map((c) => (
+                        <option key={c.role} value={c.role}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
                   </span>
                 )}
                 {host && (

@@ -351,10 +351,11 @@ export function watchRoomTraffic(page: Page): { bytes: number; kinds: Record<num
   return seen;
 }
 
-/** The value the app holds for one voxel of the image. */
+/** The value the app holds for one voxel of the image; 0 while no image is open, as between a guest's pictures being cleared and fetched again. */
 export async function imageValue(page: Page, ijk: [number, number, number]): Promise<number> {
   return page.evaluate((ijk) => {
     const vol = window.__w.session.getImage();
+    if (!vol) return 0;
     return vol.data[(ijk[2] * vol.dims[1] + ijk[1]) * vol.dims[0] + ijk[0]] as number;
   }, ijk);
 }

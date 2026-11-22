@@ -1,10 +1,11 @@
 /**
- * Rooms protocol v2, the app's side. The contract is `docs/design/ROOMS-PROTOCOL.md`;
+ * The rooms protocol, the app's side. The contract is `docs/design/ROOMS-PROTOCOL.md`;
  * section numbers below refer to it. The relay orders edits and enforces who may do
  * what from the cleartext frame header; everything else is inside encrypted payloads.
  */
 
-export const PROTO = 2;
+/** Protocol 3: pair keys, signed frames, key epochs (§19). An app on protocol 2 cannot share a room with this one. */
+export const PROTO = 3;
 export const HEADER_BYTES = 24;
 
 export type RoomKind = 'shared' | 'host-view';

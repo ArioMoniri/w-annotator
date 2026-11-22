@@ -53,6 +53,9 @@ describe('parseSegOp', () => {
       seg: { index: 2, name: 'x'.repeat(64), color: '#abcdef', locked: true },
     });
     expect(parseSegOp({ op: 'window' })).toEqual({ op: 'window' });
+    // The host's word on who may only look, at its place in the order.
+    expect(parseSegOp({ op: 'role', member: 630768347, view: true, extra: 1 })).toEqual({ op: 'role', member: 630768347, view: true });
+    expect(parseSegOp({ op: 'role', member: 7, view: false })).toEqual({ op: 'role', member: 7, view: false });
   });
 
   it('rejects anything else', () => {
@@ -61,5 +64,9 @@ describe('parseSegOp', () => {
     expect(parseSegOp({ op: 'set', seg: { index: 2, name: '', color: '#abcdef' } })).toBeNull();
     expect(parseSegOp({ op: 'set', seg: { index: 2, name: 'A', color: 'red; background: url(x)' } })).toBeNull();
     expect(parseSegOp({ op: 'nope' })).toBeNull();
+    expect(parseSegOp({ op: 'role', member: 0, view: true })).toBeNull();
+    expect(parseSegOp({ op: 'role', member: 7 })).toBeNull();
+    expect(parseSegOp({ op: 'role', member: '7', view: true })).toBeNull();
+    expect(parseSegOp({ op: 'role', member: 7.5, view: true })).toBeNull();
   });
 });

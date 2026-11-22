@@ -4,7 +4,7 @@ Room relay for W Annotator. It lets the people in a room reach each other, decid
 
 It speaks two protocols on one port:
 
-- **v2** at `/v2/rooms/<ID>`: rooms with a host, member keys, roles, invite links, ordered edits and the view-through-host rules. The wire format is `docs/design/ROOMS-PROTOCOL.md`; the design is `docs/design/ROOMS.md`.
+- **v2** at `/v2/rooms/<ID>`, protocol version 3 since 0.1.4: rooms with a host, member keys, roles, invite links, ordered edits, key epochs and the view-through-host rules. Apps from 0.1.4 on need a relay from 0.1.4 on, and the other way round; a mismatch is closed with code 4426 and a text that says which side to update. The wire format is `docs/design/ROOMS-PROTOCOL.md`; the design is `docs/design/ROOMS.md`.
 - **v1** at `/r/<CODE>?name=<name>`: the original relay, for apps from before rooms had kinds and expiring links. Off unless started with `--v1`; otherwise `/r/…` answers HTTP 426 so an old app tells its user to update. See the end of this file.
 
 ## Run it
@@ -106,7 +106,17 @@ handle.rooms();                 // id, type, members, online, head — no keys
 handle.delete_room("K7Q2M9XA4TDP");
 ```
 
-Nothing in the embedded relay needs a disk.
+The relay itself never touches a disk. A program that embeds it can keep shared-copy rooms across its own restarts:
+
+```rust
+let saved: w_relay::persist::SavedRelay = handle.export();   // before stopping, or whenever it changed
+// ... store `saved` (it is serde) ... and in the next run, before anyone connects:
+relay.import(saved)?;                                        // Err only for a record from a newer relay
+```
+
+`export` gives the room records of shared-copy rooms: members' public keys and roles, when each last connected, removed keys, invites (id, proof key, wrapped room key, role, expiry, uses, revoked), the key epoch, and the ids of deleted rooms. No payload, no replay log, no name. `import` takes them back and then drops what lapsed meanwhile. A room that comes back this way has a new `session` and `head` 0, exactly like a room its host made again after a restart; members sign in with the keys they have. The record carries a `version`; a reader ignores fields it does not know and refuses a higher version whole. A view-through-host room is never exported.
+
+The desktop app stores the record in `rooms/hosted.json` in its data folder, for the user only (`src-tauri/README.md`). The standalone `w-relay` does not store anything: it has no `--data-dir` yet (`ROOMS.md` task 2.1).
 
 ## Testing with faults
 

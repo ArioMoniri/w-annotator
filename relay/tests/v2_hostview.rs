@@ -38,7 +38,7 @@ async fn a_guest_reaches_only_the_host_whatever_target_it_names() {
         assert_eq!(
             header,
             Header {
-                version: 2,
+                version: 3,
                 kind: PATCH,
                 flags: 0,
                 from: a.id,
