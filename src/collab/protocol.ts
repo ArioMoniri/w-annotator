@@ -201,14 +201,21 @@ export interface ParsedInvite {
   secret: Uint8Array;
 }
 
+/** A host name, an IPv4 address or an IPv6 address in brackets, with an optional port. Nothing else: no `user@`, no query. */
+const HOST = /^(?:\[[0-9a-f:.]{2,45}\]|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?::(\d{1,5}))?$/;
+
 export function parseInvite(input: string): ParsedInvite | null {
   const link = /^(https?|wss?):\/\/([^/\s#]+)\/j\/([A-Za-z0-9]+)#([A-Za-z0-9_-]+)$/i.exec(input.trim());
   if (!link || !ROOM_ID.test(link[3])) return null;
+  // What is in front of an `@` reads like the host but is not; a link is only taken with a plain host.
+  const host = link[2].toLowerCase();
+  const port = HOST.exec(host);
+  if (!port || host.length > 255 || (port[1] !== undefined && Number(port[1]) > 65535)) return null;
   const secret = b64decode(link[4]);
   if (!secret || secret.length !== 16) return null;
   const scheme = link[1].toLowerCase();
   const secure = scheme === 'https' || scheme === 'wss';
-  return { server: `${secure ? 'wss' : 'ws'}://${link[2]}`, room: link[3].toUpperCase(), secret };
+  return { server: `${secure ? 'wss' : 'ws'}://${host}`, room: link[3].toUpperCase(), secret };
 }
 
 /** The text a member signs to create, sign in or redeem (§3.2). */
@@ -254,9 +261,13 @@ export function closeMessage(code: number, reason: string, room: { host: string 
       if (room.kind === 'shared') return `${host} deleted this room. ${COPY_STAYS}`;
       return 'This room has ended.';
     case 4426:
-      return reason || 'Update W Annotator to join this room';
+      // Only the two texts the protocol defines: anything else would be the room server speaking as the app.
+      return reason === 'The host is on an older version' ? reason : 'Update W Annotator to join this room';
     case 4429:
       return 'Too many attempts. Try again in a minute.';
+    case 4999:
+      // Not a code of the room server: this app left because what the server said could not be true.
+      return `The room server sent something that does not fit this room, so you left it.${after}`;
     default:
       return "Can't reach the room server. Check your network and try again in a minute.";
   }
@@ -278,20 +289,46 @@ export function initials(name: string): string {
   return (first + second).toUpperCase();
 }
 
-/** A name as it arrives from someone else: trimmed, at most 24 characters, or null. */
+/**
+ * Text typed by someone else, made safe to show: no control characters, and none of the
+ * invisible marks that reorder or hide letters and so could pass one name off as another.
+ */
+export function cleanText(value: string, max: number): string {
+  let out = '';
+  for (const ch of value) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) out += ' ';
+    else if (!HIDDEN.some(([from, to]) => c >= from && c <= to)) out += ch;
+  }
+  return out.replace(/\s+/g, ' ').trim().slice(0, max).trim();
+}
+
+/** Soft hyphen, zero-width and direction marks, line and paragraph separators, annotation marks. */
+const HIDDEN: [number, number][] = [
+  [0xad, 0xad],
+  [0x61c, 0x61c],
+  [0x200b, 0x200f],
+  [0x2028, 0x202f],
+  [0x2060, 0x206f],
+  [0xfeff, 0xfeff],
+  [0xfff9, 0xfffb],
+];
+
+/** A name as it arrives from someone else: cleaned, at most 24 characters, or null. */
 export function cleanPeerName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  return value.trim().slice(0, 24).trim() || null;
+  return cleanText(value, 24) || null;
 }
 
 /**
  * The name shown for each member. Two people with the same name get a number,
- * in member-id order, so everyone sees the same "Ana 2".
+ * in member-id order, so everyone sees the same "Ana 2". The host comes first and
+ * so is never the one numbered: nobody can take the host's name by joining.
  */
-export function displayNames(ids: number[], names: Map<number, string>): Map<number, string> {
+export function displayNames(ids: number[], names: Map<number, string>, host?: number): Map<number, string> {
   const out = new Map<number, string>();
   const seen = new Map<string, number>();
-  for (const id of [...ids].sort((a, b) => a - b)) {
+  for (const id of [...ids].sort((a, b) => Number(b === host) - Number(a === host) || a - b)) {
     const name = names.get(id);
     if (!name) {
       out.set(id, 'Someone');

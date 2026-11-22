@@ -116,14 +116,24 @@ impl ConnHandle {
         }
     }
 
+    /// More than half of the queue is waiting to be written.
+    fn busy(&self) -> bool {
+        self.queued_bytes.load(Ordering::Relaxed) > self.queue_bytes / 2
+            || self.tx.capacity() < self.tx.max_capacity() / 2
+    }
+
     /// Queues a message only if the queue is less than half full; otherwise
     /// the message is dropped and the connection stays.
     fn send_droppable(&self, msg: Message) {
-        let busy = self.queued_bytes.load(Ordering::Relaxed) > self.queue_bytes / 2
-            || self.tx.capacity() < self.tx.max_capacity() / 2;
-        if !busy {
+        if !self.busy() {
             self.send(msg);
         }
+    }
+
+    /// Whether `messages` more messages of `bytes` in all fit the queue now.
+    fn has_room_for(&self, messages: usize, bytes: usize) -> bool {
+        messages <= self.tx.capacity()
+            && self.queued_bytes.load(Ordering::Relaxed) + bytes <= self.queue_bytes
     }
 }
 
@@ -377,6 +387,17 @@ impl Room {
             return refuse("replay-ahead");
         }
         if after < self.log_floor {
+            return refuse("replay-too-old");
+        }
+        // The frames are queued in one go. If they do not fit, the member would
+        // be closed as too slow and ask again: say "too old" instead, and the
+        // client gets the mask from a peer.
+        let (count, bytes) = self
+            .log
+            .iter()
+            .filter(|(seq, _)| *seq > after)
+            .fold((0, 0), |(n, b), (_, frame)| (n + 1, b + frame.len()));
+        if !conn.has_room_for(count + 2, bytes + 256) {
             return refuse("replay-too-old");
         }
         conn.send(text(&with_rid(
@@ -764,6 +785,16 @@ pub(crate) fn frame(shared: &Shared, room_id: &str, me: u32, conn_id: u64, data:
             match room.members.get(&target).and_then(|m| m.conn.as_ref()) {
                 Some(conn) if kind == Kind::Presence => {
                     conn.send_droppable(Message::Binary(stamped(&out, data)));
+                }
+                // One member must not be able to fill another's queue and get
+                // them closed as too slow: past half, file frames are refused
+                // and the sender is told to wait.
+                Some(conn) if kind.is_file() && conn.busy() => {
+                    let mut msg = error("busy", None);
+                    msg["kind"] = json!(header.kind);
+                    msg["cid"] = json!(header.seq);
+                    msg["to"] = json!(target);
+                    room.send_to(me, text(&msg));
                 }
                 Some(conn) => conn.send(Message::Binary(stamped(&out, data))),
                 None if kind == Kind::Presence => {}

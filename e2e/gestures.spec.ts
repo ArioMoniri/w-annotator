@@ -20,8 +20,7 @@ type Init = { deltaX?: number; deltaY?: number; ctrlKey?: boolean; shiftKey?: bo
 async function wheel(page: Page, view: string, events: Init[], at: [number, number] = [0, 0]): Promise<Sent> {
   const sent = await page.evaluate(
     async ({ view, events, at }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
+      const w = window.__w;
       const cell = document.querySelector(`[data-view="${view}"]`)!;
       const target = cell.querySelector('canvas')!;
       const rect = cell.getBoundingClientRect();
@@ -55,11 +54,9 @@ const scroll = (count: number, dy: number, more: Init = {}): Init[] =>
   Array.from({ length: count }, (_, i) => ({ deltaY: dy, deltaX: i % 3 === 0 ? 0.5 : 0, ...more }));
 
 const slice = (page: Page, view = 'axial') =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate((view) => (window as any).__w.engine.getSlice(view).index as number, view);
+  page.evaluate((view) => window.__w.engine.getSlice(view).index as number, view);
 const zoom = (page: Page, view = 'axial') =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate((view) => (window as any).__w.engine.getZoom(view) as number, view);
+  page.evaluate((view) => window.__w.engine.getZoom(view) as number, view);
 
 /** The image point drawn at an offset from the centre of a view. */
 const worldAt = (page: Page, view: string, at: [number, number]) =>
@@ -68,8 +65,7 @@ const worldAt = (page: Page, view: string, at: [number, number]) =>
       const rect = document.querySelector(`[data-view="${view}"]`)!.getBoundingClientRect();
       const x = Math.round(rect.left + rect.width / 2) - rect.left + at[0];
       const y = Math.round(rect.top + rect.height / 2) - rect.top + at[1];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (window as any).__w.engine.canvasToWorld(view, x, y) as number[];
+      return window.__w.engine.canvasToWorld(view, x, y) as number[];
     },
     { view, at },
   );
@@ -248,8 +244,7 @@ test('Shift scrolls five times as fast and Alt changes the brush size', async ({
   expect(await slice(page)).toBe(start + 10);
 
   await page.keyboard.press('b');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const size = () => page.evaluate(() => (window as any).__w.store.getState().brushSize as number);
+  const size = () => page.evaluate(() => window.__w.store.getState().brushSize as number);
   const before = await size();
   // 48 px up is three steps of 16 px: 8 mm to 9, 10, then 12.
   const sent = await wheel(page, 'axial', scroll(24, -2, { altKey: true }));
@@ -268,6 +263,8 @@ test('Shift scrolls five times as fast and Alt changes the brush size', async ({
 
 test('scroll and pinch zoom the 3D view', async ({ page }) => {
   await openPhantom(page);
+  // The 3D view draws some time after the slices; wait for it, then let it settle.
+  await expect.poll(() => tintedPixels(page, 'volume3d'), { timeout: 15_000 }).toBeGreaterThan(0);
   await page.waitForTimeout(600);
   const before = await tintedPixels(page, 'volume3d');
   expect(before).toBeGreaterThan(0);

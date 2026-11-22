@@ -69,6 +69,8 @@ export interface RoomState {
   hostAway: boolean;
   /** View through host, guest side: why the views are blanked, or null. */
   veil: string | null;
+  /** View through host, guest side: the window the host looks through, when the host has said it. */
+  hostVoi: { lower: number; upper: number } | null;
   /** After a merge: how much of my work differs from the room and was put aside. */
   review: { slices: number; voxels: number } | null;
   /** A short line about what the room is waiting for, or null. */
@@ -98,6 +100,8 @@ interface State {
     dims: [number, number, number];
     range: [number, number];
     ct: boolean;
+    /** True for a guest who views through the host: 8-bit pictures in the host's window, not stored values. */
+    grey?: boolean;
     /** The window the image would open on from its values alone, and the MR windows worked out from them. */
     auto: Voi;
     mr: MrWindows;
@@ -135,7 +139,7 @@ interface State {
   /** What painting may write over: everything, empty voxels only, or the inside of one segment (its index). */
   paintOver: PaintOver;
   /** A fill between slices that is shown but not yet done. */
-  preview: { count: number; view: string; segment: number } | null;
+  preview: { count: number; /** The same amount as a volume, ready to show. */ size: string; view: string; segment: number } | null;
 
   segments: SegmentInfo[];
   activeSegment: number;
@@ -243,13 +247,33 @@ export const get = useStore.getState;
 let toastId = 0;
 /** How long a toast takes to fade out; matches --dur-fast. */
 export const TOAST_EXIT_MS = 120;
-const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
-function toastTimer(id: number, ms: number | null, run: () => void): void {
-  const running = toastTimers.get(id);
-  if (running) clearTimeout(running);
-  toastTimers.delete(id);
-  if (ms !== null) toastTimers.set(id, setTimeout(run, ms));
+/** What keeps a toast on screen: the pointer over it, or keyboard focus inside it. */
+type Hold = 'hover' | 'focus';
+
+interface ToastClock {
+  timer: ReturnType<typeof setTimeout> | null;
+  /** Milliseconds still to run, or null for a toast that stays until dismissed. */
+  left: number | null;
+  /** When the running timer was started. */
+  since: number;
+  holds: Set<Hold>;
+  /** Fading out; nothing stops it now. */
+  leaving: boolean;
+}
+
+const clocks = new Map<number, ToastClock>();
+
+function stop(clock: ToastClock): void {
+  if (clock.timer) clearTimeout(clock.timer);
+  clock.timer = null;
+}
+
+function run(id: number, clock: ToastClock): void {
+  stop(clock);
+  if (clock.left === null || clock.holds.size > 0) return;
+  clock.since = Date.now();
+  clock.timer = setTimeout(() => dismissToast(id), clock.left);
 }
 
 /** A message that is already showing is not stacked again: it stays, and its time starts over. */
@@ -258,15 +282,48 @@ export function toast(kind: Toast['kind'], text: string, action?: Toast['action'
   const id = same?.id ?? ++toastId;
   const entry: Toast = { id, kind, text, action };
   set((s) => ({ toasts: same ? s.toasts.map((t) => (t.id === id ? entry : t)) : [...s.toasts, entry].slice(-3) }));
-  toastTimer(id, kind === 'error' ? null : action ? 6000 : 4000, () => dismissToast(id));
+  const before = clocks.get(id);
+  if (before) stop(before);
+  const clock: ToastClock = { timer: null, left: kind === 'error' ? null : action ? 6000 : 4000, since: 0, holds: before?.leaving ? new Set() : (before?.holds ?? new Set()), leaving: false };
+  clocks.set(id, clock);
+  run(id, clock);
+  for (const [other, c] of clocks) {
+    if (!get().toasts.some((t) => t.id === other)) {
+      stop(c);
+      clocks.delete(other);
+    }
+  }
 }
 
 export function dismissToast(id: number): void {
   set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t)) }));
-  toastTimer(id, TOAST_EXIT_MS, () => {
-    toastTimers.delete(id);
+  const clock = clocks.get(id) ?? { timer: null, left: null, since: 0, holds: new Set<Hold>(), leaving: true };
+  stop(clock);
+  clock.leaving = true;
+  clocks.set(id, clock);
+  clock.timer = setTimeout(() => {
+    clocks.delete(id);
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
-  });
+  }, TOAST_EXIT_MS);
+}
+
+/** The timer of a toast stops while the pointer is over it or focus is inside it (DESIGN.md 4.5), and goes on afterwards. */
+export function holdToast(id: number, why: Hold, on: boolean): void {
+  const clock = clocks.get(id);
+  if (!clock || clock.leaving) return;
+  const held = clock.holds.size > 0;
+  if (on) clock.holds.add(why);
+  else clock.holds.delete(why);
+  if (!held && clock.holds.size > 0) {
+    if (clock.timer && clock.left !== null) clock.left = Math.max(0, clock.left - (Date.now() - clock.since));
+    stop(clock);
+  } else if (held && clock.holds.size === 0) run(id, clock);
+}
+
+/** Takes the action off every toast it no longer fits; the message stays for the time it has left. */
+export function dropToastActions(stale: (action: NonNullable<Toast['action']>) => boolean): void {
+  if (!get().toasts.some((t) => t.action && stale(t.action))) return;
+  set((s) => ({ toasts: s.toasts.map((t) => (t.action && stale(t.action) ? { ...t, action: undefined } : t)) }));
 }
 
 export function activeSegmentInfo(s: State): SegmentInfo | undefined {

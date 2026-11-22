@@ -255,3 +255,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - name: Real-data checks
         run: W_REALDATA_DIR="$RUNNER_TEMP/realdata" pnpm e2e e2e/real-data.spec.ts
+      # Rooms on a synthetic 512 x 512 x 300 scan. Slow, so it runs here and not in the web job.
+      # See docs/reviews/rooms-scale.md.
+      - name: Rooms at full size
+        run: W_SCALE=1 pnpm e2e e2e/room-scale.spec.ts

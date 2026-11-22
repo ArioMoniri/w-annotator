@@ -98,15 +98,25 @@ Always present at a fixed height so switching tools never resizes a viewport. Le
 | Crosshair | Hint: `Click to move all views to a point.` |
 | Pan | Hint: `Drag to move the image.` |
 | Zoom | Hint: `Drag up or down to zoom.` + `Fit` button |
-| Window / Level | Preset select (the same list as the window menu in the status bar, 2.6; `Custom` when the window is no preset) · `W` number · `L` number · `Reset` (the Auto window) · hint `Ctrl-drag a box to set the window from it.` (`⌘-drag` on a Mac; the hint is shown whole or not at all). Ctrl-drag (⌘-drag) on a slice view draws a box, a dashed white line with a dark edge in the layer the scissors outline uses; on release the window becomes the 1st–99th percentile of the values under it on that slice. Esc drops the box. Nothing is written. On a trackpad a two-finger scroll changes the level (up and down) or the width (sideways) instead of the slice; Shift+scroll changes slice. |
-| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, so nothing is cut off. · `Fill between slices` button. |
-| Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1,204 voxels between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, or saving cancels with a toast. Scrolling, zoom and window work as usual. |
+| Window / Level | Preset select (the same list as the window menu in the status bar, 2.6; `Custom` when the window is no preset) · `W` number · `L` number · `Reset` (the Auto window) · hint `Ctrl-drag a box to set the window from it.` (`⌘-drag` on a Mac; the hint is shown whole or not at all: where it has no room it becomes the tooltip of the `W` and `L` fields, shown on hover and while either field has the focus). Ctrl-drag (⌘-drag) on a slice view draws a box, a dashed white line with a dark edge in the layer the scissors outline uses; on release the window becomes the 1st–99th percentile of the values under it on that slice. Esc drops the box. Nothing is written. On a trackpad a two-finger scroll changes the level (up and down) or the width (sideways) instead of the slice; Shift+scroll changes slice. |
+| Brush | Size slider 1–100 px + number · Shape segmented `Circle / Sphere` · Paint over segmented `Everything / Empty only / Only…` (default Everything on each launch; with Empty only a stroke never takes voxels from another segment; `Only…` is a list of the other segments set into the control as its third choice, and with one chosen a stroke stays inside that segment). Erasing is never limited. Below 1440 wide the slider and hint give way, then the field labels, then Paint over becomes one list with the same choices, so nothing is cut off. · `Fill between slices` button, with that one name at every width. |
+| Fill preview (any tool) | While a fill between slices is shown and not yet done, the strip holds only: `Preview: 1.2 mL between axial slices.` · primary `Apply` · secondary `Cancel`. The proposal is drawn on the slice views as diagonal stripes of the segment colour at two strengths, with no outline, from a buffer that is not the mask. Enter applies, Esc cancels; choosing another tool or segment, painting, undo, redo or saving cancels with a toast. Scrolling, zoom and window work as usual. |
 | Eraser | Size slider + number · Shape `Circle / Sphere` · Checkbox `Active segment only` |
 | Threshold brush | Range dual slider + two numbers (image units) · Size slider + number · Paint over select (`Everything`, `Empty only`, `Only <segment>` for each other segment) |
-| Scissors | Shape `Rectangle / Circle / Freehand / Sphere` · Action `Erase inside / Erase outside / Fill inside` (no Erase outside for Sphere) · Depth `This slice / All slices` (not for Sphere) · Paint over select, only with Fill inside. Freehand: drag a loop, release to close it; where it crosses itself the even-odd rule decides. The outline being drawn is a dashed white line with a dark edge, in a layer over the view. Esc while dragging drops it. Erasing changes the active segment only. A cut through all slices answers with a toast and Undo. |
+| Scissors | Shape `Rectangle / Circle / Freehand / Sphere` · Action `Erase inside / Erase outside / Fill inside` (no Erase outside for Sphere) · Depth `This slice / All slices` (not for Sphere) · Paint over select, only with Fill inside. Freehand: drag a loop, release to close it; where it crosses itself the even-odd rule decides. The outline being drawn is a dashed white line with a dark edge, in a layer over the view. Esc while dragging drops it. Erasing changes the active segment only. A cut that changed something not on screen answers with a toast and Undo: a cut through all slices, and Erase outside on one slice when part of what it erased was beyond the edge of the view. |
 | Fill | Action `Fill area / Remove island / Keep island` · Paint over select, only with Fill area · hint for the action. An island is a piece of the active segment joined through voxel faces, in 3D. |
 
-Where the strip is tight (compact level 2 and up) segmented buttons show a short label and keep the full one as their accessible name: `Rect`, `Free`, `Erase in`, `Erase out`, `Fill`, `Slice`, `All`, `Remove`, `Keep`. The chip names the paint over limit for tools that add voxels: `Tumour, inside Liver` or `Tumour, empty only`.
+**When the strip is tight.** The strip never scrolls, wraps or cuts a control off, and it never shortens a word: one control has one name at every width. It tightens in steps, each tried before the frame is painted, until its controls fit:
+
+| Step | What gives way |
+|---|---|
+| 1 | Hints and field labels. A hint that names a gesture (Window / Level) becomes a tooltip instead of going. |
+| 2 | Gaps close to 8, units go, and a segmented control with three or more options (Scissors shape and action, Fill action, the brush's Paint over) becomes a list: a `select` with the same accessible name and the same options in full. |
+| 3 | Every segmented control becomes a list, sliders go (the number fields stay), and the chip keeps only its swatch. |
+
+A list made this way shows the option in use, is at most 132 wide, and gives the keyboard back to the tool shortcuts after a choice. At 1024 wide the scissors strip reads `Freehand ▾ · Erase outside ▾ · This slice / All slices`. Do not add a control to the brush strip without removing one.
+
+The chip names the paint over limit for tools that add voxels: `Tumour, inside Liver` or `Tumour, empty only`.
 
 Alt-click on a slice view, with any tool, makes the segment under the cursor the active one. Its row scrolls into view and is tinted once (`--accent-soft`, 600 ms, as a new row). Hidden segments are not picked; nothing is painted.
 
@@ -117,7 +127,7 @@ Right edge of the strip, always: active segment chip (swatch + name), so the use
 - 2 × 2, equal cells, 2px gap showing `--bg-app`. Each cell is `#000`.
 - Order: Axial (top-left), Sagittal (top-right), Coronal (bottom-left), 3D (bottom-right).
 - Active viewport: 1px inset outline `--accent`. Hovered: 1px inset `--border-strong`. Otherwise none.
-- Corner overlays, 8px inset, 11px mono, `--text-2` with a 1px black text shadow, `pointer-events: none`:
+- Corner overlays, 8px inset, 11px mono, `--text-2` with a 1px black text shadow, `pointer-events: none`. The view name and the slice counter each sit on a chip of `--bg-label`, 20 high, 4px padding left and right, radius 4, so they stay readable over a bright or noisy image: `--text-2` keeps 4.5:1 on it even over a white pixel. The chip is no larger than its text needs, is the same in both themes, and never fades or moves:
   - top-left: orientation name (`Axial`) — coloured dot matches the reference line colour for that plane. It is a button: it opens the view picker (Axial, Sagittal, Coronal, 3D), and dragging it onto another pane swaps the two
   - top-right: maximise button (24 × 24, appears on viewport hover or focus only)
   - bottom-left: `Slice 84 / 212`
@@ -173,7 +183,7 @@ Right: `W 400  L 40  Soft tissue` · `Zoom 125%` · sync status (`Saved`, `Unsav
 
 **Window and zoom are buttons.** Each is the read-out itself with a 10 px chevron: 20 high, `--bg-hover` on hover and while open, the bar's inset focus ring. A click, Enter or Space opens a menu (`--bg-raised`, `--shadow-2`, 13px UI font) above the bar with its right edge on the button's; it fades in from 4px below, scrolls inside itself when taller than the room above the bar, and closes on a choice, Esc or a click elsewhere. Focus goes to the item in use; ↑ ↓ Home End move through the items; Esc gives the focus back to the button. Both work with any tool.
 
-- **Window menu.** Row `Presets for` with a segmented `CT / MR` (set from the image's values; the user can overrule it). Then the presets as radio items, each with its `W … L …` at the right in 11px mono `--text-3`, the one in use on `--bg-active`. CT list: Soft tissue, Abdomen, Liver, Pancreas, Lung, Bone, Brain, Stroke, Subdural · saved presets · Auto, Full range. MR list: Auto, Full range · Soft tissue, Bright fluid, Dark detail (worked out from the image) · saved presets. A saved preset has a 20 px `×` at the end of its row (`Remove preset <name>`); removing keeps the menu open. Last item: `Save current as preset…`.
+- **Window menu.** Row `Presets for` with a segmented `CT / MR` (set from the image's values; the user can overrule it). Then the presets as radio items, each with its `W … L …` at the right in 11px mono `--text-3` (`--text-2` on the item in use, focused or pointed at, where `--text-3` is under 4.5:1), the one in use on `--bg-active`. CT list: Soft tissue, Abdomen, Liver, Pancreas (a narrow window chosen by the project for a contrast-enhanced pancreas, not a standard preset), Lung, Bone, Brain, Stroke, Subdural · saved presets · Auto, Full range. MR list: Auto, Full range · Mid range, Bright fluid, Dark detail (worked out from the image; none shares a name with a CT preset) · saved presets. A saved preset has a 20 px `×` at the end of its row (`Remove preset <name>`); removing keeps the menu open. Last item: `Save current as preset…`.
 - **Save dialog.** Small modal `Save window as preset`: the window in mono (`W 1600 L −550`), one `Name` field (24 characters), `Cancel`, primary `Save`. Enter saves. A name in use, an empty name or a full list (12) shows the reason in `--danger` under the field.
 - **Zoom menu.** `Zoom in`, `Zoom out` (the menu stays open for these), divider, `Fit`, `Actual size`, each with its key at the right. They act on the active view, about its centre. Actual size is one voxel on one screen pixel and is disabled for the 3D view.
 - The read-out shows the name of the preset in use in `--text-1`, and no name when the window is none of them. On a narrow bar the name is the first thing to leave; the window itself never leaves.
@@ -194,12 +204,13 @@ Rail, strip, right panel and status bar are hidden; only the top bar (app name, 
             │      [ Open image ]   [ Open mask ]         │
             │                                             │
             └─────────────────────────────────────────────┘
-                              Join a room                    text button
+               Join a room · Open the sample · Settings      text buttons
                       Recent                                 up to 5 rows, if any
 ```
 
 - Drop zone: 560 × 320 max (shrinks to 80 % of width), 1px dashed `--border-strong`, radius `--radius-lg`, centred.
 - `Open image` is the primary button, `Open mask` secondary and disabled until an image is loaded.
+- `Open the sample` opens the scan the welcome tour uses, without the tour, so someone who skipped the tour can still find it.
 - Appearance: the same three-way control, icons only (sun, moon, monitor; 28 × 24 each), in the bottom-right corner, 12 from the edges. Tooltips: `Light appearance`, `Dark appearance`, `Match system appearance`.
 - The whole window is the real drop target; the box is the affordance. Once an image is open, dragging a file over the app shows a full-window overlay: `Drop to add as mask` or `Drop to replace image`, decided by file type and dimensions.
 
@@ -219,6 +230,7 @@ Rail, strip, right panel and status bar are hidden; only the top bar (app name, 
   --bg-hover:      #22262B;
   --bg-active:     #2A2F36;
   --bg-scrim:      rgba(0, 0, 0, 0.56);
+  --bg-label:      rgba(0, 0, 0, 0.78);  /* behind text on the image; both themes */
 
   --border:        #24282E;
   --border-strong: #363C45;
@@ -395,7 +407,7 @@ Height 28 (36 in modals and empty state), padding 0 × 12, radius `--radius-sm`,
 
 32 high, padding 0 × 8, radius `--radius-sm`, 8 gap.
 
-`[swatch 12×12, radius xs] [index, 11 mono, --text-3, 16 wide] [name, 13, truncates] ······ [presence dot] [eye 24×24] [lock 24×24]`
+`[swatch 12×12, radius xs] [index, 11 mono, --text-3 (--text-2 on a hovered or active row, where --text-3 is under 4.5:1), 16 wide] [name, 13, truncates] ······ [presence dot] [eye 24×24] [lock 24×24]`
 
 | State | Treatment |
 |---|---|
@@ -415,7 +427,9 @@ Click selects. Double-click the name or press F2 renames. Click the swatch opens
 - Box: `--bg-raised`, `--shadow-2`, radius `--radius-md`, padding 8 × 12, min 240, max 420 wide, 13px. Layout: `[icon 16] message [action] [×]`.
 - Icon colour carries the type: info `--text-2`, success `--ok`, warning `--warn`, error `--danger`. No coloured backgrounds.
 - One optional action as a text button in `--accent` (`Undo`, `Retry`).
-- Lifetime: 4 s; 6 s with an action; errors stay until dismissed. Timer pauses on hover and focus.
+- Lifetime: 4 s; 6 s with an action; errors stay until dismissed. Timer pauses on hover and focus, and goes on with the time that was left.
+- Amounts of mask are written as a volume, in mL, or mm³ under half a millilitre, as in the measurements. Toasts do not count voxels.
+- `Undo` on a toast means the step that toast describes. A newer edit, an undo or a redo takes the button off older toasts; the message stays for its time.
 - Info/success: `role="status"`. Errors: `role="alert"`.
 - Routine feedback that has a home elsewhere (saved, synced) goes to the status bar, not a toast.
 
@@ -589,17 +603,17 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Crosshair | Click to move all views to a point. |
 | Pan | Drag to move the image. |
 | Zoom | Drag up or down to zoom. · Fit |
-| Window / Level | Preset · Custom · Soft tissue · Abdomen · Liver · Pancreas · Lung · Bone · Brain · Stroke · Subdural · Auto · Full range · Bright fluid · Dark detail · W · L · Reset · Ctrl-drag a box to set the window from it. (⌘-drag on a Mac) · toast when the box misses the image: Drag the box over the image to set the window from it. |
-| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices (short: Fill gaps) |
+| Window / Level | Preset · Custom · Soft tissue · Abdomen · Liver · Pancreas · Lung · Bone · Brain · Stroke · Subdural · Auto · Full range · Mid range · Bright fluid · Dark detail · W · L · Reset · Ctrl-drag a box to set the window from it. (⌘-drag on a Mac) · toast when the box misses the image: Drag the box over the image to set the window from it. |
+| Brush | Size · px · Shape · Circle · Sphere · Paint over · Everything · Empty only · Only… · Only Liver · Fill between slices |
 | Paint over tooltip | Empty only keeps other segments as they are. (select: … Only paints inside one segment.) · list tooltip: Paint only inside one segment |
-| Fill preview | Preview: 1,204 voxels between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
+| Fill preview | Preview: 1.2 mL between axial slices. · Apply · Cancel · tooltips: Apply `Enter` · Cancel `Esc` |
 | Eraser | Size · px · Shape · Circle · Sphere · Active segment only |
 | Threshold brush | Range · to · Size · px |
 | Threshold brush tooltip | Paints only where the image value is inside the range. |
 | Scissors | Shape · Rectangle · Circle · Freehand · Sphere · Action · Erase inside · Erase outside · Fill inside · Depth · This slice · All slices · Paint over |
 | Depth tooltip | All slices cuts through the whole stack of this view. |
 | Fill | Action · Fill area · Remove island · Keep island · Paint over |
-| Fill hints | Click an enclosed area to fill it on this slice. / Click a separate piece of the segment to remove it. / Click the piece of the segment to keep. The rest is removed. |
+| Fill hints | Click an enclosed area to fill it on this slice. / Click a piece of the segment to remove it. A segment in one piece is removed whole. / Click the piece of the segment to keep. The rest is removed. |
 | Size tooltip | Brush size `[` `]` |
 | Active segment chip tooltip | Painting on Liver |
 | No segment chip | No segment |
@@ -660,7 +674,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Body | MHA, NIfTI, NRRD or a DICOM folder. The mask is optional. |
 | Buttons | Open image · Open mask |
 | Open mask disabled tooltip | Open an image first. |
-| Link | Join a room |
+| Links | Join a room · Open the sample · Settings |
 | Recent heading | Recent |
 | Dragging over (empty) | Drop to open |
 | Dragging over (image open, mask file) | Drop to add as mask |
@@ -678,38 +692,50 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 |---|---|
 | Tabs | Start a room · Join a room |
 | Name label / placeholder | Your name / How others will see you |
-| Code label / placeholder | Room code / ABC-123 |
-| Start helper | Anyone with the code can view and edit this mask. |
+| Kind of room | Shared copy · Everyone gets the image and the mask and keeps a copy. They can keep working without you. / View through my computer · Others see and edit the mask through your computer. They don't receive the files and can't save. The room ends when you close the app. · This limits what leaves your computer; it can't stop someone photographing or recording their screen. |
+| Invite label / placeholder | Invite link / Paste the invite link |
+| Join helper | Rooms you have joined on this device |
+| Start helper (no image) | Open an image first, then start a room. |
 | Buttons | Cancel · Start · Join · Starting… · Joining… |
-| Started | Room started · Share this code with the people you want to work with. · Copy code · Copy invite link · Done |
-| Popover | Room KDR-482 · Copy code · Copy invite link · People · You · Leave room |
+| Started | Room started · Each link works for one person and stops working after 24 hours. · Copy invite link · Another link · Done |
+| Started, hosted here | This room runs on your computer, so others need to be on the same network or VPN. It stops when you close the app. / No network was found, so this link only works on this computer. Connect to a network and start the room again to invite others. |
+| Popover | Shared copy or View through my computer · New invite link · Link 1 · expires in 23 h · Copy · Switch off · People · You · host · Remove · Leave room · Delete room (shared copy) or End room (view through my computer) |
+| Popover, offline | Offline. Your changes are merged when you reconnect. (shared copy) / Offline. Reconnecting… (view through the host) · Reconnect now |
 | Person row tooltip | Go to Mina's view |
-| Leave confirm (host) | Leave the room? · Others can keep working. Your copy of the mask stays open here. · Cancel · Leave |
+| Leave confirm (host, shared copy) | Leave the room? · Others can keep working. Nobody can invite or remove people until you come back. Your copy of the mask stays open here. · Cancel · Leave |
+| Remove confirm | Remove Ben? · Ben keeps the copy already on their computer. They won't get further changes, and the link they joined with stops working. (shared copy) / Ben stops seeing the image at once and can't come back with the same link. (view through the host) · Cancel · Remove |
+| Delete / End confirm | Delete this room? · The room closes for everyone and its links stop working. People keep the copies already on their computers. · Delete room / End the room? · Everyone is disconnected at once. Nothing stays on their devices. · End room |
 | Joining with no image | Getting the image from the room… |
+| Guest of view through the host: views covered | Waiting for Mina… (the host is unreachable) / Offline. Reconnecting… (the guest's own connection is down) / Offline. Reconnecting… What you were shown has been cleared from this device. (after 15 seconds) |
+| Guest of view through the host: status bar | Host's window W 1500 L −600 (or Window set by the host) · Grey 84 |
+| Guest of view through the host: 3D pane | The 3D view stays on the host's computer. |
+
+There are no room codes: a room is joined with an invite link (4.6).
 
 ### 6.9 Toasts
 
 | Trigger | Copy |
 |---|---|
-| Code copied | Code copied |
 | Link copied | Invite link copied |
 | Someone joined | Mina joined |
 | Someone left | Mina left |
+| The host of a shared-copy room left | Mina, the host, left. You can keep working. Nobody can invite or remove people until they come back. |
 | You left | You left the room |
 | Reconnected | Back online. Changes are synced. |
 | Mask saved to new file | Saved to liver_mask.nii.gz |
 | Segment deleted | Liver deleted · Undo |
 | Segment cleared | Liver cleared · Undo |
-| Large operation done (fill, whole volume) | Filled 18,204 voxels · Undo |
+| Large operation done (fill, whole volume) | Filled 18.2 mL · Undo |
 | Nothing to fill | Nothing to fill here. |
 | Grow, shrink, smooth | Grew Liver by 2 mm · Undo / Shrank Liver by 2 mm · Undo / Smoothed Liver by 2 mm · Undo |
-| Fill holes | Filled 1,204 voxels in Liver · Undo / No holes in Liver. |
-| Islands | Removed 310 voxels outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 voxels in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
-| Combine | Added Tumour to Liver, 1,204 voxels · Undo |
-| Scissors, all slices | Erased 1,204 voxels of Liver on all axial slices · Undo / Filled 1,204 voxels of Liver on all axial slices · Undo |
-| Clicked island | Removed an island of Liver, 320 mm³ · Undo / Removed 1.2 mL of Liver outside this island · Undo / Liver is already one island. / Click a part of Liver. |
+| Fill holes | Filled 1.2 mL in Liver · Undo / No holes in Liver. |
+| Islands | Removed 310 mm³ outside the largest island of Liver · Undo / Liver is already one island. / Removed 310 mm³ in small islands of Liver · Undo / No islands under 10 mm³ in Liver. |
+| Combine | Added Tumour to Liver, 1.2 mL · Undo |
+| Scissors, all slices | Erased 1.2 mL of Liver on all axial slices · Undo / Filled 1.2 mL of Liver on all axial slices · Undo |
+| Scissors, Erase outside on this slice, when part of what it erased was out of view | Erased 320 mm³ of Liver on this slice, some of it outside the view · Undo |
+| Clicked island | Removed an island of Liver, 320 mm³ · Undo / Removed all of Liver, 1,480 mL. It was one island. · Undo / Removed 1.2 mL of Liver outside this island · Undo / Liver is already one island. / Click a part of Liver. |
 | Split | Split Liver into 3 segments. · Undo / Split Liver into 21 segments. The 12 smallest islands stay in Liver. · Undo / Liver is already one island. |
-| Fill between slices | Filled 1,204 voxels between axial slices · Undo / Fill preview cancelled. / There was nothing left to fill. / Paint Liver on two axial slices with a gap between them, then fill. |
+| Fill between slices | Filled 1.2 mL between axial slices · Undo / Fill preview cancelled. / There was nothing left to fill. / Paint Liver on two axial slices with a gap between them, then fill. |
 | Paint over limit | Nothing was painted: Paint over is set to Only Liver. / Nothing was painted: Paint over is set to Empty only. (once per choice) / Paint over is back to Everything. (its segment was deleted or became the active one) |
 | Operation changed nothing | Liver did not change. |
 | Go to an empty segment | Liver is empty. |
@@ -731,8 +757,14 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Save failed | Couldn't save the mask. Check that the folder is writable. · Retry |
 | Unsaved on close | Save changes to liver_mask.nii.gz? · Don't save · Cancel · Save |
 | Name empty | Enter a name. |
-| Code empty / malformed | Enter the 6-character room code. |
-| Room not found | No room with that code. Check the code and try again. |
+| Invite empty | Paste the invite link. |
+| Invite malformed | Paste the whole invite link, including the part after #. |
+| Room not found | No room at that link. Check the link and try again. |
+| Invite expired, used, switched off or not valid | This invite link has expired. Ask the host for a new one. (or: was already used · was switched off · is not valid) |
+| Removed | Mina removed you from this room. Your copy stays on this computer. (shared copy) / Nothing was saved on this device. (view through the host) |
+| Room ended | Mina deleted this room. Your copy stays on this computer. / The host ended the session. Nothing was saved on this device. |
+| Room server says something that cannot be true | The room server sent something that does not fit this room, so you left it. |
+| App too old / host too old | Update W Annotator to join this room / The host is on an older version |
 | Room closed | This room has ended. |
 | Can't reach server | Can't connect. Check your network and try again. · Retry |
 | Connection lost mid-session | Connection lost. Reconnecting… You can keep working; changes will sync. |
@@ -773,7 +805,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 **Focus**
 - `:focus-visible` everywhere: 2px gap in the surface colour + 2px `--accent` ring (`--focus-ring`). Never removed, never replaced by a colour change only.
 - A focused viewport shows the accent outline at 2px.
-- Modals and popovers trap focus and return it to the trigger on close. `Esc` closes the topmost layer: tooltip → menu → modal → maximised viewport.
+- Modals and popovers trap focus and return it to the trigger on close. `Esc` closes the topmost layer: tooltip → menu → modal → maximised viewport. One press closes one layer: a held key does not go on to the next, and Esc during a drag (a stroke, a pan, an outline) belongs to the drag. The segment popovers (Grow, Combine and the like) hold Tab as modals do.
 
 **Hit sizes**
 - Rail buttons 36 × 36; top-bar and strip controls 28 high with at least 28 wide; row icons 24 × 24 with 4px spacing (WCAG 2.2 target size 24 minimum is met everywhere).

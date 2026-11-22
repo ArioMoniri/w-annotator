@@ -358,7 +358,12 @@ async fn connection(state: AppState, room_id: String, mut socket: WebSocket, _sl
                 rooms::frame(&state, &room_id, me, conn_id, data);
             }
             // Pings are answered by the websocket layer; pongs only reset the timer.
-            Message::Ping(_) | Message::Pong(_) => {}
+            // Both count towards the rate, like anything else a member sends.
+            Message::Ping(data) | Message::Pong(data) => {
+                if over_rate(&mut rate, data.len()) {
+                    break Exit::Closed;
+                }
+            }
         }
     };
 

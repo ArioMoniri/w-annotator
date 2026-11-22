@@ -21,6 +21,7 @@ use axum::extract::Path;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::serve::ListenerExt;
 use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
@@ -30,6 +31,7 @@ mod conn;
 pub mod faults;
 pub mod invites;
 pub mod limits;
+mod listen;
 pub mod proto;
 pub mod rooms;
 mod v1;
@@ -151,7 +153,19 @@ impl Relay {
             .route("/r/{room}", get(v1::join))
             .route("/v2/rooms/{room}", get(conn::connect))
             .route("/j/{room}", get(invite_page))
+            .layer(axum::middleware::map_response(close_after_answer))
             .with_state(self.shared.clone());
+        // Every TCP connection gets a time limit for its request and one of a
+        // bounded number of places: twice the websocket limit, so refusals
+        // (429, 503) and the small pages still have room.
+        let limits = &self.shared.cfg.limits;
+        let listener = listen::Guarded::new(
+            listener,
+            self.shared.cfg.timing.request_timeout,
+            limits.max_connections.saturating_mul(2).saturating_add(64),
+        )
+        // `tap_io` is what gives handlers the peer address for a listener of our own.
+        .tap_io(|_| {});
 
         let sweeper = tokio::spawn(sweep_loop(self.shared.clone()));
         let stop = self.stop.clone();
@@ -210,6 +224,18 @@ async fn sweep_loop(shared: AppState) {
         tick.tick().await;
         rooms::sweep(&shared);
     }
+}
+
+/// Every answer that is not a websocket upgrade ends its connection, so an
+/// idle keep-alive connection cannot be parked on the relay.
+async fn close_after_answer(mut response: Response) -> Response {
+    if response.status() != StatusCode::SWITCHING_PROTOCOLS {
+        response.headers_mut().insert(
+            header::CONNECTION,
+            axum::http::HeaderValue::from_static("close"),
+        );
+    }
+    response
 }
 
 async fn health() -> impl IntoResponse {

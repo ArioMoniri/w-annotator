@@ -1,66 +1,29 @@
 import { expect, test, type Page } from '@playwright/test';
-import { drag, isTinted, jumpToVoxel, maskVoxels, openPhantom, pixelAt, tintedPixels } from './helpers';
+import {
+  choose,
+  clickVoxel as click,
+  countVoxels as count,
+  drag,
+  isTinted,
+  joinRoom,
+  jumpToVoxel,
+  maskDump as dump,
+  maskVoxels,
+  openPhantom,
+  pixelAt,
+  startRoom,
+  tintedPixels,
+  trace,
+  type Voxel,
+} from './helpers';
+import { formatVoxels } from '../src/mask/ops';
 
-type Voxel = [number, number, number];
-
-const dump = (page: Page) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
-
-/** How many voxels of the 48³ phantom mask pass `keep`, written as the body of a function of (value, x, y, z). */
-const count = (page: Page, keep: string) =>
-  page.evaluate((keep) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = (window as any).__w.session.getMask().data as Uint8Array;
-    const test = new Function('v', 'x', 'y', 'z', `return ${keep}`) as (v: number, x: number, y: number, z: number) => boolean;
-    let n = 0;
-    for (let z = 0; z < 48; z++) for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) if (test(d[x + y * 48 + z * 2304], x, y, z)) n++;
-    return n;
-  }, keep);
-
-/** Where a voxel position (fractions allowed) is on the page, in a slice view. */
-async function onPage(page: Page, view: string, ijk: Voxel): Promise<[number, number]> {
-  return page.evaluate(
-    ({ view, ijk }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
-      const vol = w.session.getMask();
-      const d = vol.direction as number[];
-      const world = [0, 1, 2].map((r) => vol.origin[r] + d[r] * vol.spacing[0] * ijk[0] + d[3 + r] * vol.spacing[1] * ijk[1] + d[6 + r] * vol.spacing[2] * ijk[2]);
-      const [x, y] = w.engine.worldToCanvas(view, world) as [number, number];
-      const rect = document.querySelector(`[data-view="${view}"] canvas`)!.getBoundingClientRect();
-      return [rect.left + x, rect.top + y] as [number, number];
-    },
-    { view, ijk },
-  );
-}
-
-/** Presses at the first voxel position, drags through the rest and releases. */
-async function trace(page: Page, view: string, path: Voxel[], release = true): Promise<void> {
-  const points: [number, number][] = [];
-  for (const p of path) points.push(await onPage(page, view, p));
-  await page.mouse.move(...points[0]);
-  await page.mouse.down();
-  for (const p of points.slice(1)) await page.mouse.move(...p, { steps: 6 });
-  if (!release) return;
-  await page.mouse.up();
-  await page.waitForTimeout(400);
-}
-
-async function click(page: Page, view: string, at: Voxel, modifiers: ('Alt' | 'Shift')[] = []): Promise<void> {
-  const [x, y] = await onPage(page, view, at);
-  for (const m of modifiers) await page.keyboard.down(m);
-  await page.mouse.click(x, y);
-  for (const m of modifiers) await page.keyboard.up(m);
-  await page.waitForTimeout(300);
-}
-
-const choose = (page: Page, group: string, option: string) => page.getByRole('group', { name: group }).getByRole('button', { name: option, exact: true }).click();
+/** How a toast writes a number of voxels of the phantom, whose voxels are 1 mm each way. */
+const size = (voxels: number) => formatVoxels(voxels, [1, 1, 1]);
 
 const chip = (page: Page) => page.locator('.strip .chip');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const store = <T>(page: Page, read: string) => page.evaluate((read) => new Function('s', `return ${read}`)((window as any).__w.store.getState()) as T, read);
+const store = <T>(page: Page, read: string) => page.evaluate((read) => new Function('s', `return ${read}`)(window.__w.store.getState()) as T, read);
 
 /** A loop around segment 1 on the middle axial slice, drawn by hand rather than as a box. */
 const AROUND_1: Voxel[] = [
@@ -136,7 +99,7 @@ test('erase outside through all slices crops the segment to the outline, with a 
   expect(await maskVoxels(page, 1)).toBe(inside);
   expect(await count(page, 'v === 1 && x < 29')).toBe(0);
   expect(await maskVoxels(page, 2)).toBe(two);
-  const toast = page.locator('.toast', { hasText: `Erased ${(all - inside).toLocaleString('en-US')} voxels of Segment 1 on all axial slices` });
+  const toast = page.locator('.toast', { hasText: `Erased ${size(all - inside)} of Segment 1 on all axial slices` });
   await expect(toast).toBeVisible();
   await toast.getByRole('button', { name: 'Undo' }).click();
   expect(await dump(page)).toBe(before);
@@ -183,8 +146,7 @@ test('Alt-click selects the segment under the cursor and changes nothing else', 
 
   // A hidden segment is not picked; a locked one is, and no stroke or refusal comes of it.
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     s.patchSegment(1, { visible: false });
     s.patchSegment(2, { locked: true });
   });
@@ -192,8 +154,7 @@ test('Alt-click selects the segment under the cursor and changes nothing else', 
   await click(page, 'axial', [30, 22, 24], ['Alt']);
   await expect(chip(page)).toHaveText('Segment 2');
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = (window as any).__w.session;
+    const s = window.__w.session;
     s.patchSegment(1, { visible: true });
     s.selectSegment(1);
   });
@@ -239,8 +200,7 @@ test('paint over "Only" keeps a stroke inside the chosen segment', async ({ page
 
   // Without its segment the limit cannot hold: it goes back to Everything and says so.
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__w.session.deleteSegment(2);
+    window.__w.session.deleteSegment(2);
   });
   await expect(page.locator('.toast', { hasText: 'Paint over is back to Everything.' })).toBeVisible();
   await expect(chip(page)).toHaveText('Segment 1');
@@ -322,7 +282,7 @@ test('fill between slices shows a preview and writes nothing until it is applied
   expect(await tintedPixels(page, 'axial')).toBe(0);
 
   await page.keyboard.press('i');
-  await expect(page.locator('.strip [role="status"]')).toHaveText(/^Preview: [\d,]+ voxels between axial slices\.$/);
+  await expect(page.locator('.strip [role="status"]')).toHaveText(/^Preview: [\d,.]+ (mm³|mL) between axial slices\.$/);
   await page.waitForTimeout(400);
   expect(await tintedPixels(page, 'axial')).toBeGreaterThan(200);
   expect(await dump(page)).toBe(painted);
@@ -345,7 +305,7 @@ test('fill between slices shows a preview and writes nothing until it is applied
   await page.getByRole('button', { name: 'Apply' }).click();
   const filled = await maskVoxels(page, 1);
   expect(filled).toBeGreaterThan(two * 1.5);
-  await expect(page.locator('.toast', { hasText: `Filled ${(filled - two).toLocaleString('en-US')} voxels between axial slices` })).toBeVisible();
+  await expect(page.locator('.toast', { hasText: `Filled ${size(filled - two)} between axial slices` })).toBeVisible();
   await page.keyboard.press('Control+z');
   expect(await dump(page)).toBe(painted);
   await page.keyboard.press('i');
@@ -384,19 +344,16 @@ test('Smooth pixels in the view menu changes how the image is drawn and not its 
   await openPhantom(page);
   const values = () =>
     page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = (window as any).__w.session.getImage().data as Int16Array;
+      const d = window.__w.session.getImage().data as Int16Array;
       let h = 0;
       for (let i = 0; i < d.length; i++) h = (h * 31 + d[i]) | 0;
       return h;
     });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const smooth = () => page.evaluate(() => (window as any).__w.engine.getSmoothPixels('axial') as boolean);
+  const smooth = () => page.evaluate(() => window.__w.engine.getSmoothPixels('axial') as boolean);
   const before = await values();
   // Two points inside one voxel, where the image has a slope, on a narrow window so the slope shows. No mask is over them.
   await page.keyboard.press('x');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.setVoi(150, 230));
+  await page.evaluate(() => window.__w.session.setVoi(150, 230));
   await page.waitForTimeout(300);
   const pair = async () => [await pixelAt(page, 'axial', [37.8, 24, 24]), await pixelAt(page, 'axial', [38.2, 24, 24])];
   expect(await smooth()).toBe(true);
@@ -413,8 +370,7 @@ test('Smooth pixels in the view menu changes how the image is drawn and not its 
   expect(a).toEqual(b);
   expect(await values()).toBe(before);
   // The other slice views follow; the choice is kept for the next launch.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect(await page.evaluate(() => (window as any).__w.engine.getSmoothPixels('coronal'))).toBe(false);
+  expect(await page.evaluate(() => window.__w.engine.getSmoothPixels('coronal'))).toBe(false);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('w-annotator:settings')!).smoothPixels)).toBe(false);
   // The 3D view has no pixels to smooth.
   await page.locator('[data-view="volume3d"] .viewlabel > button').click();
@@ -447,8 +403,29 @@ test('split gives each island a segment of its own', async ({ page }) => {
   expect(await maskVoxels(page, 1)).toBe(one);
   expect(await maskVoxels(page, 3)).toBe(stray);
   await expect(page.locator('.toast', { hasText: 'Split Segment 1 into 2 segments.' })).toBeVisible();
+  const split = await dump(page);
+  // Undo takes the split back in one step: the voxels, and the segment it made.
+  await page.locator('.segrow[data-segment="3"]').click();
   await page.keyboard.press('Control+z');
   expect(await dump(page)).toBe(withStray);
+  await expect(page.locator('.segrow')).toHaveCount(2);
+  await expect(page.locator('.segrow[data-segment="3"]')).toHaveCount(0);
+  // The segment in hand went with it, so the one it was split from is in hand again.
+  await expect(page.locator('.segrow[data-segment="1"]')).toHaveAttribute('aria-selected', 'true');
+  // Redo brings the segment back as it was, name and colour too.
+  await page.keyboard.press('Control+Shift+z');
+  expect(await dump(page)).toBe(split);
+  await expect(page.locator('.segrow')).toHaveCount(3);
+  await expect(page.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.segrow')).toHaveCount(2);
+  // What the split made is all that undo removes: a segment added by hand stays when its paint is undone.
+  await page.getByRole('button', { name: 'Add segment' }).first().click();
+  await trace(page, 'axial', [[10, 8, 24], [16, 8, 24]]);
+  expect(await maskVoxels(page, 3)).toBeGreaterThan(0);
+  await page.keyboard.press('Control+z');
+  expect(await maskVoxels(page, 3)).toBe(0);
+  await expect(page.locator('.segrow')).toHaveCount(3);
 
   // One island: nothing to split.
   await page.locator('.segrow', { hasText: 'Segment 2' }).hover();
@@ -462,8 +439,7 @@ test('a split that would make many segments asks first and stops at twenty', asy
   await page.getByRole('button', { name: 'Add segment' }).first().click();
   // Thirty separate voxels and one larger piece, written the way a file or a room would bring them.
   await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const d = new Uint8Array(48 * 48 * 48);
     for (let n = 0; n < 30; n++) d[2 + n * 98 + 10 * 2304] = 1;
     for (let x = 20; x < 24; x++) d[x + 40 * 48 + 30 * 2304] = 1;
@@ -479,6 +455,60 @@ test('a split that would make many segments asks first and stops at twenty', asy
   await expect(page.locator('.segrow')).toHaveCount(21);
   expect(await maskVoxels(page, 1)).toBe(4 + 10);
   expect(await maskVoxels(page)).toBe(34);
+  // One undo for all twenty.
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.segrow')).toHaveCount(1);
+  expect(await maskVoxels(page, 1)).toBe(34);
+  await page.keyboard.press('Control+Shift+z');
+  await expect(page.locator('.segrow')).toHaveCount(21);
+  await expect(page.locator('.segrow[data-segment="2"] .name')).toHaveText('Lesions 2');
+});
+
+test('in a room, undoing a split removes its segments for everyone, and redo brings them back', async ({ browser }) => {
+  const host = await (await browser.newContext()).newPage();
+  const guest = await (await browser.newContext()).newPage();
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina');
+  await joinRoom(guest, 'Ario', link);
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  await expect.poll(() => maskVoxels(guest)).toBe(await maskVoxels(host));
+
+  // A second island of segment 1, then the split.
+  await host.keyboard.press('b');
+  await trace(host, 'axial', [[10, 40, 24], [16, 40, 24]]);
+  const withStray = await dump(host);
+  await expect.poll(() => dump(guest)).toBe(withStray);
+  await host.locator('.segrow', { hasText: 'Segment 1' }).hover();
+  await host.getByRole('button', { name: 'More for Segment 1' }).click();
+  await host.getByRole('menuitem', { name: 'Split into separate segments' }).click();
+  await expect(host.locator('.segrow')).toHaveCount(3);
+  const split = await dump(host);
+  await expect(guest.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await expect.poll(() => dump(guest)).toBe(split);
+
+  await host.keyboard.press('Control+z');
+  await expect(host.locator('.segrow')).toHaveCount(2);
+  expect(await dump(host)).toBe(withStray);
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  await expect.poll(() => dump(guest)).toBe(withStray);
+
+  await host.keyboard.press('Control+Shift+z');
+  await expect(host.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await expect(guest.locator('.segrow[data-segment="3"] .name')).toHaveText('Segment 1 2');
+  await expect.poll(() => dump(guest)).toBe(split);
+
+  // The guest paints in the new segment; the host's undo then leaves it, with the guest's paint in it.
+  await guest.locator('.segrow[data-segment="3"]').click();
+  await guest.keyboard.press('b');
+  await trace(guest, 'axial', [[10, 8, 24], [16, 8, 24]]);
+  const painted = await maskVoxels(guest, 3);
+  await expect.poll(() => maskVoxels(host, 3)).toBe(painted);
+  await host.keyboard.press('Control+z');
+  await expect.poll(() => maskVoxels(host, 3)).toBeLessThan(painted);
+  expect(await maskVoxels(host, 3)).toBeGreaterThan(0);
+  await expect(host.locator('.segrow')).toHaveCount(3);
+  await expect(guest.locator('.segrow')).toHaveCount(3);
+  await expect.poll(() => dump(guest)).toBe(await dump(host));
 });
 
 for (const size of [
@@ -514,6 +544,7 @@ for (const size of [
     await fits('scissors');
     await choose(page, 'Scissors shape', 'Sphere');
     await expect(page.getByRole('group', { name: 'Scissors depth' })).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Scissors depth' })).toHaveCount(0);
     await fits('scissors-sphere');
 
     await page.keyboard.press('f');
@@ -527,8 +558,7 @@ for (const size of [
     await page.keyboard.press('b');
     await fits('brush');
     await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const s = (window as any).__w.session;
+      const s = window.__w.session;
       s.setPaintOver('all');
       s.addSegment();
     });

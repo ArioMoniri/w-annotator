@@ -132,6 +132,6 @@ The logo and file-format animations are Lottie files (`.json` in [`docs/assets`]
 
 [PolyForm Noncommercial 1.0.0](LICENSE). W Annotator is free for non-commercial use. Commercial use needs permission from Ariorad Moniri.
 
-The scan in the screenshots and the tour is from [LUNA16](https://luna16.grand-challenge.org), a subset of [LIDC-IDRI](https://www.cancerimagingarchive.net/collection/lidc-idri/), shown with the LUNA16 lung mask. Both are licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+The scan in the screenshots and the tour is from [LUNA16](https://luna16.grand-challenge.org), a subset of [LIDC-IDRI](https://www.cancerimagingarchive.net/collection/lidc-idri/), shown with the LUNA16 lung mask. LUNA16 is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and LIDC-IDRI [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/); the details are in [`public/sample/ATTRIBUTION.md`](public/sample/ATTRIBUTION.md).
 
 W Annotator is not a medical device and must not be used for diagnosis or treatment.

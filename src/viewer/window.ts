@@ -18,14 +18,21 @@ export interface WindowPreset {
 }
 
 /**
- * CT windows in Hounsfield units, abdominal ones together. Sources:
- * - Radiopaedia, "Windowing (CT)", https://doi.org/10.53347/rID-52108 (revised 7 Jan 2025):
- *   soft tissues W 350–400 L 20–60, liver W 150 L 30, lungs W 1500 L −600, bone W 1800 L 400,
- *   brain W 80 L 40, stroke W 40 L 40, subdural W 130–300 L 50–100.
- *   Soft tissue, Abdomen and Subdural here are values inside those published ranges.
- * - Pancreas: W 150 with L 50–80, from "Management of Acute Pancreatitis by Using Modified
- *   Computed Tomography Severity Index", Int J Contemp Med Surg Radiol 2018;3(1). L 65 is the
- *   middle of that range.
+ * CT windows in Hounsfield units, abdominal ones together.
+ *
+ * All but Pancreas follow Radiopaedia, "Windowing (CT)", https://doi.org/10.53347/rID-52108
+ * (revised 7 Jan 2025): soft tissues W 350–400 L 20–60, liver W 150 L 30, lungs W 1500
+ * L −600, bone W 1800 L 400, brain W 80 L 40, stroke W 40 L 40, subdural W 130–300 L 50–100.
+ * Where that page gives a range (Soft tissue, Abdomen, Subdural), the value here is one
+ * inside it.
+ *
+ * Pancreas is not a standard preset and is not on that list. It is a narrow window chosen
+ * by this project, at the owner's request, for a contrast-enhanced pancreas: W 150, L 65,
+ * which shows −10 to 140 HU. The width and the range L 50–80 are taken from one paper on
+ * a pancreatitis severity index ("Management of Acute Pancreatitis by Using Modified Computed
+ * Tomography Severity Index", Int J Contemp Med Surg Radiol 2018;3(1)), which is not a
+ * windowing reference; L 65 is the middle of that range, picked here. On an unenhanced scan
+ * the gland is dark grey in this window. A site with its own value saves it as a preset.
  */
 export const CT_PRESETS: readonly WindowPreset[] = [
   { name: 'Soft tissue', w: 400, l: 40 },
@@ -39,8 +46,12 @@ export const CT_PRESETS: readonly WindowPreset[] = [
   { name: 'Subdural', w: 200, l: 75 },
 ];
 
-/** Names of the windows worked out from an image that has no unit. */
-export const MR_NAMES = ['Soft tissue', 'Bright fluid', 'Dark detail'] as const;
+/**
+ * Names of the windows worked out from an image that has no unit, in the order of
+ * `MrWindows`: soft, fluid, dark. None shares a name with a CT preset: "Soft tissue" is a
+ * fixed Hounsfield window, and these are shares of one image's own values.
+ */
+export const MR_NAMES = ['Mid range', 'Bright fluid', 'Dark detail'] as const;
 
 /** The most presets a person can save. */
 export const PRESET_MAX = 12;
@@ -67,6 +78,36 @@ export function formatWindow(voi: Voi): { w: string; l: string } {
   return { w: text(width(voi)), l: text(level(voi)) };
 }
 
+/**
+ * The smallest change of width or level worth typing for an image, from the span of its
+ * values: 1 where values are whole numbers apart (CT, most MR), a hundredth of the span,
+ * rounded down to a power of ten, where the span is narrow (an image scaled 0 to 1 gives 0.01).
+ */
+export function windowStep(range: readonly [number, number]): number {
+  const size = range[1] - range[0];
+  if (!Number.isFinite(size) || size <= 0) return 1;
+  // Written as a decimal, so 0.0001 is exactly what 0.0001 parses to.
+  return Math.min(1, Number(`1e${Math.floor(Math.log10(size / 100))}`));
+}
+
+/** A number rounded to a step, without the stray digits binary fractions leave. */
+function toStep(value: number, step: number): number {
+  const digits = Math.max(0, -Math.floor(Math.log10(step)));
+  const rounded = Number((Math.round(value / step) * step).toFixed(digits));
+  return rounded === 0 ? 0 : rounded;
+}
+
+/** Width and level as numbers for the fields they are typed in, to the image's step. */
+export function windowFields(voi: Voi, step: number): { w: number; l: number } {
+  return { w: toStep(width(voi), step), l: toStep(level(voi), step) };
+}
+
+/** The window for a typed width and level. It is never narrower than one step. */
+export function windowFromFields(w: number, l: number, step: number): Voi {
+  const wide = Math.max(step, toStep(w, step));
+  return { lower: l - wide / 2, upper: l + wide / 2 };
+}
+
 /** True when two windows read the same on screen. */
 export function sameWindow(a: Voi, b: Voi): boolean {
   if (width(a) >= FINE && width(b) >= FINE) return Math.round(width(a)) === Math.round(width(b)) && Math.round(level(a)) === Math.round(level(b));
@@ -81,10 +122,21 @@ export interface WindowChoice {
 }
 
 /** Which presets are listed: fixed Hounsfield windows, or windows worked out from the image. */
-export type WindowSet = 'ct' | 'mr';
+export type WindowSet = 'ct' | 'mr' | 'grey';
+
+/**
+ * The list an image gets. A guest who views through the host holds 8-bit pictures already
+ * windowed by the host: grey levels from 0 to 255, for which neither Hounsfield presets nor
+ * windows worked out from stored values mean anything, whatever list was asked for.
+ */
+export function windowSetFor(image: { ct: boolean; grey?: boolean }, asked: WindowSet | null): WindowSet {
+  if (image.grey) return 'grey';
+  return asked ?? (image.ct ? 'ct' : 'mr');
+}
 
 /** The three MR windows, each worked out from the image's own values. */
 export interface MrWindows {
+  /** Shown as "Mid range": the brightest tenth is clipped. */
   soft: Voi;
   fluid: Voi;
   dark: Voi;
@@ -105,6 +157,7 @@ export interface WindowSource {
  * the image. Saved presets are in both.
  */
 export function windowChoices(image: WindowSource, custom: readonly WindowPreset[], set: WindowSet): WindowChoice[] {
+  if (set === 'grey') return [{ name: 'Full range', voi: { lower: 0, upper: 255 }, kind: 'full' }];
   const saved: WindowChoice[] = custom.map((p) => ({ name: p.name, voi: toVoi(p.w, p.l), kind: 'custom' }));
   const full = { lower: image.range[0], upper: image.range[1] > image.range[0] ? image.range[1] : image.range[0] + 1 };
   const fromImage: WindowChoice[] = [
@@ -169,7 +222,7 @@ const BACKGROUND = 0.05;
  * Windows for an image whose values have no unit, from the values themselves. Background
  * (air around the body) is left out first: everything within 5% of the bottom of the
  * image's 0.5 to 99.5 percentile span. Of what is left, the tissue:
- * - soft: 2nd to 90th percentile. The brightest tenth, usually fluid or fat, is clipped.
+ * - soft ("Mid range"): 2nd to 90th percentile. The brightest tenth, usually fluid or fat, is clipped.
  * - fluid: 2nd percentile to the largest value. Nothing bright is clipped.
  * - dark: 2nd to 50th percentile. A narrow window on the darker half.
  */

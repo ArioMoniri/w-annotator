@@ -50,7 +50,7 @@ A change is done when every line of [`docs/process/DOD.md`](docs/process/DOD.md)
 
 ## Patient data
 
-Never put real patient data in an issue, a pull request, a test or a screenshot. Test fixtures are small synthetic volumes built in code or tiny files checked in.
+Never put private patient data in an issue, a pull request, a test or a screenshot. Test fixtures are small synthetic volumes built in code or tiny files checked in; the bundled sample comes from an open dataset and is credited in `public/sample/ATTRIBUTION.md`.
 
 ## Branches and commits
 

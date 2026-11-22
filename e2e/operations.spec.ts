@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
-import { copiedText, drag, maskVoxels, openPhantom } from './helpers';
+import { formatVoxels } from '../src/mask/ops';
+import { copiedText, drag, maskVoxels, openPhantom, tab } from './helpers';
 
 const dump = (page: Page) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  page.evaluate(() => Array.from((window as any).__w.session.getMask().data as Uint8Array).join(''));
+  page.evaluate(() => Array.from(window.__w.session.getMask().data as Uint8Array).join(''));
 
 async function openMenu(page: Page, segment: string): Promise<void> {
   await page.locator('.segrow', { hasText: segment }).hover();
@@ -16,8 +16,7 @@ async function voxelUnder(page: Page, dx: number, dy: number): Promise<[number, 
   await page.mouse.move(box.x + box.width / 2 + dx - 3, box.y + box.height / 2 + dy);
   await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
   await page.waitForTimeout(80);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return page.evaluate(() => (window as any).__w.store.getState().hover.ijk as [number, number, number]);
+  return page.evaluate(() => window.__w.store.getState().hover.ijk as [number, number, number]);
 }
 
 /** Where a voxel column sits in the axial view, as an offset in pixels from its centre. */
@@ -100,7 +99,7 @@ test('keep largest island removes a stray painted blob', async ({ page }) => {
 
   await openMenu(page, 'Segment 1');
   await page.getByRole('menuitem', { name: 'Keep largest island' }).click();
-  await expect(page.locator('.toast')).toContainText(`Removed ${painted - voxels} voxels outside the largest island of Segment 1`);
+  await expect(page.locator('.toast')).toContainText(`Removed ${formatVoxels(painted - voxels, [1, 1, 1])} outside the largest island of Segment 1`);
   expect(await maskVoxels(page, 1)).toBe(voxels);
 
   await page.keyboard.press('Control+z');
@@ -137,7 +136,7 @@ test('fill holes closes a cavity erased inside a segment', async ({ page }) => {
 
   await openMenu(page, 'Segment 1');
   await page.getByRole('menuitem', { name: 'Fill holes' }).click();
-  await expect(page.locator('.toast')).toContainText(`Filled ${voxels - hollow} voxels in Segment 1`);
+  await expect(page.locator('.toast')).toContainText(`Filled ${formatVoxels(voxels - hollow, [1, 1, 1])} in Segment 1`);
   expect(await maskVoxels(page, 1)).toBe(voxels);
 
   await openMenu(page, 'Segment 1');
@@ -193,6 +192,63 @@ test('combine adds one segment into another as one undo step', async ({ page }) 
   expect(await maskVoxels(page, 2)).toBe(0);
   await page.keyboard.press('Control+z');
   expect(await maskVoxels(page, 2)).toBe(two);
+});
+
+test('plain Tab moves through every control of a segment popover and stays inside it', async ({ page }) => {
+  await openPhantom(page);
+  const more = page.getByRole('button', { name: 'More for Segment 1' });
+
+  for (const popover of [
+    { item: 'Grow…', name: 'Grow Segment 1', first: 'textbox', buttons: ['Cancel', 'Apply'] },
+    { item: 'Remove small islands…', name: 'Remove small islands Segment 1', first: 'textbox', buttons: ['Cancel', 'Apply'] },
+    { item: 'Combine…', name: 'Combine with Segment 1', first: 'combobox', buttons: ['Cancel', 'Add'] },
+  ] as const) {
+    await openMenu(page, 'Segment 1');
+    await page.getByRole('menuitem', { name: popover.item }).click();
+    const ask = page.getByRole('dialog', { name: popover.name });
+    const stops = [ask.getByRole(popover.first), ...popover.buttons.map((name) => ask.getByRole('button', { name, exact: true }))];
+    await expect(stops[0], popover.name).toBeFocused();
+    // Forwards through all of them and round to the first again, never out of the popover.
+    for (const next of [1, 2, 0, 1]) {
+      await tab(page);
+      await expect(stops[next], `${popover.name}: Tab`).toBeFocused();
+    }
+    // And back, past the first to the last.
+    for (const next of [0, 2, 1]) {
+      await tab(page, true);
+      await expect(stops[next], `${popover.name}: Shift+Tab`).toBeFocused();
+    }
+    // Tab is the app's here, not the webview's, so it is the same on a Mac.
+    const taken = await page.evaluate(
+      () =>
+        new Promise<boolean>((resolve) => {
+          window.addEventListener('keydown', (e) => setTimeout(() => resolve(e.defaultPrevented)), { capture: true, once: true });
+          document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+        }),
+    );
+    expect(taken, `${popover.name}: Tab handled by the app`).toBe(true);
+    // Focus that has left the controls for the popover itself comes back in at the first one.
+    await ask.locator('.title').click();
+    await tab(page);
+    await expect(stops[0], `${popover.name}: Tab from the popover`).toBeFocused();
+    // Esc closes it and hands focus back to the row's button.
+    await page.keyboard.press('Escape');
+    await expect(ask).toHaveCount(0);
+    await expect(more, `${popover.name}: Esc`).toBeFocused();
+    // A disabled button is passed over.
+    if (popover.first === 'textbox') {
+      await openMenu(page, 'Segment 1');
+      await page.getByRole('menuitem', { name: popover.item }).click();
+      await stops[0].fill('');
+      await expect(stops[2]).toBeDisabled();
+      await tab(page);
+      await expect(stops[1]).toBeFocused();
+      await tab(page);
+      await expect(stops[0]).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(more).toBeFocused();
+    }
+  }
 });
 
 test('paint over "Empty only" leaves the neighbouring segment alone', async ({ page }) => {
@@ -273,7 +329,8 @@ for (const size of [
     };
     await page.keyboard.press('b');
     await expect(page.locator('.segrow').first().getByTestId('segment-volume')).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Paint over' })).toBeVisible();
+    // Three buttons where there is room, one list with the same name and choices where there is not.
+    await expect(page.getByRole('group', { name: 'Paint over' }).or(page.getByRole('combobox', { name: 'Paint over' }))).toBeVisible();
     // Nothing in the brush strip is cut off, also with a wider system font than this machine's.
     const overflow = () =>
       page.evaluate(() => {

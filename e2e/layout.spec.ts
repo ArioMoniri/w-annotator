@@ -47,8 +47,7 @@ type ViewState = {
 /** Zoom as millimetres per screen pixel, the world point at the centre of the view, its slice and its window. */
 async function viewState(page: Page, view: string): Promise<ViewState> {
   return page.evaluate((view) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     const r = document.querySelector(`[data-view="${view}"]`)!.getBoundingClientRect();
     const a = w.engine.canvasToWorld(view, 0, 0) as number[];
     const b = w.engine.canvasToWorld(view, 100, 0) as number[];
@@ -254,8 +253,7 @@ test('slice, zoom, window and mask survive every layout change', async ({ page }
   await drag(page, 'axial', [0, 40], [0, -30]);
   await drag(page, 'sagittal', [0, 30], [0, -10]);
   await page.keyboard.press('c');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.setVoi(-150, 420));
+  await page.evaluate(() => window.__w.session.setVoi(-150, 420));
   await page.waitForTimeout(300);
 
   // The same canvases stay in use: the viewer is not rebuilt.
@@ -602,8 +600,7 @@ test('dragging a reference line scrolls the plane it stands for, and nothing els
 
 test('a brush stroke that starts on a reference line still paints', async ({ page }) => {
   await openPhantom(page);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.settings.setSetting('referenceLines', 'always'));
+  await page.evaluate(() => window.__w.settings.setSetting('referenceLines', 'always'));
   await page.keyboard.press('b');
   await expect.poll(async () => (await referenceLines(page, 'axial')).length).toBe(4);
   const sagittal = (await viewState(page, 'sagittal')).slice;
@@ -638,15 +635,12 @@ test('the 3D view shows whole segments and follows every mask change', async ({ 
   // A new segment, painted on two axial slices well away from the middle of the volume.
   await page.keyboard.press('n');
   await page.keyboard.press('b');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.session.setBrushSize(14));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.engine.scrollSlices('axial', -14));
+  await page.evaluate(() => window.__w.session.setBrushSize(14));
+  await page.evaluate(() => window.__w.engine.scrollSlices('axial', -14));
   await drag(page, 'axial', [-20, 60], [20, 60]);
   const oneStroke = await shown();
   expect(oneStroke).toBeGreaterThan(start);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.evaluate(() => (window as any).__w.engine.scrollSlices('axial', 24));
+  await page.evaluate(() => window.__w.engine.scrollSlices('axial', 24));
   await drag(page, 'axial', [-20, 60], [20, 60]);
   const twoStrokes = await shown();
   expect(twoStrokes).toBeGreaterThan(oneStroke);

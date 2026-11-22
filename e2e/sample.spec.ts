@@ -34,8 +34,7 @@ interface Opened {
 
 const opened = (page: Page) =>
   page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = (window as any).__w;
+    const w = window.__w;
     return {
       image: { name: w.session.getImage().name, dims: w.session.getImage().dims },
       mask: { dims: w.session.getMask().dims },
@@ -46,8 +45,7 @@ const opened = (page: Page) =>
 /** A voxel well inside a segment: the one nearest the middle of its largest slice. */
 const middleOf = (page: Page, label: number) =>
   page.evaluate((label) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mask = (window as any).__w.session.getMask();
+    const mask = window.__w.session.getMask();
     const [nx, ny, nz] = mask.dims as number[];
     const d = mask.data as Uint8Array;
     let best = { z: 0, n: 0, x: 0, y: 0 };
@@ -97,8 +95,7 @@ test('the mask lies on the lungs, with the left lung on the right of the axial v
 
   // It is air there, and the overlay is drawn on it.
   const hu = await page.evaluate(([x, y, z]) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const image = (window as any).__w.session.getImage();
+    const image = window.__w.session.getImage();
     return image.data[(z * image.dims[1] + y) * image.dims[0] + x] as number;
   }, left.ijk);
   expect(hu).toBeLessThan(-600);
@@ -109,8 +106,7 @@ test('the mask lies on the lungs, with the left lung on the right of the axial v
   // Patient left is drawn on the right of the screen in the axial view.
   const screenX = (ijk: [number, number, number]) =>
     page.evaluate((ijk) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = (window as any).__w;
+      const w = window.__w;
       const vol = w.session.getMask();
       const world = [0, 1, 2].map((r) => vol.origin[r] + vol.direction[r] * vol.spacing[0] * ijk[0] + vol.direction[3 + r] * vol.spacing[1] * ijk[1] + vol.direction[6 + r] * vol.spacing[2] * ijk[2]);
       return (w.engine.worldToCanvas('axial', world) as [number, number])[0];

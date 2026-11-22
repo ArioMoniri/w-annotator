@@ -10,6 +10,7 @@ import {
   percentileWindow,
   presetNameError,
   stepChoice,
+  windowSetFor,
   windowChoices,
   withPreset,
   type WindowChoice,
@@ -24,7 +25,7 @@ import {
 /** The preset list in use: the one asked for, or the one that suits the image's values. */
 export function currentWindowSet(): WindowSet {
   const s = get();
-  return s.windowSet ?? (s.image?.ct ? 'ct' : 'mr');
+  return s.image ? windowSetFor(s.image, s.windowSet) : (s.windowSet ?? 'mr');
 }
 
 /** Every window on offer for the open image, in menu order. */

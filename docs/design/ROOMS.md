@@ -154,7 +154,8 @@ Choice: **A for the standalone relay** — default retention 30 days after last 
 - Shared copy: one 256-bit room key per epoch, delivered through the invite (C4). View-through-host: pairwise host↔guest keys, relay forces star routing (guest frames reach only the host).
 - Every payload: compress, then AES-256-GCM (WebCrypto) with a random 96-bit nonce; room id, epoch and frame kind as associated data. One encrypt queue per socket keeps order. Cost on a 100 MB snapshot is well under a second; gzip dominates.
 - Rotation on removal (phase 2, shared copy): host creates the next-epoch key, sends it to each remaining member wrapped to their X25519 key, re-wraps open invites; the relay rejects older epochs. Stored snapshot is re-uploaded under the new key at the next compaction.
-- Accepted residual risks: a member colluding with the relay can impersonate another member (shared symmetric key); the relay can drop, delay or replay frames (replays are rejected by op id); a leaked, still-valid link gives full access until used, expired or revoked.
+- Accepted residual risks: a member colluding with the relay can read what others send and impersonate another member (shared symmetric key), and so can a removed member who can still see the traffic, since the key is not changed on removal; the relay can drop, delay and reorder frames; a leaked, still-valid link gives full access until used, expired or revoked.
+- What the relay cannot do, since the review in `docs/reviews/rooms-security.md` (it could in 0.1.2, whatever this section said): repeat an edit (each edit carries its sender's visit tag and a number that only goes up, and is taken once), re-label a frame's sender or recipient (both are repeated inside the encrypted part), or change what kind of room a client believes it is in (`ROOMS-PROTOCOL.md` §18.6).
 
 ### C8. Protocol v2
 
@@ -333,6 +334,18 @@ What the app does, task by task. Where it differs from the text above, this tabl
 | 1.9 | `hostview.ts`: host answers plane requests with 8-bit windowed planes and labels, counts planes per guest, rate-limits; guest holds no file, cannot save, gets no recovery copy, is blanked while the host is unreachable and wiped when the room ends | Lossless gzip instead of WebP in a worker; no cache cap; 3D view not disabled; the host's window, re-fetched when it changes; a guest is shown no measurements |
 | 1.10 | `crypto.ts`: AES-256-GCM, room key wrapped in the invite, names inside encrypted frames | One room key for both kinds; no pairwise keys |
 | 1.11 | No recovery copy for a view-through-host guest; Settings shows autosave as off in that room | The shared-copy recovery copy does not carry the room id and base, so after an app restart a return is merged two-way |
-| 1.12 | The embedded relay speaks v2 with the embedded limits; links carry the LAN address | **Not verified** on macOS, Windows or Linux desktop builds: `ws://` from the webview, address picker, binding one address, firewall text and a CSP are not done |
+| 1.12 | The embedded relay speaks v2 with the embedded limits; links carry the LAN address; with no network address it listens on this computer only | **Not verified** on macOS, Windows or Linux desktop builds: `ws://` from the webview, address picker, binding one address, firewall text and a CSP are not done |
+
+### After the security and scale review (2026-11-22)
+
+`docs/reviews/rooms-security.md` and `docs/reviews/rooms-scale.md` have the findings and the measurements. What changed in the design, all without a new protocol version:
+
+| Topic | Now |
+|---|---|
+| What a client believes about the room | The kind and the host are fixed by the device that made or joined the room; a `welcome` that says otherwise ends the room there (`ROOMS-PROTOCOL.md` §18.6) |
+| Frames | Sender and recipient are repeated inside the encrypted part; an edit is taken once (§18.1, §18.2) |
+| Transfers (1.6) | Paced by the receiver, so a slow connection is not flooded; complete or not taken; image slabs that arrived before a cut are kept and not sent again; unpacking is bounded; one transfer per member, two at a time (§18.4) |
+| Sending | One pace per connection at half the relay's limits, for edits, transfers and slices alike. A whole-volume edit goes out as pieces of 1 MiB over a few seconds instead of all at once |
+| Relay | Time limit on a new connection's request; a replay that does not fit is `replay-too-old`; file frames to a full member are `busy`; pings count |
 
 Open risk: anyone who can reach a relay can create rooms up to its cap, and an abandoned room lives 30 days. Until phase 2 adds an admin token, keep a relay private or keep `--max-rooms` low (`relay/README.md`).

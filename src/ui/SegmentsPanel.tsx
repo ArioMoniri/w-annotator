@@ -156,8 +156,13 @@ function Row({ seg, active, isNew, picked }: { seg: SegmentInfo; active: boolean
     setMenuState(next);
   };
   const close = useCallback(() => setMenuState(null), []);
-  const ref = useDismiss<HTMLDivElement>(menu !== null, close, () =>
-    rowRef.current?.querySelector<HTMLElement>(opener.current === 'swatch' ? '.swatchbtn' : '[aria-haspopup]') ?? null,
+  // Grow, Combine and the like are small dialogs: Tab is handled as in every other dialog.
+  const asks = menu !== null && menu !== 'menu' && menu !== 'color';
+  const ref = useDismiss<HTMLDivElement>(
+    menu !== null,
+    close,
+    () => rowRef.current?.querySelector<HTMLElement>(opener.current === 'swatch' ? '.swatchbtn' : '[aria-haspopup]') ?? null,
+    asks,
   );
   // Keep every item in reach: between the top bar and the status bar, scrolling inside if it must.
   useLayoutEffect(() => {
@@ -352,7 +357,7 @@ function Row({ seg, active, isNew, picked }: { seg: SegmentInfo; active: boolean
           </button>
         </div>
       )}
-      {menu !== null && menu !== 'menu' && menu !== 'color' && (
+      {asks && (
         <div
           className="menu ask"
           role="dialog"

@@ -15,7 +15,7 @@ pub const DEFAULT_PORT: u16 = 8787;
 /// Where the hosted relay can be reached.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HostInfo {
-    /// Port the relay listens on, on every interface.
+    /// Port the relay listens on.
     pub port: u16,
     /// Non-loopback IPv4 addresses of this machine, e.g. `192.168.1.20`.
     pub addresses: Vec<String>,
@@ -32,7 +32,10 @@ struct Running {
 pub struct Host(Mutex<Option<Running>>);
 
 impl Host {
-    /// Starts the relay on `0.0.0.0`, or returns the one already running.
+    /// Starts the relay, or returns the one already running. It listens on
+    /// every interface when this computer has a network address to share, and
+    /// on this computer only when it has none: then nobody else could use the
+    /// link anyway, and nothing needs to be open to a network.
     /// If the wanted port is taken, the system picks a free one.
     pub async fn start(&self, port: Option<u16>) -> io::Result<HostInfo> {
         let mut slot = self.0.lock().await;
@@ -42,9 +45,10 @@ impl Host {
             }
         }
         let wanted = port.unwrap_or(DEFAULT_PORT);
-        let listener = match TcpListener::bind((Ipv4Addr::UNSPECIFIED, wanted)).await {
+        let address = bind_address(&lan_addresses());
+        let listener = match TcpListener::bind((address, wanted)).await {
             Ok(listener) => listener,
-            Err(_) if wanted != 0 => TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).await?,
+            Err(_) if wanted != 0 => TcpListener::bind((address, 0)).await?,
             Err(e) => return Err(e),
         };
         let port = listener.local_addr()?.port();
@@ -75,6 +79,15 @@ impl Host {
         {
             task.abort();
         }
+    }
+}
+
+/// Where the hosted relay listens, given this computer's network addresses.
+pub fn bind_address(lan: &[String]) -> Ipv4Addr {
+    if lan.is_empty() {
+        Ipv4Addr::LOCALHOST
+    } else {
+        Ipv4Addr::UNSPECIFIED
     }
 }
 
@@ -150,6 +163,15 @@ mod tests {
         assert_ne!(info.port, taken_port);
         assert!(health(info.port).await.unwrap().ends_with("ok"));
         host.stop().await;
+    }
+
+    #[test]
+    fn listens_on_this_computer_only_when_there_is_no_network_to_share_with() {
+        assert_eq!(bind_address(&[]), Ipv4Addr::LOCALHOST);
+        assert_eq!(
+            bind_address(&["192.168.1.20".to_owned()]),
+            Ipv4Addr::UNSPECIFIED
+        );
     }
 
     #[test]

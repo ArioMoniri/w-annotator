@@ -144,8 +144,7 @@ test('an unexpected error offers to report it; Escape closes the dialog', async 
       throw new Error('Could not draw /Users/mina/scans/broken.nii');
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (window as any).__w.session.openFiles([{ name: 'broken.nii', bytes: new Uint8Array(10) }]);
+      await window.__w.session.openFiles([{ name: 'broken.nii', bytes: new Uint8Array(10) }]);
     } finally {
       window.requestAnimationFrame = real;
     }
@@ -165,8 +164,7 @@ test('a file that cannot be read is not something to report', async ({ page }) =
   await page.goto('/');
   await page.waitForFunction(() => '__w' in window);
   await page.evaluate(() =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__w.session.openFiles([{ name: 'broken.nii', bytes: new Uint8Array(10) }]),
+    window.__w.session.openFiles([{ name: 'broken.nii', bytes: new Uint8Array(10) }]),
   );
   const toast = page.locator('.toast[data-kind="error"]');
   await expect(toast).toBeVisible();

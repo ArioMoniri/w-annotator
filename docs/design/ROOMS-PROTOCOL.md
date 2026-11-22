@@ -26,8 +26,11 @@ Status: phase 1, relay and app. The relay never decrypts or inspects a payload; 
 | `GET /j/<ID>` | A static page: "Open W Annotator, choose Join a room and paste this link." The same for every id; 404 if `<ID>` is not a valid room id |
 | `GET /health` | `ok` |
 | `GET /r/<CODE>?name=` | HTTP 426, unless the relay serves protocol v1 (§15) |
+| a TCP connection that has not sent a whole request header after 10 s | closed, no answer |
 
 A browser cannot read the status of a failed WebSocket upgrade. Treat a connection that fails before `hello` as "cannot reach the room server; try again in a minute".
+
+Every answer that is not a websocket upgrade carries `Connection: close`. The relay holds at most twice its websocket limit plus 64 TCP connections at a time; more wait to be accepted.
 
 Use `wss://` whenever the page is served over https. The relay itself speaks plain HTTP; TLS is the proxy's job (`relay/README.md`).
 
@@ -210,6 +213,8 @@ Kind 9 is new relative to the kind list in `ROOMS.md` C8; see the decisions ther
 
 Whatever a guest puts in `to` is replaced by the host's id. In this room type the host is the authority for edits: a guest sends a patch to the host (the `seq` field carries the guest's `cid` through untouched), the host applies it and sends its own ordered patch to everyone. Guests apply edits only from ordered frames, which only the host can produce.
 
+A file frame (kinds 3, 4, 9) for a member whose outbound queue is more than half full is refused with `busy`, so that one member cannot fill another's queue and have them closed with 4002. A sender told `busy` should stop and let the receiver ask again; a sender that waits for the receiver's reports (§18.4) never gets there.
+
 A refused frame produces `{"t":"error","code":…,"kind":<kind>,"cid":<the seq field>}` (plus `"to"` when a target was named) to the sender and reaches nobody. A targeted frame whose target is a member but not connected, or not a member, produces `error` `offline` with `"to"` (presence frames are dropped silently instead). A frame addressed to oneself is dropped silently.
 
 ### 5.3 Ordered frames
@@ -236,7 +241,7 @@ Ask with `resume` in `auth` (§3.4), or at any time with:
 | Case | Answer |
 |---|---|
 | `logFloor ≤ after ≤ head` | `{"t":"replay-begin","after":41,"head":44,"rid":3}`, then every ordered frame with `seq > after` as binary frames exactly as first sent (including the asker's own), in order, then `{"t":"replay-end","head":44,"rid":3}` |
-| `after < logFloor` | `{"t":"error","code":"replay-too-old","head":44,"logFloor":43,"rid":3}`. The client stays signed in and falls back to a snapshot from a peer (`sync-request`, kind 9) |
+| `after < logFloor`, or the frames asked for do not fit the asker's outbound queue right now | `{"t":"error","code":"replay-too-old","head":44,"logFloor":43,"rid":3}`. The client stays signed in and falls back to a snapshot from a peer (`sync-request`, kind 9) |
 | `after > head` | `{"t":"error","code":"replay-ahead","head":44,"logFloor":43,"rid":3}`. The relay lost state; compare `room.session` |
 
 `rid` is absent when the replay was asked for with `resume`. Frames sent by others while a replay is being written are queued after `replay-end`, so the stream stays in order. In a view-through-host room the log holds the host's ordered frames; a guest that cannot be replayed asks the host for slices again.
@@ -368,7 +373,7 @@ When the room closes, the relay erases its members, invites and log. The id answ
 | Code | Reason text | Meaning | What the client should do |
 |---|---|---|---|
 | 4001 | `room full` / `relay full` | 16 members already, or no space for another room | Say so; do not retry automatically |
-| 4002 | `too slow` | The outbound queue (16 MiB or 1024 messages) overflowed | Reconnect with `resume` |
+| 4002 | `too slow` | The outbound queue (16 MiB or 4096 messages) overflowed | Reconnect with `resume` |
 | 4003 | `signed in elsewhere` | The same key signed in on another connection | Do not reconnect automatically |
 | 4400 | `bad handshake` / `handshake timed out` / `key not usable` | Malformed or late first message | A bug, or regenerate the key |
 | 4401 | `not a member` / `bad signature` | Unknown key or wrong signature | "You are not a member of this room" |
@@ -395,6 +400,7 @@ A member whose connection the relay stops hearing from is closed without a code 
 | `wrong-room-type` | Slice frames in a shared-copy room; `room-close` in one |
 | `needs-recipient` | A kind that must name one member was sent with `to` = 0 |
 | `offline` | The named member is not connected or not a member |
+| `busy` | A file frame for a member whose queue is more than half full; the frame was dropped (§5.2) |
 | `rate-limited` | The room's or the guest's allowance is used up; the frame was dropped |
 | `not-found` | No such member or invite |
 | `exists` | Invite id already registered |
@@ -414,16 +420,19 @@ Errors never close the connection.
 | Host of a view-through-host room | 800 messages/s and 80 MiB/s | 4429 |
 | Per room, all members together | 800 frames/s and 80 MiB/s | frame dropped, `rate-limited` |
 | Slice requests per guest | 30 burst, 600 per minute | frame dropped, `rate-limited` |
-| Outbound queue per connection | 16 MiB, 1024 messages | 4002 |
+| Outbound queue per connection | 16 MiB, 4096 messages (more than the replay log holds) | 4002; file frames are refused with `busy` from half full |
+| Request header of a new TCP connection | 10 s | Connection closed |
 | Members per room | 16 | 4001 |
 | Invites per room | 64 | `limit` |
 | Wrong invite proofs | 5, then locked for 10 minutes | 4429 |
 | Connection attempts per IP | 30 per minute | HTTP 429 |
 | Replay log per room | 2048 frames, 8 MiB | older frames leave the log |
 | Rooms per relay | 1024 | 4001 `relay full` |
-| Connections per relay | 4096 | HTTP 503 |
+| Connections per relay | 4096 websockets; 8256 TCP connections | HTTP 503; further TCP connections wait |
 
-Every number is a relay setting; `hello.limits` carries the ones a client needs. A client should stay under half of the per-connection rate.
+Every number is a relay setting; `hello.limits` carries the ones a client needs. A client should stay under half of the per-connection rate. The app does: everything a connection sends goes out in order through one pace of half of `messagesPerSec` and `bytesPerSec` (four times that for the host of a view-through-host room), with a burst of a quarter of a second of messages and a fifth of a second of bytes.
+
+Pings and pongs count towards the per-connection rate like any other message.
 
 ## 14. Liveness
 
@@ -466,7 +475,8 @@ Header bytes for `version 2, kind 1, flags 0x0102, from 0x0A0B0C0D, to 7, seq 0x
 
 ## 17. What the relay does not do
 
-- **Encrypt or decrypt.** Payloads, names and segment names are the client's to protect (`ROOMS.md` C7, task 1.10). Bind room id, epoch and frame kind as associated data, since the relay could otherwise re-label a frame.
+- **Encrypt or decrypt.** Payloads, names and segment names are the client's to protect (`ROOMS.md` C7, task 1.10). Bind room id, epoch and frame kind as associated data, and repeat the sender and the recipient inside the payload (§18.1), since the relay could otherwise re-label a frame.
+- **Vouch for what it says about the room.** `room.type`, `self.role` and `self.id` in `welcome` are the relay's word. A client must hold on to what it knows itself (§18.6).
 - **Deduplicate ops.** See §5.3.
 - **Store anything on disk**, or keep a payload beyond the replay log.
 - **Choose a snapshot source, pace slabs or resume transfers.** Kinds 3, 4 and 9 are delivered to the member named in `to`; the rest is the client's protocol inside the payload (`ROOMS.md` C6, task 1.6).
@@ -482,6 +492,7 @@ Everything here is invisible to the relay. It is what `src/collab/` sends; a sec
 - A room has one 32-byte **room key**, made by the host. In `invite-add`, `wrappedKey` is base64 of `nonce ‖ AES-256-GCM(wrap key, room key)` with the 12-byte nonce in front and the associated data `w-rooms/2 room key`; the wrap key is the one of §9.1.
 - Every frame payload is `nonce (12 random bytes) ‖ AES-256-GCM ciphertext and tag`, keyed with the room key, with the associated data `w-rooms/2 <ROOMID> <epoch> <kind>` (decimal numbers, single spaces). A frame that does not open is ignored, but an ordered one still takes its place in the order.
 - The plaintext is `u32 n` (little-endian), then `n` bytes of UTF-8 JSON (an object, called *meta* below), then raw bytes (*body*).
+- Every meta carries `"f"`: the sender's member id, and, in a frame for one member, `"d"`: that member's id. The relay writes `from` and `to` in the clear header and could write anything; a receiver drops a frame whose `f` is not the header's `from`, or whose `d` is neither 0 nor its own id, exactly as it drops one that does not open. Apps up to 0.1.2 send neither field, and a frame without them is taken as before.
 
 ### 18.2 Edits (kinds 1 and 2)
 
@@ -491,35 +502,59 @@ Everything here is invisible to the relay. It is what `src/collab/` sends; a sec
 | 2 seg-op | `{"c": <cid>, "op": "set", "seg": {"index": 1–255, "name", "color": "#rrggbb", "locked"}}` or `{"c", "op": "del", "index"}` | — |
 | 2 seg-op, view-through-host, host only | `{"c", "op": "window"}`: the host changed its window; guests fetch their planes again | — |
 
+Every edit also carries `"s"`: a tag the sender made at random for this visit to the room (at most 24 characters), under which `c` only goes up. A receiver keeps, for each sender and tag, the highest `c` it has applied, and leaves out an edit that is not above it: the relay sending an old edit again under a new sequence number. The edit still takes its place in the order. Everyone leaves out the same edits, so masks agree. In a view-through-host room the host applies the same rule to what guests send it. An edit without `s` (an app up to 0.1.2) is not checked.
+
 `c` is the same number as the header's `seq` on the way in. A client recognises its own edit in a replay by `from` = itself and `c`. In a view-through-host room the host re-sends a guest's edit as its own ordered frame with `"o": [<guest id>, <guest cid>]` added, which tells that guest its edit has its place.
 
 A client applies ordered edits in sequence, then puts its own not yet numbered edits back on top (§5.3).
 
 ### 18.3 Presence (kind 5)
 
-`{"t": "hi", "name": "<at most 24 characters>"}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second.
+`{"t": "hi", "name": "<at most 24 characters>"}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. The host of either kind of room adds `"kind": "shared"|"host-view"`: what it made, to set against what the relay says (§18.6). A receiver removes control characters and invisible direction and joining marks from names before showing them. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second.
 
 ### 18.4 Joining and coming back in a shared-copy room (kinds 9, 3, 4)
 
 ```
-asker  → member   9  {"rid", "image": true|false, "fp": "<fingerprint of the open image>"|null}
+asker  → member   9  {"rid", "image": true|false, "fp": "<fingerprint of the open image>"|null, "flow": 1, "skip": [z0, …]}
 member → asker    3  {"rid", "t": "begin", "head", "dims": [x,y,z], "slabs", "segments": [...],
-                      "image": {"dims","spacing","origin","direction","dtype"} | null}
+                      "image": {"dims","spacing","origin","direction","dtype"} | null, "flow": 1, "seen": [...]}
 member → asker    4  {"rid", "z0", "part", "parts"} + part of gzip(image slices z0 … z0+15)     (only when asked for)
 member → asker    3  {"rid", "t": "slab", "z0", "part", "parts"} + part of gzip(mask slices z0 … z0+15)
+asker  → member   9  {"rid", "t": "ack", "n": <packed bytes received so far>}                   (only after "flow": 1 in begin)
 member → asker    3  {"rid", "t": "end"}
 ```
 
-Instead of `begin` a member may answer `{"rid","t":"no"}` (not ready; ask someone else) or `{"rid","t":"different"}` (the asker's image is not the room's). The mask is the room's confirmed state at sequence number `head`; the asker applies ordered frames after `head` on top. No file name, path or tag is sent, and the asker names the image `Room image`.
+Instead of `begin` a member may answer `{"rid","t":"no"}` (not ready, or already sending to two others; ask someone else) or `{"rid","t":"different"}` (the asker's image is not the room's). The mask is the room's confirmed state at sequence number `head`; the asker applies ordered frames after `head` on top. No file name, path or tag is sent, and the asker names the image `Room image`.
+
+- `rid` is a random number below 2^53, so an answer recorded from an earlier transfer cannot be passed off as this one's.
+- **Pacing by the receiver.** An asker that sends `"flow": 1` reports what has arrived. A member that understands it says `"flow": 1` in `begin` and then keeps at most 4 MiB sent and not yet reported; it gives up on a receiver that reports nothing for 20 s. An asker sends `ack` only after such a `begin`: an older member would read it as a new request. Without `flow` the member sends at its own pace, as before.
+- **Picking up after a cut.** `skip` lists the first slices of the image slabs the asker still holds from a transfer that was interrupted; the member leaves those out. The mask is always sent whole, since it may have changed. An older member ignores `skip` and sends everything.
+- `seen` is the member's list of `[sender id, tag, highest c]` (§18.2), so the asker refuses the same repeated edits as everyone else.
+- A member runs one transfer per asker (a new request replaces the earlier one) and sends to at most two askers at once.
+
+What the asker checks before it takes anything: `dims` are three whole numbers from 1 to 65535 and match the open image, if any; `head` is not above the highest sequence number the relay has shown it; there is one `begin`; each slab starts on a multiple of 16 inside the volume, is collected to at most its raw size plus 0.1 % and 1024 bytes, and unpacks to exactly its raw size (unpacking stops the moment more comes out); and at `end` every slab of the volume is there. If any of this fails the asker turns to the next member.
 
 ### 18.5 View through the host (kinds 6 and 7)
 
 ```
-guest → host   6  {"t": "describe"}
-host  → guest  7  {"t": "room", "dims", "spacing", "origin", "direction", "segments": [...], "head"}
-guest → host   6  {"axis": 0|1|2, "index": <plane along that axis>}
-host  → guest  7  {"t": "slice", "axis", "index"} + gzip(8-bit picture of the plane ‖ its labels)
+guest → host   6  {"t": "describe", "q"}
+host  → guest  7  {"t": "room", "dims", "spacing", "origin", "direction", "segments": [...], "head", "seen": [...], "q"}
+guest → host   6  {"axis": 0|1|2, "index": <plane along that axis>, "q"}
+host  → guest  7  {"t": "slice", "axis", "index", "q"} + gzip(8-bit picture of the plane ‖ its labels)
 ```
 
 The picture is the plane mapped through the host's current window to 0–255 and clipped. Plane order: axis 2 is `x` within `y`; axis 1 is `x` within `z`; axis 0 is `y` within `z`. The host answers at most 30 requests at once and 600 a minute per guest, and sends nothing a guest did not ask for. The app asks for the plane each view shows and the one on each side: a view is drawn from a thin slab around its plane, and a missing neighbour would darken it.
 
+`q` is a random number the guest makes for each question; the host sends it back. A guest drops an answer whose `q` is not the one it is waiting for, so an old answer (one the relay kept, or one made before the host changed its window) cannot stand in for a new one. An answer without `q` (an older host) is taken as before. A plane is unpacked only up to the size it must have.
+
+### 18.6 What a client holds on to
+
+The relay says what kind a room is and what role a member has, in `welcome`. Neither ever changes, and a client knows some of it without being told:
+
+| The client | knows |
+|---|---|
+| made the room (`create`) | its kind, and that it is the host |
+| comes back to a room it remembers | that the room is a shared copy, and whether it is the host |
+| joins with a link for the first time | that it is not the host; the kind only from the first `welcome`, and then from the host's `hi` (§18.3) |
+
+After the first `welcome` the kind and "host or not" are fixed for as long as the client stays in the room. A `welcome` that disagrees with what the client knows, or whose `self.id` is not the id of the client's own key, is not followed: the client leaves the room and says "The room server sent something that does not fit this room, so you left it." The same when the host's `hi` names another kind than `welcome` did. Without this, a relay could tell the host of a view-through-host room that the room is a shared copy, and the host would send the image to whoever asked.

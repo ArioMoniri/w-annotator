@@ -7,8 +7,12 @@
  */
 
 export interface OpLogHooks<Op> {
-  /** An edit took its place in the room's order: write it to the confirmed state and to what is on screen. */
-  confirm(op: Op, own: boolean): void;
+  /**
+   * An edit took its place in the room's order: write it to the confirmed state and to what is on screen.
+   * `shown` is true when the screen already has it exactly so: my own oldest waiting edit, with nothing
+   * of mine before it. Then only the confirmed state needs writing.
+   */
+  confirm(op: Op, own: boolean, shown: boolean): void;
   /** Put one of my still unnumbered edits back on top of what is on screen. */
   reapply(op: Op): void;
   /** Edits after `after` are missing; ask the relay for them. */
@@ -52,9 +56,11 @@ export class OpLog<Op> {
    */
   remote(seq: number, op: Op, settles?: number): void {
     if (!this.take(seq)) return;
+    const shown = settles !== undefined && this.waiting[0]?.cid === settles;
     const own = settles !== undefined && this.drop(settles);
-    this.hooks.confirm(op, own);
-    for (const w of this.waiting) this.hooks.reapply(w.op);
+    this.hooks.confirm(op, own, shown);
+    // The screen is the confirmed state with my waiting edits on top. Confirming the oldest of them changes nothing there.
+    if (!shown) for (const w of this.waiting) this.hooks.reapply(w.op);
   }
 
   /** The relay accepted my edit `cid` and gave it number `seq`. */
@@ -66,10 +72,11 @@ export class OpLog<Op> {
     }
     if (!this.take(seq)) return;
     const mine = this.waiting.find((w) => w.cid === cid);
+    const shown = this.waiting[0]?.cid === cid;
     this.drop(cid);
     if (!mine) return;
-    this.hooks.confirm(mine.op, true);
-    for (const w of this.waiting) this.hooks.reapply(w.op);
+    this.hooks.confirm(mine.op, true, shown);
+    if (!shown) for (const w of this.waiting) this.hooks.reapply(w.op);
   }
 
   /** Start again from a known state of the room, for example after a merge. Unnumbered edits are forgotten. */

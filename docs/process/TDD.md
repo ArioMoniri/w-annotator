@@ -19,7 +19,7 @@ Then repeat. Commit at green.
 - Never skip, `.only`, comment out, delete or loosen a test to get to green. If a test is wrong, fix it and say why in the commit.
 - Tests are deterministic: no real network, no real clock, no dependence on order. Seed anything random.
 - Keep unit tests fast. The whole unit suite should run in well under a minute.
-- Fixtures are small synthetic volumes built in code or tiny files checked in (a few voxels per side). Never use real patient data.
+- Fixtures are small synthetic volumes built in code or tiny files checked in (a few voxels per side). The bundled sample and one CI job use a scan from an open, de-identified dataset with attribution (LUNA16; `DECISIONS.md`, 2026-11-19). Never use private patient data.
 - Do not mock what you are testing. Mock only the edges: file system, network, Tauri commands, the GPU.
 
 ## What goes where

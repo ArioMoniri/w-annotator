@@ -1,5 +1,5 @@
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from 'lucide-react';
-import { dismissToast, set, useStore } from '../state/store';
+import { dismissToast, holdToast, set, useStore } from '../state/store';
 import { Modal } from './common';
 
 export function Toasts() {
@@ -7,7 +7,18 @@ export function Toasts() {
   return (
     <div className="toasts">
       {toasts.map((t) => (
-        <div key={t.id} className="toast" data-kind={t.kind} data-leaving={t.leaving || undefined} role={t.kind === 'error' ? 'alert' : 'status'}>
+        <div
+          key={t.id}
+          className="toast"
+          data-kind={t.kind}
+          data-leaving={t.leaving || undefined}
+          role={t.kind === 'error' ? 'alert' : 'status'}
+          // The timer waits while the toast is pointed at or holds focus, so an action cannot vanish under the pointer.
+          onPointerEnter={() => holdToast(t.id, 'hover', true)}
+          onPointerLeave={() => holdToast(t.id, 'hover', false)}
+          onFocus={() => holdToast(t.id, 'focus', true)}
+          onBlur={(e) => e.currentTarget.contains(e.relatedTarget) || holdToast(t.id, 'focus', false)}
+        >
           {t.kind === 'success' ? (
             <CircleCheck size={16} />
           ) : t.kind === 'warning' ? (

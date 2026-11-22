@@ -36,8 +36,6 @@ scripts/     one-off build scripts (`make-sample.mjs` rebuilds the sample)
 docs/        process and design docs
 ```
 
-Placeholder; update it as the code takes shape.
-
 ## Rules
 
 1. **Test first.** Red, green, refactor. No production code without a failing test. See `docs/process/TDD.md`.
@@ -47,7 +45,7 @@ Placeholder; update it as the code takes shape.
 5. **Keep the UI simple and calm.** The image comes first. Do not add controls, dialogs or settings the goal does not ask for. Follow `docs/design/DESIGN.md`.
 6. **Brief, human copy.** Short, plain, sentence case. No jargon, exclamation marks or emoji. Errors say what happened and what to do.
 7. **Protect the image.** Never alter orientation, laterality, spacing or voxel values for convenience. Never animate the medical image.
-8. **Privacy.** A room sends display names and mask edits, encrypted between the apps; a shared-copy room also sends the image and mask to the people invited, and a view-through-host room sends them pictures of slices, never the files. Nothing else leaves the machine. No telemetry. Never use real patient data in tests.
+8. **Privacy.** A room sends display names and mask edits, encrypted between the apps; a shared-copy room also sends the image and mask to the people invited, and a view-through-host room sends them pictures of slices, never the files. Nothing else leaves the machine. No telemetry. Tests use synthetic volumes, or open datasets with attribution such as the LUNA16 sample; never private patient data.
 9. **Stay in scope.** Build what `docs/process/GOAL.md` asks for. Record decisions in `docs/process/DECISIONS.md`.
 10. **Cross-platform.** Everything works on macOS, Windows and Linux. If you could not check a platform, say "not verified".
 
