@@ -2883,6 +2883,26 @@ button.avatar {
   min-width: 0;
 }
 
+/* Going through a merge slice by slice has more controls than fit one row in a narrow window: they wrap. */
+.recoverybar.reviewbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.recoverybar.reviewbar .text {
+  flex: 1 1 280px;
+}
+
+.recoverybar.reviewbar .select {
+  flex: none;
+  max-width: 220px;
+}
+
+.recoverybar [aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .recoverybar .text {
   flex: 1;
   min-width: 0;

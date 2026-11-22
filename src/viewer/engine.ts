@@ -202,6 +202,7 @@ export function unmountViewports(): void {
   segmentation.removeAllSegmentations();
   forgetComparisons();
   forgetPreview();
+  forgetReview();
   removeVolume(MASK_VOLUME_ID);
   removeVolume(IMAGE_VOLUME_ID);
   engine.destroy();
@@ -482,6 +483,7 @@ export async function showImage(vol: VolumeData, voi: { lower: number; upper: nu
   segmentation.removeAllSegmentations();
   forgetComparisons();
   forgetPreview();
+  forgetReview();
   removeVolume(MASK_VOLUME_ID);
   removeVolume(IMAGE_VOLUME_ID);
   maskLoaded = false;
@@ -512,6 +514,7 @@ export function showMask(vol: VolumeData): void {
   segmentation.removeAllSegmentations();
   forgetComparisons();
   forgetPreview();
+  forgetReview();
   removeVolume(MASK_VOLUME_ID);
   // Opening or swapping a mask is not a reason to leave the slice, zoom and place on screen.
   keepSlicesWhileAdding();
@@ -665,6 +668,101 @@ export function showPreview(vol: VolumeData, color: string): void {
   }
   segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(PREVIEW_SEGMENTATION_ID);
   repaintMask();
+}
+
+/* ───────────────────────── my version, kept aside after a merge ───────────────────────── */
+
+const REVIEW_VOLUME_ID = 'w-review';
+const REVIEW_SEGMENTATION_ID = 'review';
+/** What is outlined now, so showing the same thing again only repaints. */
+let reviewVol: VolumeData | null = null;
+
+/** One white line, never filled: it cannot be taken for a segment, and the room's version shows through. */
+const REVIEW_COLOR: [number, number, number, number] = [255, 255, 255, 255];
+const REVIEW_STYLE = {
+  renderFill: false,
+  renderFillInactive: false,
+  renderOutline: true,
+  renderOutlineInactive: true,
+  outlineWidth: 2,
+  outlineWidthInactive: 2,
+  outlineOpacity: 1,
+  outlineOpacityInactive: 1,
+  activeSegmentOutlineWidthDelta: 0,
+};
+
+/**
+ * Outlines `vol` over the slice views: my version of the slices a merge left to decide, from a
+ * buffer that is not the mask. The tools never write to it and the 3D view leaves it out.
+ * Called again with the same volume after its voxels changed, it repaints.
+ */
+export function showReview(vol: VolumeData): void {
+  if (!maskLoaded || !engine) return;
+  if (reviewVol !== vol) {
+    hideReview();
+    keepSlicesWhileAdding();
+    geometry.set(REVIEW_VOLUME_ID, vol);
+    volumeLoader.createLocalLabelmapVolume(
+      { ...localVolume(vol), referencedVolumeId: IMAGE_VOLUME_ID, referencedImageIds: cache.getVolume(IMAGE_VOLUME_ID)?.imageIds },
+      REVIEW_VOLUME_ID,
+    );
+    segmentation.addSegmentations([
+      { segmentationId: REVIEW_SEGMENTATION_ID, representation: { type: LABELMAP, data: { volumeId: REVIEW_VOLUME_ID } } },
+    ]);
+    const lut = Array.from({ length: 256 }, (_, i) => (i === 0 ? [0, 0, 0, 0] : REVIEW_COLOR)) as Types.ColorLUT;
+    const map: Record<string, { segmentationId: string; config: { colorLUTOrIndex: Types.ColorLUT } }[]> = {};
+    for (const id of ORTHO_IDS) map[id] = [{ segmentationId: REVIEW_SEGMENTATION_ID, config: { colorLUTOrIndex: lut } }];
+    segmentation.addLabelmapRepresentationToViewportMap(map);
+    segmentation.segmentationStyle.setStyle({ type: LABELMAP, segmentationId: REVIEW_SEGMENTATION_ID }, REVIEW_STYLE);
+    reviewVol = vol;
+    // The tools keep painting on the mask being edited.
+    for (const id of ALL_IDS) {
+      try {
+        segmentation.activeSegmentation.setActiveSegmentation(id, SEGMENTATION_ID);
+      } catch {
+        /* representation not ready on this viewport yet */
+      }
+    }
+  }
+  try {
+    for (const id of ORTHO_IDS) {
+      segmentation.triggerSegmentationEvents.triggerSegmentationRepresentationModified(id, REVIEW_SEGMENTATION_ID, LABELMAP);
+    }
+    segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(REVIEW_SEGMENTATION_ID);
+  } catch {
+    /* nothing to repaint yet */
+  }
+  repaintMask();
+}
+
+/** After every segmentation was removed at once: the outline went with them. */
+function forgetReview(): void {
+  if (reviewVol) removeVolume(REVIEW_VOLUME_ID);
+  reviewVol = null;
+}
+
+export function hideReview(): void {
+  if (!reviewVol) return;
+  reviewVol = null;
+  try {
+    segmentation.removeSegmentation(REVIEW_SEGMENTATION_ID);
+  } catch {
+    /* already gone */
+  }
+  removeVolume(REVIEW_VOLUME_ID);
+  repaintMask();
+}
+
+/**
+ * The number a slice view's counter would show for the slice through world point `w`,
+ * without going there. Slices are counted along the view's normal, `spacing` apart.
+ */
+export function sliceNumberAt(id: string, w: [number, number, number], spacing: number): number | null {
+  const plane = viewPlane(id);
+  const now = getSlice(id);
+  if (!plane || !now || !(spacing > 0)) return null;
+  const d = (w[0] - plane.point[0]) * plane.normal[0] + (w[1] - plane.point[1]) * plane.normal[1] + (w[2] - plane.point[2]) * plane.normal[2];
+  return Math.max(0, Math.min(now.count - 1, Math.round(now.index + d / spacing))) + 1;
 }
 
 /** Camera resets still to come in each slice view from labelmaps that were just added. */

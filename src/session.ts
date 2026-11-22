@@ -56,7 +56,7 @@ import { CLOSE_MISFIT, RoomClient, parseRoster, type JoinMode, type TextMessage 
 import { makeRoomKey, unwrapRoomKey, wrapRoomKey } from './collab/crypto';
 import { decodeSlice, encodeSlice, indicesForPlane, planeLength, planeSlices, readPlane, windowTo8, withNeighbours, writePlane, type Axis } from './collab/hostview';
 import { inviteKeys, makeInviteSecret, makeSeed, memberId, publicKey } from './collab/identity';
-import { ReplayGuard } from './collab/guard';
+import { ReplayGuard, type GuardEntry } from './collab/guard';
 import { OpLog } from './collab/oplog';
 import {
   FrameKind,
@@ -85,6 +85,7 @@ import { cleanLabels, forgetRoom, rememberRoom, savedRooms } from './collab/room
 import { applySegOp, parseSegOp, segmentOps, type SegOp } from './collab/segops';
 import { PartAssembler, SLAB_SLICES, TokenBucket, gunzipExactly, maxPacked, slabRanges, splitParts } from './collab/transfer';
 import { conflictPatch, mergeMasks, mergeSummary, type Conflicts } from './mask/merge';
+import { addConflicts, conflictSlices, mineOutline, reviewExpired, settledConflicts, sliceFocus, splitSlice, stepSlice } from './mask/review';
 import { fingerprint } from './mask/recovery';
 import * as engine from './viewer/engine';
 import { indexToWorld, voxelAt } from './viewer/geometry';
@@ -137,9 +138,10 @@ export function getMaskData(id: string): Uint8Array | null {
 /**
  * What autosave listens for. `edit`: the mask or its segments changed. `opened`: an image
  * or mask finished loading. `saved`: the mask was written to a file. `discarded`: the user
- * chose not to save. `closed`: nothing is open any more.
+ * chose not to save. `closed`: nothing is open any more. `room`: what a shared-copy room left on
+ * this device to merge with or to decide changed (`roomCopy`).
  */
-export type SessionEvent = 'edit' | 'opened' | 'saved' | 'discarded' | 'closed';
+export type SessionEvent = 'edit' | 'opened' | 'saved' | 'discarded' | 'closed' | 'room';
 const watchers = new Set<(event: SessionEvent) => void>();
 
 export function onSessionEvent(fn: (event: SessionEvent) => void): () => void {
@@ -148,6 +150,8 @@ export function onSessionEvent(fn: (event: SessionEvent) => void): () => void {
 }
 
 function emit(event: SessionEvent): void {
+  // My version kept aside is outlined over the mask as it is, so it follows every edit.
+  if (event === 'edit' && review) scheduleReviewRefresh();
   for (const fn of watchers) fn(event);
 }
 
@@ -452,6 +456,7 @@ function installMask(vol: VolumeData, add = false, path?: string): void {
   engine.set3dImageVisible(get().show3dImage);
   set({ stats: {} });
   showOthers();
+  syncReview();
   scheduleStats();
 }
 
@@ -525,6 +530,7 @@ function mount(entry: MaskEntry): void {
   engine.setMaskStyle(get().opacity, get().outlineOnly);
   engine.set3dImageVisible(get().show3dImage);
   showOthers();
+  syncReview();
   scheduleStats();
   // The edit tools need a segment to paint with.
   if (EDIT_TOOLS.includes(get().tool) && entry.segments.length === 0) setTool('crosshair');
@@ -605,6 +611,8 @@ function dropImage(): void {
   // Leaving as a guest of a view-through-host room has already let go of everything.
   if (!image) return;
   kept = null;
+  review = null;
+  set({ review: null });
   image = null;
   mask = null;
   shadow = null;
@@ -1791,8 +1799,12 @@ interface RoomCtx {
 
 /** What is left of a shared-copy room after leaving it, so coming back merges instead of replacing. */
 let kept: { id: string; session: string | null; synced: Uint8Array; head: number; offlineSegs: Set<number>; guard: ReplayGuard } | null = null;
-/** My voxels the last merge put aside, waiting for "Use mine" or "Keep the room's". */
-let conflicts: Conflicts | null = null;
+/**
+ * My voxels that merges put aside, waiting for "Use mine" or "Keep the room's" slice by slice.
+ * They belong to the mask they were made on and stay until every slice is decided, or for
+ * seven days. Leaving the room does not drop them.
+ */
+let review: { conflicts: Conflicts; at: number; room: string; mask: VolumeData; outline: VolumeData | null } | null = null;
 let nextRid = 1;
 
 /** True for a guest of a view-through-host room: nothing may be kept on this device. */
@@ -2032,9 +2044,8 @@ function enterRoom(o: EnterOptions): Promise<true | string> {
     };
     if (prior) r.log.reset(prior.head);
     room = r;
-    conflicts = null;
     set({
-      room: { status: 'connecting', id: o.id, kind: r.kind, role: r.role, selfId: r.selfId, name: o.name, hosting: o.hosting, hostName: null, hostAway: false, veil: null, hostVoi: null, review: null, note: null },
+      room: { status: 'connecting', id: o.id, kind: r.kind, role: r.role, selfId: r.selfId, name: o.name, hosting: o.hosting, hostName: null, hostAway: false, veil: null, hostVoi: null, note: null },
       peers: [],
     });
     client.connect();
@@ -2063,8 +2074,8 @@ function teardown(r: RoomCtx, opts: { keep?: boolean; wipe?: boolean } = {}): vo
     kept = { id: r.id, session: r.session, synced: base, head: r.base ? r.baseHead : r.log.head, offlineSegs: r.offlineSegs, guard: r.guard };
   }
   if (room === r) room = null;
-  conflicts = null;
   set({ room: null, peers: [], progress: null, busy: get().busy && r.sync ? null : get().busy });
+  emit('room');
   if (r.hosting) void platform.stopHosting();
   if (opts.wipe) wipeGuestCopy();
 }
@@ -2785,14 +2796,25 @@ function finishCatchUp(r: RoomCtx, base: Uint8Array | null, theirs: Uint8Array, 
   drainQueue(r);
   // Whatever I have that the room does not goes out as one edit, like any other.
   const mineOnly = diffMask(r.synced, data, sliceSize());
-  if (mineOnly) roomSend({ k: 'patch', patch: mineOnly });
+  if (mineOnly && r.role === 'viewer') {
+    // Someone who may only look has nothing to add: the room's version is what they see.
+    writePatch(mineOnly, 'before');
+    history.clear();
+    syncHistoryFlags();
+    toast('warning', 'You can view this room but not edit it, so the changes you made while away were not added.');
+  } else if (mineOnly) roomSend({ k: 'patch', patch: mineOnly });
   for (const index of r.offlineSegs) {
     const seg = get().segments.find((x) => x.index === index);
     sendOp(r, { k: 'seg', op: seg ? { op: 'set', seg: sharedSegment(seg) } : { op: 'del', index } });
   }
   r.offlineSegs.clear();
-  conflicts = result.conflicts;
-  patchRoom({ review: result.conflicts ? { slices: result.conflictSlices, voxels: result.conflicts.index.length } : null, note: null });
+  patchRoom({ note: null });
+  if (result.conflicts && r.role !== 'viewer') {
+    // Added to what an earlier merge left, if that is still waiting on this mask.
+    const waiting = review && review.mask === mask ? review : null;
+    review = { conflicts: addConflicts(waiting?.conflicts ?? null, result.conflicts)!, at: Date.now(), room: r.id, mask, outline: waiting?.outline ?? null };
+  }
+  syncReview();
   if (!base && result.conflicts) {
     const n = result.conflictSlices;
     toast('info', `Your mask differs from the room's on ${n} ${n === 1 ? 'slice' : 'slices'}. The room's version is shown.`);
@@ -2803,21 +2825,189 @@ function finishCatchUp(r: RoomCtx, base: Uint8Array | null, theirs: Uint8Array, 
     emit('edit');
   }
   scheduleStats();
+  emit('room');
 }
 
-/** "Use mine": the voxels the merge put aside become an ordinary edit that everyone sees and that can be undone. */
-export function takeMine(): void {
-  const mine = conflicts;
-  if (!mine || !mask) return;
-  conflicts = null;
-  patchRoom({ review: null });
-  editMask((d) => applyPatch(d, conflictPatch(mine, d), 'after'));
+/* ── what a shared-copy room leaves on this device ── */
+
+/**
+ * What is needed to come back to a shared-copy room after the app was closed as if it had only
+ * been offline: the mask as the room had confirmed it, and whatever a merge kept aside.
+ * It is only right for the mask on screen at the moment it is asked for (`recovery/roomcopy.ts`).
+ */
+export interface RoomCopy {
+  room: string;
+  session: string | null;
+  head: number;
+  /** A copy of the confirmed mask, or null when there is none to merge against. */
+  base: Uint8Array | null;
+  offlineSegs: number[];
+  guard: GuardEntry[];
+  review: { at: number; conflicts: Conflicts } | null;
 }
 
-/** Leaves the room's version where the two differed. */
-export function keepRooms(): void {
-  conflicts = null;
-  patchRoom({ review: null });
+/** Null when there is nothing to keep, and always for a guest of a view-through-host room. */
+export function roomCopy(): RoomCopy | null {
+  if (!mask || isGuestView()) return null;
+  const length = mask.data.length;
+  const r = room;
+  const waiting = review && review.mask === mask ? { at: review.at, conflicts: review.conflicts } : null;
+  if (r) {
+    const base = r.base ?? r.synced;
+    // Mid-transfer, or before the room has said anything, there is no confirmed mask yet.
+    if (r.kind === 'shared' && r.welcomed && r.session && !r.sync && base && base.length === length) {
+      const segs = new Set(r.offlineSegs);
+      for (const op of r.log.unconfirmed()) {
+        if (op.k === 'seg' && op.op.op === 'set') segs.add(op.op.seg.index);
+        else if (op.k === 'seg' && op.op.op === 'del') segs.add(op.op.index);
+      }
+      return { room: r.id, session: r.session, head: r.base ? r.baseHead : r.log.head, base: base.slice(), offlineSegs: [...segs], guard: r.guard.dump(), review: waiting };
+    }
+  } else if (kept && kept.synced.length === length) {
+    return { room: kept.id, session: kept.session, head: kept.head, base: kept.synced.slice(), offlineSegs: [...kept.offlineSegs], guard: kept.guard.dump(), review: waiting };
+  }
+  return waiting && review ? { room: review.room, session: null, head: 0, base: null, offlineSegs: [], guard: [], review: waiting } : null;
+}
+
+/**
+ * Takes up what `roomCopy` gave in an earlier run of the app. The caller has checked that the
+ * mask on screen is the one it was written for. Nothing is taken while in a room.
+ */
+export function adoptRoomCopy(copy: RoomCopy): boolean {
+  if (!mask || room || isGuestView()) return false;
+  const length = mask.data.length;
+  if (copy.base && copy.base.length === length && !kept) {
+    const guard = new ReplayGuard();
+    guard.load(copy.guard);
+    kept = { id: copy.room, session: copy.session, synced: copy.base, head: copy.head, offlineSegs: new Set(copy.offlineSegs), guard };
+  }
+  if (copy.review && !review && !reviewExpired(copy.review.at, Date.now())) {
+    review = { conflicts: copy.review.conflicts, at: copy.review.at, room: copy.room, mask, outline: null };
+    syncReview();
+  }
+  return true;
+}
+
+/** True when coming back to this room would be merged against what the room had, not two-way. For tests. */
+export function hasMergeBase(id: string): boolean {
+  return kept?.id === id.toUpperCase();
+}
+
+/* ── going through what a merge put aside, slice by slice ── */
+
+/** The view that shows the mask's stored slices face on. */
+function reviewView(): ViewId {
+  const m = mask;
+  if (!m) return 'axial';
+  return engine.ORTHO_IDS.find((id) => sliceAxisFor(m.direction, id) === 2) ?? 'axial';
+}
+
+/** Where voxel number `at` of the mask is in the world. */
+function voxelWorld(vol: VolumeData, at: number): [number, number, number] {
+  const [nx, ny] = vol.dims;
+  const ijk = [at % nx, Math.floor(at / nx) % ny, Math.floor(at / (nx * ny))];
+  const d = vol.direction;
+  return [0, 1, 2].map((r) => vol.origin[r] + d[r] * vol.spacing[0] * ijk[0] + d[3 + r] * vol.spacing[1] * ijk[1] + d[6 + r] * vol.spacing[2] * ijk[2]) as [number, number, number];
+}
+
+/**
+ * Brings the store and the outline in line with what is still kept aside. Voxels where the
+ * mask has come to hold my value anyway are let go, and so is everything after seven days.
+ */
+function syncReview(): void {
+  if (review && (!masks.all.some((e) => e.vol === review!.mask) || reviewExpired(review.at, Date.now()))) review = null;
+  const here = review && mask && review.mask === mask ? review : null;
+  if (here) {
+    const left = settledConflicts(here.conflicts, mask!.data as Uint8Array);
+    if (left) here.conflicts = left;
+    else review = null;
+  }
+  if (!here || !review) {
+    engine.hideReview();
+    if (get().review) set({ review: null });
+    return;
+  }
+  const slices = conflictSlices(here.conflicts, sliceSize());
+  set({ review: { slices, voxels: here.conflicts.index.length, view: reviewView() } });
+  here.outline ??= { ...mask!, name: 'review', labels: undefined, colors: undefined, data: new Uint8Array(mask!.data.length) };
+  mineOutline(here.conflicts, mask!.data as Uint8Array, sliceSize(), here.outline.data as Uint8Array);
+  engine.showReview(here.outline);
+}
+
+let reviewTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleReviewRefresh(): void {
+  if (reviewTimer) return;
+  reviewTimer = setTimeout(() => {
+    reviewTimer = null;
+    syncReview();
+  }, 150);
+}
+
+/** The stored slice the review's view shows now, or null between slices or with nothing open. */
+export function reviewShownSlice(): number | null {
+  const m = mask;
+  const plane = m && engine.viewPlane(reviewView());
+  if (!m || !plane) return null;
+  // How far along the mask's third axis the plane's point is, in slices.
+  const k = [0, 1, 2].reduce((sum, r) => sum + (plane.point[r] - m.origin[r]) * m.direction[6 + r], 0) / m.spacing[2];
+  const z = Math.round(k);
+  return z >= 0 && z < m.dims[2] ? z : null;
+}
+
+/** The number the view's own counter shows for each slice still to decide. */
+export function reviewSliceNumbers(): Record<number, number> {
+  const out: Record<number, number> = {};
+  const r = review;
+  if (!r || !mask || r.mask !== mask) return out;
+  const view = reviewView();
+  for (const { z } of conflictSlices(r.conflicts, sliceSize())) {
+    out[z] = engine.sliceNumberAt(view, voxelWorld(mask, z * sliceSize()), mask.spacing[2]) ?? z + 1;
+  }
+  return out;
+}
+
+/** Goes to a slice that is still to decide, with what differs on it in the middle of the views' lines. */
+export function goToReviewSlice(z: number): void {
+  const r = review;
+  if (!r || !mask || r.mask !== mask) return;
+  const at = sliceFocus(r.conflicts, z, sliceSize());
+  if (at !== null) engine.jumpTo(voxelWorld(mask, at));
+}
+
+/** The next or the previous slice that is still to decide, from the one on screen. */
+export function stepReview(dir: 1 | -1): void {
+  const list = get().review?.slices.map((s) => s.z) ?? [];
+  const shown = reviewShownSlice();
+  const next = stepSlice(list, shown ?? (dir > 0 ? -1 : Infinity), dir);
+  if (next !== null) goToReviewSlice(next);
+}
+
+/**
+ * "Use mine": my voxels of one slice, or of all of them, become an ordinary edit that everyone
+ * sees and that can be undone as one step. A segment they need that was deleted meanwhile comes back.
+ */
+export function takeMine(z?: number): void {
+  const r = review;
+  if (!r || !mask || r.mask !== mask || refusedForViewer()) return;
+  const { slice, rest } = z === undefined ? { slice: r.conflicts, rest: null } : splitSlice(r.conflicts, z, sliceSize());
+  if (!slice) return;
+  if (rest) r.conflicts = rest;
+  else review = null;
+  editMask((d) => applyPatch(d, conflictPatch(slice, d), 'after'));
+  ensureSegments(slice.mine);
+  syncReview();
+  emit('room');
+}
+
+/** "Keep the room's": the room's version stays on one slice, or on all, and mine for it is let go. Nothing changes in the mask. */
+export function keepRooms(z?: number): void {
+  const r = review;
+  if (!r) return;
+  const rest = z === undefined ? null : splitSlice(r.conflicts, z, sliceSize()).rest;
+  if (rest) r.conflicts = rest;
+  else review = null;
+  syncReview();
+  emit('room');
 }
 
 /* ── getting the mask (and the image) from another member ── */

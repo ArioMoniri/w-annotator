@@ -17,11 +17,24 @@ import {
   type RecoveryStore,
   type StoredCopy,
 } from '../mask/recovery';
+import { decodeConflicts, encodeConflicts } from '../mask/review';
 import { isTauri } from '../platform';
 import * as session from '../session';
 import { getSettings, useSettings } from '../state/settings';
 import { get, toast } from '../state/store';
 import { IdbRecoveryStore } from './idb';
+import {
+  decodeRoomCopy,
+  encodeRoomCopy,
+  isRoomCopyKey,
+  maskHash,
+  roomCopyExpired,
+  roomCopyFits,
+  roomCopyKey,
+  shouldKeepRoomCopy,
+  type RoomCopyHeader,
+  ROOM_COPY_KEEP_MS,
+} from './roomcopy';
 import { TauriRecoveryStore } from './tauri';
 
 interface RecoveryState {
@@ -35,7 +48,16 @@ interface RecoveryState {
 
 export const useRecovery = create<RecoveryState>(() => ({ savedAt: null, offer: null, waiting: [] }));
 
-const store: RecoveryStore = isTauri ? new TauriRecoveryStore() : new IdbRecoveryStore();
+/** Everything kept on this device: recovery copies, and what shared-copy rooms left (`roomcopy.ts`). */
+const all: RecoveryStore = isTauri ? new TauriRecoveryStore() : new IdbRecoveryStore();
+
+/** The recovery copies alone: listing, pruning and "recovered work is available" never count a room copy. */
+const store: RecoveryStore = {
+  put: (key, bytes, info) => all.put(key, bytes, info),
+  get: (key) => all.get(key),
+  delete: (key) => all.delete(key),
+  list: async () => (await all.list()).filter((copy) => !isRoomCopyKey(copy.key)),
+};
 
 /** How long the last copy took, for measuring. Times in milliseconds, size in bytes. */
 export const lastTiming = { copy: 0, compress: 0, write: 0, bytes: 0 };
@@ -71,6 +93,8 @@ function snapshot(): RecoverySnapshot | null {
   const started = performance.now();
   const copy = (mask.data as Uint8Array).slice();
   lastTiming.copy = performance.now() - started;
+  // What a room left to merge against is only right for this exact mask, so it is taken at the same moment.
+  withMask = { key, room: captureRoomCopy(key, copy) };
   return {
     key,
     mask: copy,
@@ -90,9 +114,14 @@ const saver = new Autosaver({
     delete: (key) => store.delete(key),
     put: async (key, bytes, info) => {
       const started = performance.now();
+      const taken = withMask;
+      withMask = null;
+      // Both are started at once: when the page is going away there may be no later.
+      const room = taken?.key === key ? storeRoomCopy(key, taken.room) : null;
       await store.put(key, bytes, info);
       lastTiming.write = performance.now() - started;
       lastTiming.bytes = bytes.length;
+      await room;
     },
   },
   snapshot,
@@ -114,6 +143,103 @@ const saver = new Autosaver({
   },
 });
 
+/* ───────────────────────── what a shared-copy room leaves to come back to ───────────────────────── */
+
+interface Captured {
+  header: Omit<RoomCopyHeader, 'base' | 'review'>;
+  base: Uint8Array | null;
+  review: { at: number; bytes: Uint8Array } | null;
+}
+
+/** What the room copy taken with a recovery copy of the mask is, until that copy is written. */
+let withMask: { key: string; room: Captured | null } | null = null;
+
+const mayKeepRoomCopy = () => shouldKeepRoomCopy({ autosave: getSettings().autosave, guestView: session.isGuestView() });
+
+/** The room copy for the mask as it is in `data`, which is the mask on screen or a copy just made of it. */
+function captureRoomCopy(key: string, data: Uint8Array): Captured | null {
+  const mask = session.getMask();
+  const copy = mayKeepRoomCopy() ? session.roomCopy() : null;
+  if (!mask || !copy) return null;
+  return {
+    header: { v: 1, key, room: copy.room, session: copy.session, head: copy.head, dims: mask.dims, mine: maskHash(data), offlineSegs: copy.offlineSegs, guard: copy.guard, savedAt: Date.now() },
+    base: copy.base,
+    review: copy.review ? { at: copy.review.at, bytes: encodeConflicts(copy.review.conflicts) } : null,
+  };
+}
+
+/** Writes it, or removes the one that is there when there is nothing to keep any more. */
+async function storeRoomCopy(imageKey: string, captured: Captured | null): Promise<void> {
+  const key = roomCopyKey(imageKey);
+  try {
+    if (!captured) return await all.delete(key);
+    // The page may be gone before a worker answers, so on the way out it is compressed here and now.
+    const pack = leaving ? async (data: Uint8Array) => gzipSync(data, { level: 1 }) : gzipOffThread;
+    const base = captured.base ? await pack(captured.base) : null;
+    const review = captured.review ? await pack(captured.review.bytes) : null;
+    const header: RoomCopyHeader = { ...captured.header, base: base?.length ?? 0, review: captured.review && review ? { at: captured.review.at, bytes: review.length } : null };
+    await all.put(key, encodeRoomCopy(header, base, review), { savedAt: header.savedAt });
+  } catch {
+    /* without it, coming back is merged two-way, as before */
+  }
+}
+
+/** For the mask on screen as it is now: when it was just saved to a file, or has no unsaved edits. */
+function keepRoomCopyNow(): void {
+  const key = imageKey();
+  const mask = session.getMask();
+  if (!key || !mask) return;
+  const captured = captureRoomCopy(key, mask.data as Uint8Array);
+  void queue(() => storeRoomCopy(key, captured));
+}
+
+/** True from the moment the page starts to go away. */
+let leaving = false;
+
+let roomChecks = 0;
+
+/** Takes up a room copy written for exactly the mask on screen. Any other is left where it is. */
+async function lookForRoomCopy(): Promise<void> {
+  const check = ++roomChecks;
+  const key = imageKey();
+  const mask = session.getMask();
+  if (!key || !mask || !mayKeepRoomCopy()) return;
+  try {
+    const bytes = await all.get(roomCopyKey(key));
+    const found = bytes && decodeRoomCopy(bytes);
+    if (!found || check !== roomChecks || session.getMask() !== mask) return;
+    if (roomCopyExpired(found.header, Date.now())) return void queue(() => all.delete(roomCopyKey(key)));
+    const data = mask.data as Uint8Array;
+    if (!roomCopyFits(found.header, key, mask.dims, data)) return;
+    const base = found.base ? await gunzipOffThread(found.base.slice()) : null;
+    const review = found.review ? await gunzipOffThread(found.review.slice()) : null;
+    // The mask may have been edited while this was being unpacked: then it is no longer the one.
+    if (check !== roomChecks || session.getMask() !== mask || !roomCopyFits(found.header, key, mask.dims, data)) return;
+    const conflicts = review ? decodeConflicts(review, data.length) : null;
+    session.adoptRoomCopy({
+      room: found.header.room,
+      session: found.header.session,
+      head: found.header.head,
+      base: base && base.length === data.length ? base : null,
+      offlineSegs: found.header.offlineSegs,
+      guard: found.header.guard,
+      review: conflicts && found.header.review ? { at: found.header.review.at, conflicts } : null,
+    });
+  } catch {
+    /* an unreadable copy is not taken */
+  }
+}
+
+/** Removes every room copy: autosave is off, so no copy of a mask stays on this device. */
+async function dropRoomCopies(): Promise<void> {
+  for (const copy of await all.list()) if (isRoomCopyKey(copy.key)) await all.delete(copy.key);
+}
+
+/** Room copies older than a membership lasts are of no use. */
+async function pruneRoomCopies(now: number): Promise<void> {
+  for (const copy of await all.list()) if (isRoomCopyKey(copy.key) && now - copy.savedAt >= ROOM_COPY_KEEP_MS) await all.delete(copy.key);
+}
+
 /* Store work runs one after another, so a delete never overtakes the write before it. */
 let chain: Promise<unknown> = Promise.resolve();
 function queue<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -131,6 +257,7 @@ export const copies = (): Promise<StoredCopy[]> => store.list();
 async function refreshWaiting(): Promise<void> {
   if (!getSettings().autosave) return void useRecovery.setState({ waiting: [] });
   await pruneStore(store, Date.now());
+  await pruneRoomCopies(Date.now());
   useRecovery.setState({ waiting: await store.list() });
 }
 
@@ -177,6 +304,8 @@ export async function restore(): Promise<void> {
     if (found !== copy) return;
     if (!session.restoreMask(data, copy.header.segments, copy.header.maskName)) throw new Error('size');
     clearOffer();
+    // The mask is now the one the copy held: what a room left for exactly that mask comes back with it.
+    void lookForRoomCopy();
     // The restored edits are unsaved again, and are kept as a fresh copy.
     saver.noteEdit();
   } catch {
@@ -221,7 +350,10 @@ function wait(work: Promise<void>): void {
 /** Start autosave. Returns a function that stops it. */
 export function startRecovery(): () => void {
   // Off means no copies on this device, also when it was switched off elsewhere.
-  if (!getSettings().autosave) wait(saver.turnOff());
+  if (!getSettings().autosave) {
+    wait(saver.turnOff());
+    void queue(dropRoomCopies);
+  }
   void queue(refreshWaiting);
 
   const offSession = session.onSessionEvent((event) => {
@@ -232,10 +364,20 @@ export function startRecovery(): () => void {
       case 'opened':
         useRecovery.setState({ savedAt: null });
         void lookForCopy();
+        void lookForRoomCopy();
         break;
       case 'saved':
+        forgetCurrent();
+        // The file now holds this mask, so what the room left is kept for it.
+        keepRoomCopyNow();
+        break;
       case 'discarded':
         forgetCurrent();
+        break;
+      case 'room':
+        // With unsaved edits it is written with the next recovery copy of the mask; without, now.
+        if (get().dirty) saver.noteEdit();
+        else keepRoomCopyNow();
         break;
       case 'closed':
         saver.stop();
@@ -257,6 +399,7 @@ export function startRecovery(): () => void {
     clearOffer();
     useRecovery.setState({ savedAt: null, waiting: [] });
     wait(saver.turnOff());
+    void queue(dropRoomCopies);
     toast('info', 'Autosave is off. Recovery copies were removed.');
   });
 
@@ -265,11 +408,16 @@ export function startRecovery(): () => void {
     if (document.visibilityState === 'hidden') flush();
   };
   // The page may be gone before a worker answers, so compress here and now.
-  const leaving = () => void saver.flush(async (data) => gzipSync(data, { level: 1 }));
+  const onLeaving = () => {
+    leaving = true;
+    void saver.flush(async (data) => gzipSync(data, { level: 1 }));
+    // A page that stays after all (the user cancelled closing it) goes back to the worker.
+    setTimeout(() => (leaving = false), 1000);
+  };
   window.addEventListener('blur', flush);
   document.addEventListener('visibilitychange', hidden);
-  window.addEventListener('pagehide', leaving);
-  window.addEventListener('beforeunload', leaving);
+  window.addEventListener('pagehide', onLeaving);
+  window.addEventListener('beforeunload', onLeaving);
 
   return () => {
     offSession();
@@ -277,7 +425,7 @@ export function startRecovery(): () => void {
     saver.stop();
     window.removeEventListener('blur', flush);
     document.removeEventListener('visibilitychange', hidden);
-    window.removeEventListener('pagehide', leaving);
-    window.removeEventListener('beforeunload', leaving);
+    window.removeEventListener('pagehide', onLeaving);
+    window.removeEventListener('beforeunload', onLeaving);
   };
 }
