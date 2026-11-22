@@ -267,10 +267,26 @@ test('slice, zoom, window and mask survive every layout change', async ({ page }
   expect(tinted).toBeGreaterThan(0);
 
   const stretched = await watchForStretch(page);
+  const quadrant = (await panes(page)).cells.find((c) => c.view === 'axial')!;
   for (const name of ['1 large and 3 stacked', '3 side by side', '2 side by side', 'Single view', '2 × 2']) {
     await layoutButton(page, name).click();
-    const shown = (await panes(page)).cells.map((c) => c.view).filter((v) => v !== 'volume3d');
-    for (const v of shown) expectSameView(await viewState(page, v), before[v], `${name}, ${v}:`);
+    const area = await panes(page);
+    const shown = area.cells.map((c) => c.view).filter((v) => v !== 'volume3d');
+    for (const v of shown) {
+      const now = await viewState(page, v);
+      if (name === '1 large and 3 stacked' && v === 'axial') {
+        // The large pane enlarges its image as maximise does: the same centre, slice and window, larger by
+        // as much as an image that fits the pane grows. The phantom is as wide as it is high.
+        const large = area.cells.find((c) => c.view === 'axial')!;
+        const grew = Math.min(large.w, large.h) / Math.min(quadrant.w, quadrant.h);
+        expect(grew).toBeGreaterThan(1.5);
+        expect(now.mmPerPx, 'axial in the large pane').toBeCloseTo(before.axial.mmPerPx / grew, 4);
+        expectSameView({ ...now, mmPerPx: before.axial.mmPerPx }, before.axial, 'axial in the large pane:');
+      } else {
+        // Every other view, and the axial view once it has left the large pane, is exactly as it was.
+        expectSameView(now, before[v], `${name}, ${v}:`);
+      }
+    }
   }
   // Not a double-click: with the crosshair tool a click moves the other two views, as it should.
   await page.locator('[data-view="coronal"]').hover();
@@ -352,6 +368,162 @@ test('a maximised view shows the same part of the image, larger, and restoring p
 
   await page.waitForTimeout(200);
   expect(await stretched()).toEqual([]);
+});
+
+/** Shows `view` in the pane that `inPane` is in, with the picker on that pane. */
+async function showInPaneOf(page: Page, inPane: string, view: string): Promise<void> {
+  const label = (v: string) => (v === 'volume3d' ? '3D' : v[0].toUpperCase() + v.slice(1));
+  await page.locator(`[data-view="${inPane}"]`).getByRole('button', { name: label(inPane), exact: true }).click();
+  await page.getByRole('menu', { name: 'View in this pane' }).getByRole('menuitemradio', { name: label(view), exact: true }).click();
+}
+
+const SLICE_VIEWS = ['axial', 'sagittal', 'coronal'];
+const allViews = async (page: Page) => Object.fromEntries(await Promise.all(SLICE_VIEWS.map(async (v) => [v, await viewState(page, v)] as const)));
+
+test('the large pane of 1 large and 3 stacked enlarges its image, and leaving it puts the image back', async ({ page }) => {
+  await openPhantom(page);
+  // A zoom and a pan of the user's own first, so "back" is not just "fitted".
+  await page.keyboard.press('z');
+  await drag(page, 'axial', [0, 40], [0, -20]);
+  await page.keyboard.press('c');
+  const stretched = await watchForStretch(page);
+  const box = async (view: string) => (await panes(page)).cells.find((c) => c.view === view)!;
+  const fit = (b: Box) => Math.min(b.w, b.h);
+  const before = await allViews(page);
+  const quadrant = await box('axial');
+
+  await layoutButton(page, '1 large and 3 stacked').click();
+  const large = await box('axial');
+  const grew = fit(large) / fit(quadrant);
+  expect(grew).toBeGreaterThan(1.5);
+  const axial = await viewState(page, 'axial');
+  expect(axial.mmPerPx).toBeCloseTo(before.axial.mmPerPx / grew, 4);
+  expectSameView({ ...axial, mmPerPx: before.axial.mmPerPx }, before.axial, 'large pane:');
+  // The three stacked views are not enlarged.
+  for (const v of ['sagittal', 'coronal']) expectSameView(await viewState(page, v), before[v], `stacked ${v}:`);
+
+  // The panel and the window still leave the image as it is, large pane or not.
+  await page.getByRole('button', { name: 'Hide segments' }).click();
+  expectSameView(await viewState(page, 'axial'), axial, 'panel closed in the large pane:');
+  // Tall enough that the large pane is narrower than it is high, so maximise has room to enlarge again.
+  await page.setViewportSize({ width: 1024, height: 1000 });
+  await page.waitForTimeout(150);
+  expectSameView(await viewState(page, 'axial'), axial, 'window resized in the large pane:');
+
+  // Maximise goes on top, by as much as the pane grows again, and comes off again.
+  const largeNow = await box('axial');
+  await page.locator('[data-view="axial"]').hover();
+  await page.locator('[data-view="axial"]').getByRole('button', { name: 'Maximise' }).click();
+  const full = await box('axial');
+  const more = fit(full) / fit(largeNow);
+  expect(more).toBeGreaterThan(1.05);
+  const maximised = await viewState(page, 'axial');
+  expect(maximised.mmPerPx).toBeCloseTo(axial.mmPerPx / more, 4);
+  expectSameView({ ...maximised, mmPerPx: axial.mmPerPx }, axial, 'maximised from the large pane:');
+  await page.getByRole('button', { name: 'Show segments' }).click();
+  expectSameView(await viewState(page, 'axial'), maximised, 'panel open while maximised:');
+  await page.keyboard.press('Escape');
+  expectSameView(await viewState(page, 'axial'), axial, 'restored to the large pane:');
+
+  // A zoom of the user's own in the large pane is kept, in proportion, on the way out.
+  await page.evaluate(() => window.__w.engine.zoomBy('axial', 1.25));
+  const zoomed = await viewState(page, 'axial');
+  expect(axial.mmPerPx / zoomed.mmPerPx).toBeCloseTo(1.25, 4);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(150);
+  await layoutButton(page, '2 × 2').click();
+  const back = await viewState(page, 'axial');
+  expect(back.mmPerPx).toBeCloseTo(before.axial.mmPerPx / 1.25, 4);
+  expectSameView({ ...back, mmPerPx: before.axial.mmPerPx }, before.axial, 'back in 2 × 2:');
+  for (const v of ['sagittal', 'coronal']) expectSameView(await viewState(page, v), before[v], `${v} back in 2 × 2:`);
+
+  await page.waitForTimeout(200);
+  expect(await stretched()).toEqual([]);
+});
+
+test('swapping a view into the large pane enlarges it, and the one swapped out shrinks back', async ({ page }) => {
+  await openPhantom(page);
+  const before = await allViews(page);
+  const box = async (view: string) => (await panes(page)).cells.find((c) => c.view === view)!;
+  const fit = (b: Box) => Math.min(b.w, b.h);
+  const quadrant = await box('axial');
+  await layoutButton(page, '1 large and 3 stacked').click();
+  const grew = fit(await box('axial')) / fit(quadrant);
+  const stretched = await watchForStretch(page);
+
+  // Coronal into the large pane, with the picker on that pane.
+  await showInPaneOf(page, 'axial', 'coronal');
+  expect((await box('coronal')).x).toBe(0);
+  expect((await box('axial')).x).toBeGreaterThan(0);
+  const coronal = await viewState(page, 'coronal');
+  expect(coronal.mmPerPx).toBeCloseTo(before.coronal.mmPerPx / grew, 4);
+  expectSameView({ ...coronal, mmPerPx: before.coronal.mmPerPx }, before.coronal, 'coronal swapped in:');
+  expectSameView(await viewState(page, 'axial'), before.axial, 'axial swapped out:');
+  expectSameView(await viewState(page, 'sagittal'), before.sagittal, 'sagittal untouched:');
+
+  // Sagittal in by dragging its label onto the large pane; coronal goes back to what it was.
+  const from = (await page.locator('[data-view="sagittal"]').getByRole('button', { name: 'Sagittal' }).boundingBox())!;
+  const to = (await page.locator('[data-view="coronal"]').boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 6 });
+  await page.mouse.up();
+  expect((await box('sagittal')).x).toBe(0);
+  const sagittal = await viewState(page, 'sagittal');
+  expect(sagittal.mmPerPx).toBeCloseTo(before.sagittal.mmPerPx / grew, 4);
+  expectSameView(await viewState(page, 'coronal'), before.coronal, 'coronal swapped out:');
+
+  // Maximising a stacked view while another is in the large pane, then restoring, changes neither.
+  await page.locator('[data-view="coronal"]').hover();
+  await page.locator('[data-view="coronal"]').getByRole('button', { name: 'Maximise' }).click();
+  expect((await viewState(page, 'coronal')).mmPerPx).toBeLessThan(before.coronal.mmPerPx);
+  await page.keyboard.press('Escape');
+  expectSameView(await viewState(page, 'coronal'), before.coronal, 'coronal restored:');
+  expectSameView(await viewState(page, 'sagittal'), sagittal, 'sagittal still large:');
+
+  // Out through another layout: everything is as it was at the start.
+  await layoutButton(page, '3 side by side').click();
+  for (const v of (await panes(page)).cells.map((c) => c.view).filter((v) => v !== 'volume3d')) {
+    expectSameView(await viewState(page, v), before[v], `3 side by side, ${v}:`);
+  }
+  await layoutButton(page, '2 × 2').click();
+  for (const v of SLICE_VIEWS) expectSameView(await viewState(page, v), before[v], `2 × 2, ${v}:`);
+
+  await page.waitForTimeout(200);
+  expect(await stretched()).toEqual([]);
+});
+
+test('an image opened in 1 large and 3 stacked is the same as one opened in 2 × 2 and moved there', async ({ page }) => {
+  await openPhantom(page);
+  const inGrid = await allViews(page);
+  await layoutButton(page, '1 large and 3 stacked').click();
+  const moved = await allViews(page);
+  expect(moved.axial.mmPerPx).toBeLessThan(inGrid.axial.mmPerPx / 1.5);
+
+  // Open again: the layout is remembered, so the image loads straight into the large pane.
+  await openPhantom(page);
+  await expect(layoutButton(page, '1 large and 3 stacked')).toHaveAttribute('aria-pressed', 'true');
+  for (const v of SLICE_VIEWS) expectSameView(await viewState(page, v), moved[v], `opened in 1 large and 3 stacked, ${v}:`);
+
+  // Swapping works from here as it does after a layout change.
+  await showInPaneOf(page, 'axial', 'sagittal');
+  expectSameView(await viewState(page, 'axial'), inGrid.axial, 'axial swapped out:');
+  expect((await viewState(page, 'sagittal')).mmPerPx).toBeCloseTo(moved.axial.mmPerPx, 4);
+  await showInPaneOf(page, 'sagittal', 'axial');
+
+  // Back in 2 × 2 nothing is left zoomed in.
+  await layoutButton(page, '2 × 2').click();
+  for (const v of SLICE_VIEWS) expectSameView(await viewState(page, v), inGrid[v], `back in 2 × 2, ${v}:`);
+
+  // The same through maximise: maximised from the large pane, restored, back.
+  await layoutButton(page, '1 large and 3 stacked').click();
+  await page.locator('[data-view="axial"]').dblclick({ position: { x: 60, y: 90 } });
+  expect((await viewState(page, 'axial')).mmPerPx).toBeLessThan(moved.axial.mmPerPx);
+  await page.keyboard.press('Escape');
+  await layoutButton(page, '2 × 2').click();
+  const end = await viewState(page, 'axial');
+  expect(end.mmPerPx).toBeCloseTo(inGrid.axial.mmPerPx, 4);
 });
 
 test('opening and closing the segments panel keeps zoom and centre', async ({ page }) => {
