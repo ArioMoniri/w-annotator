@@ -2209,6 +2209,10 @@ function onRoomText(r: RoomCtx, msg: TextMessage): void {
           r.quietMerge = true;
         }
         startSync(r, msg.code === 'replay-ahead' ? 'two' : 'three');
+      } else if (msg.code === 'busy' && typeof msg.to === 'number') {
+        // The receiver's connection is not keeping up with a transfer from here. Stop; they will ask again.
+        const serving = r.serving.get(msg.to);
+        if (serving) serving.cancelled = true;
       } else if (msg.code === 'rate-limited' && (msg.kind === FrameKind.Patch || msg.kind === FrameKind.SegOp)) {
         // An edit of mine was dropped. A quiet catch-up sends again whatever the room is missing.
         setTimeout(() => r === room && r.ready && !isGuestView() && quietCatchUp(r), 1000);
