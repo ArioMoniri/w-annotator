@@ -5,7 +5,7 @@ import * as session from './session';
 import * as windowing from './windowing';
 import { DROP_TEXT, dropHint } from './files/roles';
 import { fileRows } from './mask/collection';
-import { actionFor, comboFromEvent, useShortcuts, type ActionId } from './state/shortcuts';
+import { actionFor, comboFromEvent, escapeGoesTo, useShortcuts, type ActionId } from './state/shortcuts';
 import { EDIT_TOOLS, get, set, toast, useStore, type ToolId } from './state/store';
 import { fitAll, initEngine, scrollSlices } from './viewer/engine';
 import { EmptyState } from './ui/EmptyState';
@@ -30,6 +30,9 @@ import { chooseLayout, currentLayout } from './state/views';
 import { Tour } from './tour/Tour';
 import { startTour } from './tour/state';
 import { shouldShowTour } from './tour/steps';
+
+/** Anything that closes itself on Esc: menus, the popovers of a segment row, dialogs. */
+const OVERLAYS = '.menu, [role="menu"], [role="dialog"]';
 
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -132,18 +135,41 @@ function useHotkeys() {
       if (!s.image || s.settings) return;
       if (e.key >= '1' && e.key <= '9' && combo.length === 1) return session.selectSegment(Number(e.key));
       // A fill preview waits for a yes or a no before anything else.
-      if (s.preview && (combo === 'enter' || combo === 'escape')) {
+      if (s.preview && combo === 'enter') {
         e.preventDefault();
-        return combo === 'enter' ? session.applyFillPreview() : session.cancelFillPreview();
+        return session.applyFillPreview();
       }
-      if (e.key === 'Escape') {
-        if (s.maximized) return set({ maximized: null });
-        if (EDIT_TOOLS.includes(s.tool)) return session.setTool('crosshair');
-      }
+      if (combo !== 'escape') return;
+      const to = escapeGoesTo({
+        repeat: e.repeat,
+        overlay: !!document.querySelector(OVERLAYS),
+        dragging,
+        preview: !!s.preview,
+        maximised: !!s.maximized,
+        editTool: EDIT_TOOLS.includes(s.tool),
+      });
+      if (to === 'nothing') return;
+      e.preventDefault();
+      if (to === 'preview') session.cancelFillPreview();
+      else if (to === 'maximise') set({ maximized: null });
+      else session.setTool('crosshair');
     };
+    // A button held down anywhere is a drag under way; Esc is not a layout change in the middle of one.
+    let dragging = false;
+    const onPointer = (e: PointerEvent) => {
+      dragging = e.type !== 'pointercancel' && e.buttons !== 0;
+    };
+    const onBlur = () => {
+      dragging = false;
+    };
+    const pointerEvents = ['pointerdown', 'pointerup', 'pointercancel'] as const;
+    for (const type of pointerEvents) window.addEventListener(type, onPointer, true);
+    window.addEventListener('blur', onBlur);
     window.addEventListener('keydown', onKey);
     return () => {
       unsub();
+      for (const type of pointerEvents) window.removeEventListener(type, onPointer, true);
+      window.removeEventListener('blur', onBlur);
       window.removeEventListener('keydown', onKey);
     };
   }, []);
