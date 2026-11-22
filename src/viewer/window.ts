@@ -31,9 +31,10 @@ export interface WindowPreset {
  * "Detection of Pancreatic Tumors, Image Quality, and Radiation Dose during the Pancreatic
  * Parenchymal Phase: Effect of a Low-Tube-Voltage, High-Tube-Current CT Technique — Preliminary
  * Results", Radiology 2010, https://doi.org/10.1148/radiol.10091819: a preset soft-tissue
- * window, width 350 HU, level 40 HU. A later study uses nearly the same (width 400 HU, level
- * 40 HU; Cancer Imaging 2023, https://doi.org/10.1186/s40644-023-00637-9), which is Soft
- * tissue here.
+ * window, width 350 HU, level 40 HU. That value was taken from a search summary of the paper's
+ * figure legends; the publisher's page could not be opened to read it there. A later study,
+ * read in full, uses nearly the same (width 400 HU, level 40 HU in its figure legends; Cancer
+ * Imaging 2023, https://doi.org/10.1186/s40644-023-00637-9), which is Soft tissue here.
  *
  * "Pancreas, narrow" is not a published preset. It is a narrow window chosen by this project
  * for low-attenuation lesions on a contrast-enhanced scan: W 150, L 65, which shows −10 to

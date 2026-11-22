@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - In "1 large and 3 stacked" the view in the large pane shows its image enlarged to fill the pane, as a maximised view does. It goes back to its size when it leaves the large pane, and a view swapped in grows in its place.
-- The Pancreas preset is now W 350, L 40: the soft-tissue window that published pancreas CT studies use (Radiology 2010, doi:10.1148/radiol.10091819). There is no dedicated standard pancreas window. The earlier narrow window (W 150, L 65) stays as "Pancreas, narrow", for low-attenuation lesions on a contrast-enhanced scan.
+- The Pancreas preset is now W 350, L 40: a soft-tissue window of the kind published pancreas CT studies use (W 350, L 40 as reported for Radiology 2010, doi:10.1148/radiol.10091819; W 400, L 40 in Cancer Imaging 2023, doi:10.1186/s40644-023-00637-9). There is no dedicated standard pancreas window. The earlier narrow window (W 150, L 65) stays as "Pancreas, narrow", for low-attenuation lesions on a contrast-enhanced scan.
 
 ### Fixed
 
