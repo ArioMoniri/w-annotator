@@ -91,6 +91,8 @@ test('asking for the image over and over gets one transfer, not twenty', async (
 interface Tamper {
   /** Sends the first patch the page received once more, as the newest edit of the room. */
   replayFirstPatch(): void;
+  /** Keeps the next edit from the page, and numbers the ones after it so that nothing seems to be missing. */
+  dropNextPatch(): void;
   hostId: number;
 }
 
@@ -99,12 +101,16 @@ interface Tamper {
  * old edit again under a new number, and it can stamp one member's frame with another's id.
  */
 async function tamper(page: Page, opts: { relabelToHost?: boolean } = {}): Promise<Tamper> {
-  const control: Tamper = { replayFirstPatch: () => undefined, hostId: 0 };
+  const control: Tamper = { replayFirstPatch: () => undefined, dropNextPatch: () => undefined, hostId: 0 };
   await page.routeWebSocket(/\/v2\/rooms\//, (ws: WebSocketRoute) => {
     const server = ws.connectToServer();
     let shift = 0;
     let last = 0;
     let first: Buffer | null = null;
+    let drop = false;
+    control.dropNextPatch = () => {
+      drop = true;
+    };
     ws.onMessage((m) => server.send(m));
     server.onMessage((m) => {
       if (typeof m === 'string') {
@@ -119,6 +125,11 @@ async function tamper(page: Page, opts: { relabelToHost?: boolean } = {}): Promi
       }
       const frame = Buffer.from(m);
       const kind = frame[1];
+      if (kind === 1 && drop) {
+        drop = false;
+        shift--;
+        return;
+      }
       if (kind === 1 || kind === 2) {
         last = Number(frame.readBigUInt64LE(12)) + shift;
         frame.writeBigUInt64LE(BigInt(last), 12);
@@ -165,12 +176,124 @@ test('an edit the room server sends a second time is not applied a second time',
 
   // The room server sends the stroke again, numbered as the room's newest edit.
   relay.replayFirstPatch();
-  // The next real edit arrives after it, so by then the repeat has been dealt with.
-  await drag(host, 'axial', [30, -20], [70, -10]);
-  const now = await maskVoxels(host);
-  await expect.poll(() => maskVoxels(guest)).toBe(now);
+  await guest.waitForTimeout(1000);
+  // The repeat changed nothing.
+  expect(await maskVoxels(guest)).toBe(start);
   expect(await maskDump(guest)).toBe(await maskDump(host));
+
+  // And it does not go unnoticed. The guest was shown an edit the host never saw; the next thing
+  // that passes between them shows the difference, and both stop taking edits from this room.
+  await drag(host, 'axial', [30, -20], [70, -10]);
+  for (const page of [guest, host]) {
+    await expect(page.locator('.toast[data-kind="error"]').filter({ hasText: FORK })).toBeVisible({ timeout: 15_000 });
+  }
 });
+
+const FORK = "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room.";
+
+test('an edit the room server keeps from one person is noticed, and nobody loses their own work', async ({ browser }) => {
+  const host = await person(browser);
+  const guest = await person(browser);
+  const relay = await tamper(guest);
+  await openPhantom(host);
+  await joinRoom(guest, 'Ario', await startRoom(host, 'Mina'));
+  await expect(guest.locator('.segrow')).toHaveCount(2);
+  const start = await maskVoxels(host);
+
+  // An honest stroke first: nothing is said about a room that is in order.
+  await host.keyboard.press('b');
+  await drag(host, 'axial', [-60, 40], [-20, 70]);
+  const first = await maskVoxels(host);
+  expect(first).toBeGreaterThan(start);
+  await expect.poll(() => maskVoxels(guest)).toBe(first);
+  await guest.waitForTimeout(2500);
+  await expect(guest.locator('.toast[data-kind="error"]')).toHaveCount(0);
+  await expect(host.locator('.toast[data-kind="error"]')).toHaveCount(0);
+
+  // The room server leaves the host's next stroke out for the guest and closes the gap in the numbering.
+  relay.dropNextPatch();
+  await drag(host, 'axial', [30, -20], [70, -10]);
+  const second = await maskVoxels(host);
+  expect(second).toBeGreaterThan(first);
+  // Another stroke from the host reaches the guest under the number of the one that was kept back.
+  await drag(host, 'axial', [-70, -60], [-40, -50]);
+  for (const page of [guest, host]) {
+    await expect(page.locator('.toast[data-kind="error"]').filter({ hasText: FORK })).toBeVisible({ timeout: 15_000 });
+  }
+  await guest.getByTestId('room-pill').click();
+  await expect(guest.locator('.note')).toHaveText(FORK);
+  await guest.keyboard.press('Escape');
+
+  // Each keeps what they have. What the guest paints from here on stays the guest's.
+  const hostHas = await maskVoxels(host);
+  const guestHad = await maskVoxels(guest);
+  await guest.keyboard.press('b');
+  await drag(guest, 'axial', [50, 50], [80, 60]);
+  expect(await maskVoxels(guest)).toBeGreaterThan(guestHad);
+  await host.waitForTimeout(1000);
+  expect(await maskVoxels(host)).toBe(hostHas);
+});
+
+test('what the host sends one person cannot be read by another, and a removed person reads nothing sent after', async ({ browser }) => {
+  const host = await person(browser);
+  // Whoever runs the room server sees every frame, and here hands them all to the wrong people.
+  const leaked: { kind: number; to: number; bytes: Buffer }[] = [];
+  await host.routeWebSocket(ROOM_SOCKET, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (typeof m !== 'string') {
+        const bytes = Buffer.from(m);
+        leaked.push({ kind: bytes[1], to: bytes.readUInt32LE(8), bytes });
+      }
+      server.send(m);
+    });
+    server.onMessage((m) => ws.send(m));
+  });
+  await openPhantom(host);
+  const ana = await botJoin(await startRoom(host, 'Mina'), 'Ana');
+  const ben = await botJoin(await anotherLink(host), 'Ben');
+  await expect(host.locator('.avatar')).toHaveCount(2);
+  const hostId = ana.welcome.roster.find((m) => m.role === 'host')!.id;
+
+  // Ana asks for the image. Every slab is for her alone.
+  ana.send(KIND.syncRequest, { rid: 7, image: true, fp: null }, undefined, { to: hostId });
+  await expect.poll(() => ana.frames.some((f) => f.kind === KIND.syncSlab && f.meta.rid === 7 && f.meta.t === 'end'), { timeout: 20_000 }).toBe(true);
+  const slabs = leaked.filter((f) => (f.kind === KIND.syncSlab || f.kind === KIND.imageSlab) && f.to === ana.self);
+  expect(slabs.length).toBeGreaterThan(3);
+  expect(slabs.filter((f) => ben.canRead(f.bytes, hostId))).toEqual([]);
+  // Nor the keys the host handed her.
+  const keysForAna = leaked.filter((f) => f.kind === KIND.key && f.to === ana.self);
+  expect(keysForAna.length).toBeGreaterThan(0);
+  expect(keysForAna.filter((f) => ben.canRead(f.bytes, hostId))).toEqual([]);
+
+  // While Ben is a member he reads the room's edits, as he should.
+  await host.keyboard.press('b');
+  await drag(host, 'axial', [-60, 40], [-20, 70]);
+  await expect.poll(() => ben.frames.some((f) => f.kind === KIND.patch)).toBe(true);
+  const before = leaked.filter((f) => f.kind === KIND.patch);
+  expect(before.some((f) => ben.canRead(f.bytes, hostId))).toBe(true);
+
+  // The host removes Ben. The room moves to a new key, which Ana is handed and Ben is not.
+  const sent = leaked.length;
+  await host.getByTestId('room-pill').click();
+  await host.getByRole('button', { name: 'Remove Ben' }).click();
+  await host.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  await expect.poll(() => ben.closed?.code).toBe(4403);
+  await host.keyboard.press('b');
+  const patches = ana.frames.filter((f) => f.kind === KIND.patch).length;
+  await drag(host, 'axial', [30, -20], [70, -10]);
+  await expect.poll(() => ana.frames.filter((f) => f.kind === KIND.patch).length).toBeGreaterThan(patches);
+  const after = leaked.slice(sent).filter((f) => f.kind === KIND.patch);
+  expect(after.length).toBeGreaterThan(0);
+  // The frames carry the new epoch, Ana reads them, and Ben, who still holds the old key, reads none.
+  expect(after.every((f) => f.bytes.readUInt32LE(20) === 2)).toBe(true);
+  expect(after.filter((f) => ben.canRead(f.bytes, hostId))).toEqual([]);
+  expect(after.every((f) => ana.canRead(f.bytes, hostId))).toBe(true);
+  ana.close();
+});
+
+const ROOM_SOCKET = new RegExp('/v2/rooms/');
 
 test('the room server cannot pass one member off as the host', async ({ browser }) => {
   const host = await person(browser);

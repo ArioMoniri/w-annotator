@@ -464,10 +464,11 @@ test('sealing and opening frames is fast enough not to be what limits a room', a
   const speed = await page.evaluate(async () => {
     // The app's own module, as the page runs it.
     const crypto2 = (await import(/* @vite-ignore */ `${location.origin}/src/collab/crypto.ts`)) as typeof import('../src/collab/crypto');
-    const key = crypto2.makeRoomKey();
+    const keys2 = (await import(/* @vite-ignore */ `${location.origin}/src/collab/keys.ts`)) as typeof import('../src/collab/keys');
+    const key = crypto.getRandomValues(new Uint8Array(32));
     const frame = new Uint8Array(1 << 20);
     for (let i = 0; i < frame.length; i += 65536) crypto.getRandomValues(frame.subarray(i, i + 65536));
-    const aad = crypto2.frameAad('ROOM12345678', 1, 4);
+    const aad = 'w-rooms/3 all ROOM12345678 1 4 7';
     const rounds = 24;
     let sealed = crypto2.seal(key, aad, frame);
     let t = performance.now();
@@ -476,10 +477,46 @@ test('sealing and opening frames is fast enough not to be what limits a room', a
     t = performance.now();
     for (let i = 0; i < rounds; i++) crypto2.open(key, aad, sealed);
     const open = rounds / ((performance.now() - t) / 1000);
-    return { sealMiBPerSecond: Math.round(seal), openMiBPerSecond: Math.round(open), secureContext: window.isSecureContext, webCrypto: !!crypto.subtle };
+
+    // The same megabyte as an edit travels: sealed under the room key and signed by its sender,
+    // then checked against the sender's key and opened by someone else.
+    const host = keys2.RoomKeys.host('ROOM12345678', new Uint8Array(32).fill(1));
+    const header = (kind: number, epoch: number) => ({ version: 3, kind, flags: 0, from: host.self, to: 0, seq: 1, epoch });
+    let signed = host.seal(1, 0, frame)!;
+    t = performance.now();
+    for (let i = 0; i < rounds; i++) signed = host.seal(1, 0, frame)!;
+    const sealSigned = rounds / ((performance.now() - t) / 1000);
+    t = performance.now();
+    for (let i = 0; i < rounds; i++) if (!host.open(header(1, signed.epoch), signed.payload).plain) throw new Error('did not open');
+    const openSigned = rounds / ((performance.now() - t) / 1000);
+
+    // A cursor: small, sent many times a second by everyone.
+    const cursor = new TextEncoder().encode(JSON.stringify({ t: 'cursor', vp: 'axial', w: [12.5, -40.25, 118], r: 4, f: host.self }));
+    let small = host.seal(5, 0, cursor)!;
+    t = performance.now();
+    for (let i = 0; i < 200; i++) small = host.seal(5, 0, cursor)!;
+    const signMs = (performance.now() - t) / 200;
+    t = performance.now();
+    for (let i = 0; i < 200; i++) host.open(header(5, small.epoch), small.payload);
+    const verifyMs = (performance.now() - t) / 200;
+    return {
+      sealMiBPerSecond: Math.round(seal),
+      openMiBPerSecond: Math.round(open),
+      sealAndSignMiBPerSecond: Math.round(sealSigned),
+      verifyAndOpenMiBPerSecond: Math.round(openSigned),
+      smallFrameSealAndSignMs: Math.round(signMs * 100) / 100,
+      smallFrameVerifyAndOpenMs: Math.round(verifyMs * 100) / 100,
+      secureContext: window.isSecureContext,
+      webCrypto: !!crypto.subtle,
+    };
   });
   // The connection sends at most 10 MiB a second; sealing must be well above that.
   expect(speed.sealMiBPerSecond).toBeGreaterThan(15);
   expect(speed.openMiBPerSecond).toBeGreaterThan(15);
+  // Signing and checking the sender must not change that.
+  expect(speed.sealAndSignMiBPerSecond).toBeGreaterThan(15);
+  expect(speed.verifyAndOpenMiBPerSecond).toBeGreaterThan(15);
+  // Sixteen cursors a second from each of a few people: checking one must stay a small part of a frame's time.
+  expect(speed.smallFrameVerifyAndOpenMs).toBeLessThan(8);
   results.encryption = speed;
 });

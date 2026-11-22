@@ -39,14 +39,14 @@ describe('base64', () => {
 describe('frames', () => {
   it('writes the documented header', () => {
     const out = encodeFrame({ kind: 1, flags: 0x0102, from: 0x0a0b0c0d, to: 7, seq: 0x1122334455667788n, epoch: 1 }, new Uint8Array(0));
-    expect(hex(out)).toBe('02 01 02 01 0d 0c 0b 0a 07 00 00 00 88 77 66 55 44 33 22 11 01 00 00 00');
+    expect(hex(out)).toBe('03 01 02 01 0d 0c 0b 0a 07 00 00 00 88 77 66 55 44 33 22 11 01 00 00 00');
   });
   it('round-trips a header and payload', () => {
     const payload = new Uint8Array([0x68, 0x69]);
     const out = encodeFrame({ kind: FrameKind.Patch, seq: 7, epoch: 1 }, payload);
-    expect(hex(out)).toBe('02 01 00 00 00 00 00 00 00 00 00 00 07 00 00 00 00 00 00 00 01 00 00 00 68 69');
+    expect(hex(out)).toBe('03 01 00 00 00 00 00 00 00 00 00 00 07 00 00 00 00 00 00 00 01 00 00 00 68 69');
     const back = decodeFrame(out)!;
-    expect(back.header).toEqual({ version: 2, kind: 1, flags: 0, from: 0, to: 0, seq: 7, epoch: 1 });
+    expect(back.header).toEqual({ version: 3, kind: 1, flags: 0, from: 0, to: 0, seq: 7, epoch: 1 });
     expect(Array.from(back.payload)).toEqual([0x68, 0x69]);
   });
   it('keeps sequence numbers above 32 bits', () => {
@@ -56,7 +56,7 @@ describe('frames', () => {
   it('refuses short frames and other versions', () => {
     expect(decodeFrame(new Uint8Array(HEADER_BYTES - 1))).toBeNull();
     const out = encodeFrame({ kind: 1, seq: 1, epoch: 1 }, new Uint8Array(0));
-    out[0] = 3;
+    out[0] = 2;
     expect(decodeFrame(out)).toBeNull();
   });
 });

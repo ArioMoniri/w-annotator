@@ -8,8 +8,7 @@
  * as JSON and quits the app.
  */
 import { RoomClient } from './collab/client';
-import { unwrapRoomKey } from './collab/crypto';
-import { inviteKeys, makeSeed } from './collab/identity';
+import { makeSeed } from './collab/identity';
 import { FrameKind, parseInvite } from './collab/protocol';
 import { finishSelfTest } from './platform';
 import * as session from './session';
@@ -72,17 +71,13 @@ async function botVisit(link: string): Promise<string> {
   const bot: RoomClient = new RoomClient(server, invite.room, makeSeed(), { t: 'redeem', secret: invite.secret }, null, {
     onStatus: () => undefined,
     onWelcome: (welcome) => {
-      const key = welcome.invite && unwrapRoomKey(inviteKeys(invite.secret).wrapKey, welcome.invite.wrappedKey);
-      if (!key) {
-        failed = 'The invite carried no room key';
-        return;
-      }
-      bot.setKey(key);
+      if (!bot.keys) failed = 'The invite did not say who the host is';
       people = welcome.roster.length;
-      bot.sendFrame(FrameKind.Presence, { t: 'hi', name: 'Bot' });
     },
     onText: () => undefined,
     onFrame: () => undefined,
+    // The host has let the bot in and handed it the room key: now it can say its name.
+    onKeys: () => void bot.sendFrame(FrameKind.Presence, { t: 'hi', name: 'Bot' }),
     onEnded: (code, reason) => {
       failed = `Could not join through ${link}: ${code} ${reason}`;
     },

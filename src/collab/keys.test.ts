@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { inviteKeys, memberId, publicKey } from './identity';
+import { inviteKeys, publicKey } from './identity';
 import { RoomKeys, joinMac, openInvite, pairKey, rosterInput, wrapInvite, xPublic, type SignedRoster } from './keys';
 import { FrameKind, b64decode, b64encode, type FrameHeader, type Meta } from './protocol';
 
 const ROOM = 'K7Q2M9XA4TDP';
 const seed = (n: number) => new Uint8Array(32).fill(n);
-const idOf = (s: Uint8Array) => memberId(publicKey(s));
 const text = (s: string) => new TextEncoder().encode(s);
 const SECRET = Uint8Array.from({ length: 16 }, (_, i) => i);
 
