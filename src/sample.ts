@@ -20,7 +20,10 @@ export const SAMPLE_WINDOW = { lower: -1350, upper: 150 } as const;
 export const SAMPLE_SOURCES = {
   luna16: 'https://luna16.grand-challenge.org/',
   lidc: 'https://www.cancerimagingarchive.net/collection/lidc-idri/',
+  /** LUNA16, and the two sample files as shipped. */
   licence: 'https://creativecommons.org/licenses/by/4.0/',
+  /** LIDC-IDRI, which LUNA16 is a subset of. */
+  licenceLidc: 'https://creativecommons.org/licenses/by/3.0/',
 } as const;
 
 export interface Sample {
