@@ -175,10 +175,15 @@ describe('a room hosted by the app, across a restart of the app', () => {
 
     /* ── deleting the room removes what was kept of it ── */
     await (await browser.$('[data-testid="room-pill"]')).click();
-    await (await browser.$('button=Delete room')).click();
+    // The room menu, then the question, each take a moment to appear.
+    const inMenu = await browser.$('button=Delete room');
+    await inMenu.waitForDisplayed({ timeout: 5_000 });
+    await inMenu.click();
     const ask = await browser.$('.modal');
     await ask.waitForDisplayed({ timeout: 5_000 });
-    await (await ask.$('button=Delete room')).click();
+    const confirm = await ask.$('button=Delete room');
+    await confirm.waitForDisplayed({ timeout: 5_000 });
+    await confirm.click();
     await until(() => store(browser, (s) => s.room), (r) => r === null, { what: 'the room to close' });
     await until(() => back.closed, Boolean, { what: 'the member to be told' });
     assert.equal(back.closed.code, 4410);
