@@ -54,7 +54,8 @@ impl Default for Limits {
             max_control_bytes: 16 * 1024,
             max_handshake_bytes: 8 * 1024,
             queue_bytes: 16 * MIB,
-            queue_messages: 1024,
+            // More than `log_frames`, so a whole replay fits a member's queue.
+            queue_messages: 4096,
             max_members: 16,
             max_rooms: 1024,
             max_connections: 4096,
@@ -78,6 +79,8 @@ impl Default for Limits {
 /// Timeouts and lifetimes for rooms v2.
 #[derive(Debug, Clone)]
 pub struct Timing {
+    /// Time a new TCP connection has to send a whole HTTP request header.
+    pub request_timeout: Duration,
     /// Time a new connection has to send its handshake.
     pub handshake_timeout: Duration,
     /// Ping interval and silence limit for shared-copy rooms.
@@ -109,6 +112,7 @@ impl Default for Timing {
     fn default() -> Self {
         const DAY: u64 = 24 * 60 * 60;
         Timing {
+            request_timeout: Duration::from_secs(10),
             handshake_timeout: Duration::from_secs(10),
             ping_interval: Duration::from_secs(20),
             idle_timeout: Duration::from_secs(60),
