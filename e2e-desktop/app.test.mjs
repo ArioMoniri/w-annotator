@@ -351,6 +351,10 @@ describe('with an image and a mask from the command line', () => {
 
     await (await browser.$('[data-testid="room-pill"]')).click();
     await (await browser.$('button=Leave room')).click();
+    // The host is asked first, since the room is left without one.
+    const ask = await browser.$('.modal');
+    await ask.waitForDisplayed({ timeout: 5_000 });
+    await (await ask.$('button=Leave')).click();
     await until(() => store(browser, (s) => s.room), (r) => r === null, { what: 'the room to close' });
     // Leaving stops the relay.
     await until(() => fetch(`http://${host}:${port}/health`).then(() => false, () => true), Boolean, { what: 'hosting to stop' });

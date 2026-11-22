@@ -263,6 +263,8 @@ test('Shift scrolls five times as fast and Alt changes the brush size', async ({
 
 test('scroll and pinch zoom the 3D view', async ({ page }) => {
   await openPhantom(page);
+  // The 3D view draws some time after the slices; wait for it, then let it settle.
+  await expect.poll(() => tintedPixels(page, 'volume3d'), { timeout: 15_000 }).toBeGreaterThan(0);
   await page.waitForTimeout(600);
   const before = await tintedPixels(page, 'volume3d');
   expect(before).toBeGreaterThan(0);
