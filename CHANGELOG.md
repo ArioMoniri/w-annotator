@@ -18,6 +18,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Relay: a connection that never finishes its request is closed after 10 seconds, a replay too long for a member's queue no longer closes that member, one member can no longer get another closed by sending them file frames, and pings count towards the rate limit.
 - A room hosted by the desktop app on a computer with no network address listens on that computer only.
 
+### Fixed
+
+- A guest of a view-through-host room whose own connection dropped was told after 15 seconds that the host had ended the session, and could not come back without a new link. The guest is now told "Offline. Reconnecting…", stays a member and is retried for as long as it takes. What was shown is cleared from memory after 15 seconds and fetched again on return.
+- A guest of a view-through-host room got window presets and threshold limits worked out from an empty image, and Hounsfield presets for grey levels. A guest now has one window (Full range), threshold limits from 0 to 255, the value under the cursor labelled Grey, and the host's window shown in the status bar to read. The mask is named Room mask, and the 3D pane says that the 3D view stays on the host's computer.
+- The host of a shared-copy room is asked before leaving and told what it means, Leave room no longer looks like Delete room, and the others are told that the host left and that they can keep working.
+- The cover over a guest's views is drawn above the view names.
+
 ### Changed
 
 - Joining a shared-copy room with a full-size scan: the sender waits for the receiver, so a slow connection is no longer flooded and dropped; a transfer cut by a lost connection picks up with the image slabs it already has; one person can no longer make the host send the image many times at once.

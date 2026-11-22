@@ -2193,7 +2193,9 @@ function onRoomText(r: RoomCtx, msg: TextMessage): void {
       if (msg.online) sayHi(r);
       else {
         const name = get().peers.find((p) => p.id === id)?.name;
-        if (name && r.greeted.delete(id)) toast('info', `${name} left`);
+        // A shared-copy room goes on without its host; say what does not until they are back.
+        const wasHost = r.kind === 'shared' && id === hostOf(r)?.id;
+        if (name && r.greeted.delete(id)) toast('info', wasHost ? `${name}, the host, left. You can keep working. Nobody can invite or remove people until they come back.` : `${name} left`);
       }
       syncPeople(r);
       if (r.sync && r.sync.source === 0) askForSync(r);

@@ -609,6 +609,44 @@ test("a view-through-host guest is shown grey levels and the host's window, not 
   await expect.poll(async () => numbers(await guest.getByTestId('host-window').textContent()), { timeout: 10_000 }).toBe(next);
 });
 
+test('the host of a shared-copy room is asked before leaving, and the others are told what it means', async ({ browser }) => {
+  const host = await person(browser);
+  const guest = await person(browser);
+  await openPhantom(host);
+  await joinRoom(guest, 'Ario', await startRoom(host, 'Mina'));
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  // Past the quiet seconds after joining, when arrivals and departures are not announced.
+  await guest.waitForTimeout(3500);
+
+  await host.getByTestId('room-pill').click();
+  await host.getByRole('button', { name: 'Leave room' }).click();
+  const ask = host.getByRole('dialog');
+  await expect(ask).toContainText('Leave the room?');
+  await expect(ask).toContainText('Others can keep working');
+  await expect(ask).toContainText('Nobody can invite or remove people until you come back');
+  // Cancel leaves everything as it was.
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(host.getByTestId('room-pill')).toBeVisible();
+
+  await host.getByTestId('room-pill').click();
+  await host.getByRole('button', { name: 'Leave room' }).click();
+  await host.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
+  await expect(host.getByTestId('room-pill')).toHaveCount(0);
+  const left = host.locator('.toast', { hasText: 'You left the room' });
+  await expect(left).toBeVisible();
+  // It stays long enough to read.
+  await host.waitForTimeout(2500);
+  await expect(left).toBeVisible();
+
+  // The guest hears that it was the host who went, and what that changes.
+  await expect(guest.locator('.toast', { hasText: 'Mina, the host, left' })).toContainText('You can keep working');
+  await expect(guest.getByTestId('room-pill')).toBeVisible();
+  const before = await maskVoxels(guest);
+  await guest.keyboard.press('b');
+  await drag(guest, 'axial', [-60, 40], [-20, 70]);
+  expect(await maskVoxels(guest)).toBeGreaterThan(before);
+});
+
 /* ───────────────────────── the dialog ───────────────────────── */
 
 test('starting a room offers two kinds, described in plain words', async ({ page }) => {
