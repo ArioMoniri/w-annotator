@@ -864,11 +864,39 @@ function ensureSegments(values: Uint8Array): void {
   for (const x of added) if (removedSegments.has(x.index)) roomSend({ k: 'seg', op: { op: 'set', seg: sharedSegment(x) } });
 }
 
+/** The segments a split made, by the patch that made them, so undoing that patch takes them out of the list too. */
+const madeBySplit = new WeakMap<Patch, { from: number; labels: number[] }>();
+
+/**
+ * After a split's patch was undone: the segments it made leave the list, in a room for
+ * everyone. One that still holds voxels, because someone else has painted in it since, stays.
+ * What they looked like is kept, so redo brings them back with the same name and colour.
+ */
+function dropSplitSegments(patch: Patch): void {
+  const made = madeBySplit.get(patch);
+  if (!made || !mask) return;
+  const data = mask.data as Uint8Array;
+  const inUse = new Uint8Array(256);
+  for (let i = 0; i < data.length; i++) inUse[data[i]] = 1;
+  const s = get();
+  const gone = s.segments.filter((x) => made.labels.includes(x.index) && !inUse[x.index]);
+  if (gone.length === 0) return;
+  for (const seg of gone) removedSegments.set(seg.index, { ...seg, visible: true });
+  const rest = s.segments.filter((x) => !gone.includes(x));
+  const kept = rest.some((x) => x.index === s.activeSegment);
+  // With the segment in hand gone, the one it was split from is in hand again.
+  const active = kept ? s.activeSegment : rest.some((x) => x.index === made.from) ? made.from : (rest[0]?.index ?? 0);
+  updateSegments(rest, active);
+}
+
 export function undo(): void {
   flushEdits();
   const patches = history.undo();
   if (!patches) return;
-  for (const p of patches) writeOwn(p, 'before');
+  for (const p of patches) {
+    writeOwn(p, 'before');
+    dropSplitSegments(p);
+  }
   set({ dirty: !isGuestView() });
   syncHistoryFlags();
   emit('edit');
@@ -883,14 +911,19 @@ export function redo(): void {
   emit('edit');
 }
 
+/** The patch of the last direct edit, for a caller that ties more to that undo step. */
+let lastEdit: Patch | null = null;
+
 /** Run a direct edit of the mask buffer as one undo step. Returns changed voxel count. */
 function editMask(fn: (data: Uint8Array) => void): number {
   if (!mask || !shadow) return 0;
   flushEdits();
   history.commit();
+  lastEdit = null;
   fn(mask.data as Uint8Array);
   const patch = diffMask(shadow, mask.data as Uint8Array, sliceSize());
   if (!patch) return 0;
+  lastEdit = patch;
   applyPatch(shadow, patch, 'after');
   history.add(patch);
   history.commit();
@@ -1194,6 +1227,7 @@ export function splitSegment(index: number): void {
       ({ labels: made, left } = splitIslands(d, dims, index, free));
     });
     if (n <= 0) return;
+    if (lastEdit) madeBySplit.set(lastEdit, { from: index, labels: made });
     const added: SegmentInfo[] = made.map((label, i) => ({
       index: label,
       name: `${seg.name} ${i + 2}`,

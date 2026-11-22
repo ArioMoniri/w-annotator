@@ -14,11 +14,15 @@ export function useKeyHint(): (id: ActionId) => string {
 /**
  * Calls `onAway` on a click outside the element or on Escape. Escape puts focus back on what
  * opened it: `trigger` when given, otherwise the `aria-haspopup` button inside the element.
+ * With `holdTab`, for a popover that is a small dialog, Tab and Shift+Tab are handled as in
+ * `Modal`: they reach every control and stay inside.
  */
-export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => void, trigger?: () => HTMLElement | null) {
+export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => void, trigger?: () => HTMLElement | null, holdTab = false) {
   const ref = useRef<T>(null);
   const triggerRef = useRef(trigger);
   triggerRef.current = trigger;
+  const holdTabRef = useRef(holdTab);
+  holdTabRef.current = holdTab;
   useEffect(() => {
     if (!open) return;
     const down = (e: PointerEvent) => {
@@ -29,6 +33,8 @@ export function useDismiss<T extends HTMLElement>(open: boolean, onAway: () => v
         e.stopPropagation();
         onAway();
         (triggerRef.current?.() ?? ref.current?.querySelector<HTMLElement>('[aria-haspopup]'))?.focus();
+      } else if (holdTabRef.current && ref.current) {
+        trapTab(e, ref.current);
       }
     };
     window.addEventListener('pointerdown', down, true);
