@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SEGMENT_COLORS, SEGMENT_COLOR_NAMES, TOAST_EXIT_MS, dismissToast, get, set, toast } from './store';
+import { SEGMENT_COLORS, SEGMENT_COLOR_NAMES, TOAST_EXIT_MS, dismissToast, dropToastActions, get, holdToast, set, toast } from './store';
 
 describe('toasts', () => {
   beforeEach(() => {
@@ -54,6 +54,75 @@ describe('toasts', () => {
     toast('error', 'Could not save.');
     vi.advanceTimersByTime(60_000);
     expect(get().toasts).toHaveLength(1);
+  });
+});
+
+describe('toast timer', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    set({ toasts: [] });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('stops while the pointer is over the toast and goes on with the time that was left', () => {
+    toast('info', 'Liver cleared', { label: 'Undo', run: () => {} });
+    const id = get().toasts[0].id;
+    vi.advanceTimersByTime(5000);
+    holdToast(id, 'hover', true);
+    vi.advanceTimersByTime(60_000);
+    expect(get().toasts).toHaveLength(1);
+    expect(get().toasts[0].leaving).toBeFalsy();
+    holdToast(id, 'hover', false);
+    vi.advanceTimersByTime(900);
+    expect(get().toasts[0].leaving).toBeFalsy();
+    vi.advanceTimersByTime(100 + TOAST_EXIT_MS);
+    expect(get().toasts).toHaveLength(0);
+  });
+
+  it('stays stopped until both the pointer and the keyboard focus have left', () => {
+    toast('info', 'Mina joined');
+    const id = get().toasts[0].id;
+    holdToast(id, 'hover', true);
+    holdToast(id, 'focus', true);
+    holdToast(id, 'hover', false);
+    vi.advanceTimersByTime(60_000);
+    expect(get().toasts).toHaveLength(1);
+    holdToast(id, 'focus', false);
+    vi.advanceTimersByTime(4000 + TOAST_EXIT_MS);
+    expect(get().toasts).toHaveLength(0);
+  });
+
+  it('does not bring a dismissed toast back when the pointer leaves it', () => {
+    toast('info', 'Mina joined');
+    const id = get().toasts[0].id;
+    holdToast(id, 'hover', true);
+    dismissToast(id);
+    holdToast(id, 'hover', false);
+    vi.advanceTimersByTime(TOAST_EXIT_MS);
+    expect(get().toasts).toHaveLength(0);
+  });
+
+  it('gives an error no timer when the pointer leaves it', () => {
+    toast('error', 'Could not save.');
+    const id = get().toasts[0].id;
+    holdToast(id, 'hover', true);
+    holdToast(id, 'hover', false);
+    vi.advanceTimersByTime(60_000);
+    expect(get().toasts).toHaveLength(1);
+  });
+});
+
+describe('toast actions', () => {
+  beforeEach(() => set({ toasts: [] }));
+
+  it('takes an action off the toasts it no longer fits and leaves the others', () => {
+    const undo = () => {};
+    const retry = () => {};
+    toast('info', 'Liver cleared', { label: 'Undo', run: undo });
+    toast('error', "Couldn't save the mask.", { label: 'Retry', run: retry });
+    dropToastActions((a) => a.run === undo);
+    expect(get().toasts.map((t) => t.action?.label)).toEqual([undefined, 'Retry']);
+    expect(get().toasts.map((t) => t.text)).toEqual(['Liver cleared', "Couldn't save the mask."]);
   });
 });
 

@@ -85,7 +85,7 @@ import { fingerprint } from './mask/recovery';
 import * as engine from './viewer/engine';
 import { indexToWorld, voxelAt } from './viewer/geometry';
 import { mrWindows, sampleValues } from './viewer/window';
-import { EDIT_TOOLS, SEGMENT_COLORS, get, set, toast, useStore, type Peer, type RoomState, type ToolId, type ViewId } from './state/store';
+import { EDIT_TOOLS, SEGMENT_COLORS, dropToastActions, get, set, toast, useStore, type Peer, type RoomState, type ToolId, type ViewId } from './state/store';
 import * as platform from './platform';
 import { appLog } from './report';
 import { SAMPLE_WINDOW, loadSample, makeSample } from './sample';
@@ -803,6 +803,7 @@ function flushEdits(): void {
   }
   stroke.wrote = true;
   cancelFillPreview(PREVIEW_CANCELLED);
+  retireUndoToasts();
   applyPatch(shadow, patch, 'after');
   history.add(patch);
   roomSend({ k: 'patch', patch });
@@ -862,10 +863,21 @@ function ensureSegments(values: Uint8Array): void {
   for (const x of added) if (removedSegments.has(x.index)) roomSend({ k: 'seg', op: { op: 'set', seg: sharedSegment(x) } });
 }
 
+/**
+ * Undo on a toast means the step the toast describes. Once that is no longer the newest
+ * step (another edit, an undo or a redo), the button goes and the message stays.
+ */
+function retireUndoToasts(): void {
+  dropToastActions((a) => a.run === undo);
+}
+
 export function undo(): void {
   flushEdits();
+  // A preview was worked out from the mask as it was; it goes before the mask changes under it.
+  cancelFillPreview(PREVIEW_CANCELLED);
   const patches = history.undo();
   if (!patches) return;
+  retireUndoToasts();
   for (const p of patches) writeOwn(p, 'before');
   set({ dirty: !isGuestView() });
   syncHistoryFlags();
@@ -873,8 +885,11 @@ export function undo(): void {
 }
 
 export function redo(): void {
+  flushEdits();
+  cancelFillPreview(PREVIEW_CANCELLED);
   const patches = history.redo();
   if (!patches) return;
+  retireUndoToasts();
   for (const p of patches) writeOwn(p, 'after');
   set({ dirty: !isGuestView() });
   syncHistoryFlags();
@@ -889,6 +904,7 @@ function editMask(fn: (data: Uint8Array) => void): number {
   fn(mask.data as Uint8Array);
   const patch = diffMask(shadow, mask.data as Uint8Array, sliceSize());
   if (!patch) return 0;
+  retireUndoToasts();
   applyPatch(shadow, patch, 'after');
   history.add(patch);
   history.commit();
