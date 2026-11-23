@@ -3,6 +3,7 @@ import type { Role, RoomKind, SegmentInfo } from '../collab/protocol';
 import type { SegmentStats } from '../mask/ops';
 import type { MaskRow } from '../mask/collection';
 import type { Dataset, StartFrom } from '../dataset/layout';
+import type { CaseProgress } from '../dataset/progress';
 import type { PaintOver } from '../mask/paintOver';
 import type { ScissorsAction, ScissorsDepth, ScissorsShape } from '../mask/scissors';
 import type { MrWindows, Voi, WindowSet } from '../viewer/window';
@@ -112,8 +113,11 @@ interface State {
   } | null;
   /** The preset list the user asked for, when the guess from the values was wrong. Null follows `image.ct`. */
   windowSet: WindowSet | null;
-  /** A dataset folder being worked through, case by case. `current` is the case on screen, if any. */
-  dataset: (Dataset & { current: string | null; start: StartFrom }) | null;
+  /**
+   * A dataset folder being worked through, case by case. `current` is the case on screen, if any;
+   * `output` the name of the folder finished masks are saved into, and `progress` what is done there.
+   */
+  dataset: (Dataset & { current: string | null; start: StartFrom; output: string | null; progress: Record<string, CaseProgress> }) | null;
   /** Name, unsaved state and segments below are those of the active mask. */
   maskName: string | null;
   dirty: boolean;

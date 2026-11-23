@@ -37,6 +37,8 @@ struct Inner {
     files: HashSet<PathBuf>,
     /// Folders the user picked: everything inside is readable.
     dirs: HashSet<PathBuf>,
+    /// Folders the user picked to save into: files directly inside are readable and writable.
+    out_dirs: HashSet<PathBuf>,
 }
 
 /// The paths the user has chosen during this run of the app.
@@ -79,6 +81,24 @@ impl Allowed {
         files.sort();
         self.0.lock().unwrap().dirs.insert(full);
         Ok(files)
+    }
+
+    /// Records a folder the user picked to save into: files directly inside it
+    /// (not in folders below, not hidden) become readable and writable. Returns
+    /// the names of the files already there, sorted.
+    pub fn allow_out_dir(&self, path: &Path) -> io::Result<Vec<String>> {
+        let full = dunce::canonicalize(path)?;
+        let mut names = Vec::new();
+        for entry in fs::read_dir(&full)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with('.') && entry.file_type()?.is_file() {
+                names.push(name);
+            }
+        }
+        names.sort();
+        self.0.lock().unwrap().out_dirs.insert(full);
+        Ok(names)
     }
 
     /// Records paths the system handed over: files dropped on the window, opened
@@ -130,6 +150,7 @@ impl Allowed {
         let inner = self.0.lock().unwrap();
         let ok = inner.files.contains(&full)
             || inner.dirs.iter().any(|dir| full.starts_with(dir))
+            || in_out_dir(&inner, &full)
             || full
                 .parent()
                 .is_some_and(|dir| inner.files.iter().any(|f| f.parent() == Some(dir)));
@@ -140,15 +161,28 @@ impl Allowed {
         }
     }
 
-    /// A file may be written only if the user picked exactly that file.
+    /// A file may be written only if the user picked exactly that file, or it
+    /// sits directly inside a folder the user picked to save into.
     pub fn check_write(&self, path: &Path) -> io::Result<PathBuf> {
         let full = resolve(path)?;
-        if self.0.lock().unwrap().files.contains(&full) {
+        let inner = self.0.lock().unwrap();
+        if inner.files.contains(&full) || in_out_dir(&inner, &full) {
             Ok(full)
         } else {
             Err(denied())
         }
     }
+}
+
+/// Directly inside a folder picked to save into, and not hidden.
+fn in_out_dir(inner: &Inner, full: &Path) -> bool {
+    let visible = full
+        .file_name()
+        .is_some_and(|n| !n.to_string_lossy().starts_with('.'));
+    visible
+        && full
+            .parent()
+            .is_some_and(|dir| inner.out_dirs.contains(dir))
 }
 
 fn name_of(path: &Path) -> String {
@@ -345,6 +379,49 @@ mod tests {
         );
         assert!(allowed.check_read(&files[1]).is_ok());
         assert!(allowed.check_write(&files[1]).is_err());
+    }
+
+    #[test]
+    fn a_picked_output_folder_takes_new_files_directly_inside_it() {
+        let tmp = TempDir::new("out");
+        let out = tmp.0.join("labels_corrected");
+        fs::create_dir(&out).unwrap();
+        fs::write(out.join("p1_0001.mha"), b"old").unwrap();
+        fs::write(out.join(".hidden"), b"h").unwrap();
+        fs::create_dir(out.join("sub")).unwrap();
+        fs::write(out.join("sub").join("deep.mha"), b"d").unwrap();
+
+        let allowed = Allowed::default();
+        // It lists the files already there, for picking up where work stopped.
+        assert_eq!(
+            allowed.allow_out_dir(&out).unwrap(),
+            vec!["p1_0001.mha".to_string()]
+        );
+        let new = out.join("p1_0002.mha");
+        assert!(allowed.check_write(&new).is_ok());
+        assert!(allowed.check_write(&out.join("p1_0001.mha")).is_ok());
+        assert!(allowed.check_read(&out.join("p1_0001.mha")).is_ok());
+        assert!(allowed.check_read(&new).is_ok());
+        write_atomic(&allowed.check_write(&new).unwrap(), b"new").unwrap();
+        assert_eq!(fs::read(&new).unwrap(), b"new");
+    }
+
+    #[test]
+    fn an_output_folder_allows_nothing_below_beside_or_hidden() {
+        let tmp = TempDir::new("outdeny");
+        let out = tmp.0.join("out");
+        fs::create_dir(&out).unwrap();
+        fs::create_dir(out.join("sub")).unwrap();
+        let allowed = Allowed::default();
+        allowed.allow_out_dir(&out).unwrap();
+        assert!(allowed.check_write(&out.join("sub").join("x.mha")).is_err());
+        assert!(allowed.check_write(&tmp.0.join("beside.mha")).is_err());
+        assert!(allowed.check_write(&out.join(".hidden")).is_err());
+        // Dot segments do not get out of it.
+        assert!(allowed
+            .check_write(&out.join("sub").join("..").join("..").join("x.mha"))
+            .is_err());
+        assert!(allowed.check_read(&out.join("sub").join("x.mha")).is_err());
     }
 
     #[test]

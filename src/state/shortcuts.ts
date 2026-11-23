@@ -48,6 +48,7 @@ export const ACTIONS = [
   { id: 'file.save', label: 'Save mask', group: 'View and file', key: 'mod+s' },
   { id: 'dataset.next', label: 'Next case', group: 'View and file', key: 'alt+arrowdown' },
   { id: 'dataset.previous', label: 'Previous case', group: 'View and file', key: 'alt+arrowup' },
+  { id: 'dataset.done', label: 'Done and next case', group: 'View and file', key: 'mod+enter' },
   { id: 'help.shortcuts', label: 'Keyboard shortcuts', group: 'View and file', key: '?' },
   { id: 'app.settings', label: 'Settings', group: 'View and file', key: 'mod+,' },
 ] as const;

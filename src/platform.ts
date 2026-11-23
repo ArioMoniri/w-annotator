@@ -111,6 +111,87 @@ export async function pickFolderFiles(title: string): Promise<FolderFile[] | nul
   }));
 }
 
+/** A folder the user picked to save into. Only files directly inside it are read or written. */
+export interface OutputFolder {
+  /** The folder's name, to show. */
+  name: string;
+  /** Names of the files that were in it when it was picked. */
+  files: string[];
+  /** A file's bytes, or null when it is not there. */
+  read: (name: string) => Promise<Uint8Array | null>;
+  write: (name: string, bytes: Uint8Array) => Promise<void>;
+}
+
+/** The parts of the File System Access API this uses (Chromium browsers). */
+interface DirHandle {
+  name: string;
+  values: () => AsyncIterable<{ kind: string; name: string }>;
+  getFileHandle: (
+    name: string,
+    opts?: { create?: boolean },
+  ) => Promise<{ getFile: () => Promise<File>; createWritable: () => Promise<{ write: (b: BlobPart) => Promise<void>; close: () => Promise<void> }> }>;
+}
+type DirPicker = (opts: { id?: string; mode: 'readwrite' }) => Promise<DirHandle>;
+
+/** True when this app can save into a folder: the desktop app, or a browser with folder access. */
+export const canPickOutputFolder = (): boolean => isTauri || typeof (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker === 'function';
+
+/**
+ * Asks for a folder to save into. Null when cancelled. The desktop app makes
+ * files directly inside it writable; a browser asks the person to allow edits.
+ */
+export async function pickOutputFolder(title: string): Promise<OutputFolder | null> {
+  if (isTauri) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const picked = await invoke<{ path: string; files: string[] } | null>('pick_output_folder', { title });
+    if (!picked) return null;
+    const sep = picked.path.includes('\\') ? '\\' : '/';
+    const full = (name: string) => `${picked.path}${picked.path.endsWith(sep) ? '' : sep}${name}`;
+    return {
+      name: leaf(picked.path),
+      files: picked.files,
+      read: async (name) => {
+        try {
+          return new Uint8Array(await invoke<ArrayBuffer>('read_file', { path: full(name) }));
+        } catch {
+          return null;
+        }
+      },
+      write: async (name, bytes) => {
+        await invoke('write_file', bytes, { headers: { 'x-file-path': encodeURIComponent(full(name)) } });
+      },
+    };
+  }
+  const picker = (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker;
+  if (!picker) return null;
+  let dir: DirHandle;
+  try {
+    dir = await picker({ id: 'w-annotator-output', mode: 'readwrite' });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return null;
+    throw e;
+  }
+  const files: string[] = [];
+  for await (const entry of dir.values()) if (entry.kind === 'file' && !entry.name.startsWith('.')) files.push(entry.name);
+  files.sort();
+  return {
+    name: dir.name,
+    files,
+    read: async (name) => {
+      try {
+        return new Uint8Array(await (await (await dir.getFileHandle(name)).getFile()).arrayBuffer());
+      } catch {
+        return null;
+      }
+    },
+    write: async (name, bytes) => {
+      const out = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await out.write(bytes as BlobPart);
+      await out.close();
+    },
+  };
+}
+
 export interface GivenFile {
   name: string;
   bytes: Uint8Array;

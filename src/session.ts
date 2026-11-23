@@ -15,7 +15,8 @@ import {
 } from './io';
 import type { ScalarArray, VolumeData } from './io/types';
 import { caseAfter, readLayout, startLabel, type StartFrom } from './dataset/layout';
-import type { FolderFile } from './platform';
+import { PROGRESS_FILE, emptyProgress, nextToDo, parseProgress, serialiseProgress, tally, type CaseProgress } from './dataset/progress';
+import type { FolderFile, OutputFolder } from './platform';
 import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
 import { brushRadius, cleanBrushSize, minBrushSize } from './mask/brush';
@@ -360,21 +361,30 @@ export async function imageToMask(files: InputFile[]): Promise<void> {
 
 /** The files of the open dataset folder, by path. Read one case at a time. */
 let datasetFiles = new Map<string, FolderFile>();
+/** Where finished masks of the dataset go, once picked. */
+let outputFolder: OutputFolder | null = null;
+/** The mask of the case on screen as it was opened, to tell whether it was changed, and where it came from. */
+let caseStart: { data: Uint8Array; from: CaseProgress['start'] } | null = null;
 
 const leafOf = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
 
-/** Asks to save the active mask first when it has unsaved edits, then runs `go`. */
+/**
+ * Asks to save the active mask first when it has unsaved edits, then runs `go`.
+ * A dataset case with an output folder is saved there and marked done.
+ */
 function afterSaving(go: () => void): void {
   if (!anyUnsaved()) {
     go();
     return;
   }
+  const ds = get().dataset;
+  const toOutput = !!(ds?.current && ds.output);
   set({
     confirm: {
       title: `Save changes to ${defaultMaskName()}?`,
-      body: 'Your mask edits have not been saved to a file.',
+      body: toOutput ? `It is saved to ${ds!.output} and marked done.` : 'Your mask edits have not been saved to a file.',
       confirm: 'Save',
-      run: () => void saveMask().then(() => !get().dirty && go()),
+      run: () => void (toOutput ? saveCase() : saveMask()).then(() => !get().dirty && go()),
       other: {
         label: "Don't save",
         run: () => {
@@ -402,9 +412,10 @@ export async function openDataset(files: FolderFile[]): Promise<void> {
   }
   afterSaving(() => {
     datasetFiles = new Map(files.map((f) => [f.path, f]));
+    outputFolder = null;
     for (const f of files) appLog.noteName(leafOf(f.path));
     const start = get().dataset?.start ?? 'own';
-    set({ dataset: { ...layout, current: null, start } });
+    set({ dataset: { ...layout, current: null, start, output: null, progress: {} } });
     void openCase(layout.cases[0].id, true);
   });
 }
@@ -436,13 +447,19 @@ export async function openCase(id: string, asked = false): Promise<void> {
     const vol = { ...(await readVolumeAsync([file])), name: imageName };
     for (const warning of vol.warnings ?? []) toast('warning', warning);
     await loadImage(vol, file.path);
-    // nnU-Net wants every label in one format; the images' own extension is the natural one.
-    const maskName = c.id + imageName.slice(baseName(imageName).length);
-    const from = startLabel(ds, c, ds.start);
-    if (from) {
+    const maskName = caseMaskName(c.id, imageName);
+    // A case already done opens with the mask saved for it, to look over again.
+    const saved = ds.progress[c.id]?.status === 'done' && outputFolder ? await outputFolder.read(maskName) : null;
+    const from = saved ? null : startLabel(ds, c, ds.start);
+    let start: CaseProgress['start'] = 'empty';
+    if (saved) {
+      const lab = await readVolumeAsync([{ name: maskName, bytes: saved }]);
+      await loadMask({ ...lab, name: maskName });
+    } else if (from) {
       const label = await readFolderFile(from);
       const lab = await readVolumeAsync([label]);
       const added = await loadMask({ ...lab, name: maskName });
+      start = from === c.label ? 'own' : 'first';
       // A label taken from another scan is new for this case until it is saved.
       if (added && from !== c.label) {
         set({ dirty: true });
@@ -453,6 +470,7 @@ export async function openCase(id: string, asked = false): Promise<void> {
       if (masks.active) masks.active.name = maskName;
       syncRows();
     }
+    caseStart = mask ? { data: (mask.data as Uint8Array).slice(), from: saved ? ds.progress[c.id]?.start : start } : null;
     if (c.channels > 1) toast('info', `${c.id} has ${c.channels} channels. The first one is shown.`);
     set({ dataset: { ...get().dataset!, current: c.id } });
     emit('opened');
@@ -461,6 +479,128 @@ export async function openCase(id: string, asked = false): Promise<void> {
   } finally {
     set({ busy: null });
   }
+}
+
+/** nnU-Net wants every label in one format; the images' own extension is the natural one. */
+function caseMaskName(id: string, imageName: string): string {
+  return id + imageName.slice(baseName(imageName).length);
+}
+
+/**
+ * Asks for the folder finished masks of the dataset go into. When it already
+ * holds a progress file, the cases marked there keep their status. True when
+ * a folder was picked.
+ */
+export async function chooseOutputFolder(): Promise<boolean> {
+  const ds = get().dataset;
+  if (!ds) return false;
+  if (!platform.canPickOutputFolder()) {
+    toast('error', "This browser can't save into a folder. Use the desktop app, or Edge or Chrome.");
+    return false;
+  }
+  let picked: OutputFolder | null;
+  try {
+    picked = await platform.pickOutputFolder('Choose where to save the masks');
+  } catch (err) {
+    toast('error', err instanceof Error ? err.message : String(err));
+    return false;
+  }
+  if (!picked) return false;
+  // The dataset's own labels folder (same name, same label files): the originals would be written over.
+  const labelDirs = new Set(ds.cases.flatMap((c) => (c.label ? [leafOf(c.label.slice(0, -leafOf(c.label).length - 1)).toLowerCase()] : [])));
+  const labelFiles = new Set(ds.cases.flatMap((c) => (c.label ? [leafOf(c.label)] : [])));
+  if (labelDirs.has(picked.name.toLowerCase()) && picked.files.some((n) => labelFiles.has(n))) {
+    toast('error', `${picked.name} holds the dataset's own labels. Choose or make another folder, so the originals stay as they are.`);
+    return false;
+  }
+  appLog.noteName(picked.name);
+  const bytes = picked.files.includes(PROGRESS_FILE) ? await picked.read(PROGRESS_FILE) : null;
+  const known = bytes ? parseProgress(new TextDecoder().decode(bytes)).cases : {};
+  outputFolder = picked;
+  set({ dataset: { ...get().dataset!, output: picked.name, progress: known } });
+  const { done, skipped } = tally(ds, { ...emptyProgress(ds.name), cases: known });
+  if (done + skipped > 0) toast('info', `${picked.name} already has ${done} done and ${skipped} skipped. They keep their status.`);
+  return true;
+}
+
+async function writeProgress(cases: Record<string, CaseProgress>): Promise<void> {
+  const ds = get().dataset!;
+  const text = serialiseProgress({ ...emptyProgress(ds.name), cases });
+  await outputFolder!.write(PROGRESS_FILE, new TextEncoder().encode(text));
+}
+
+/** Saves the case on screen into the output folder and marks it done. True when written. */
+async function saveCase(): Promise<boolean> {
+  const ds = get().dataset;
+  if (!ds?.current || !mask) return false;
+  if (!outputFolder && !(await chooseOutputFolder())) return false;
+  cancelFillPreview(PREVIEW_CANCELLED);
+  flushEdits();
+  const c = ds.cases.find((x) => x.id === ds.current)!;
+  const name = caseMaskName(c.id, leafOf(c.image));
+  const labels: Record<number, string> = {};
+  const colors: Record<number, [number, number, number]> = {};
+  for (const seg of get().segments) {
+    labels[seg.index] = seg.name;
+    colors[seg.index] = hexToRgb(seg.color);
+  }
+  try {
+    await outputFolder!.write(name, writeMask({ ...mask, name, labels, colors }, formatOf(name)));
+    const data = mask.data as Uint8Array;
+    const changed = !caseStart || caseStart.data.length !== data.length || caseStart.data.some((v, i) => v !== data[i]);
+    const entry: CaseProgress = { status: 'done', at: new Date().toISOString(), changed, start: caseStart?.from ?? 'empty' };
+    const cases = { ...get().dataset!.progress, [c.id]: entry };
+    await writeProgress(cases);
+    set({ dataset: { ...get().dataset!, progress: cases }, dirty: false, maskName: name });
+    emit('saved');
+    return true;
+  } catch {
+    toast('error', `Couldn't save ${name} to ${ds.output ?? 'the folder'}. Check that the folder is writable.`);
+    return false;
+  }
+}
+
+/** Opens the next case nobody has handled yet, or says that all are. */
+function openNextToDo(): void {
+  const ds = get().dataset!;
+  const next = nextToDo(ds, { ...emptyProgress(ds.name), cases: ds.progress }, ds.current);
+  if (next) void openCase(next, true);
+  else toast('success', `Every case is done or skipped. The masks are in ${ds.output}.`);
+}
+
+/** "Done and next": saves the case into the output folder, marks it done and opens the next one to do. */
+export async function finishCase(): Promise<void> {
+  if (!get().dataset?.current) return;
+  if (await saveCase()) openNextToDo();
+}
+
+/** Marks the case skipped (nothing is saved for it) and opens the next one to do. */
+export async function skipCase(asked = false): Promise<void> {
+  const ds = get().dataset;
+  if (!ds?.current) return;
+  if (!outputFolder && !(await chooseOutputFolder())) return;
+  if (!asked && get().dirty) {
+    set({
+      confirm: {
+        title: `Skip ${ds.current}?`,
+        body: 'Your edits to this case are not saved.',
+        confirm: 'Skip',
+        danger: true,
+        run: () => void skipCase(true),
+      },
+    });
+    return;
+  }
+  const cases: Record<string, CaseProgress> = { ...get().dataset!.progress, [ds.current]: { status: 'skipped', at: new Date().toISOString() } };
+  try {
+    await writeProgress(cases);
+  } catch {
+    toast('error', `Couldn't write to ${ds.output}. Check that the folder is writable.`);
+    return;
+  }
+  set({ dataset: { ...get().dataset!, progress: cases }, dirty: false });
+  emit('discarded');
+  openNextToDo();
 }
 
 /** Opens the case after (1) or before (-1) the one on screen. */
@@ -480,6 +620,8 @@ export function setStartFrom(start: StartFrom): void {
 
 export function closeDataset(): void {
   datasetFiles = new Map();
+  outputFolder = null;
+  caseStart = null;
   set({ dataset: null });
 }
 
@@ -814,6 +956,8 @@ function dropImage(): void {
   engine.unmountViewports();
   // Closing the image ends work on its dataset too.
   datasetFiles = new Map();
+  outputFolder = null;
+  caseStart = null;
   set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false, masks: [], activeMask: null, imageDimmed: false, dataset: null });
   emit('closed');
 }

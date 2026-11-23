@@ -309,6 +309,39 @@ async fn pick_open_paths(
     Ok(out)
 }
 
+/// A folder the user picked to save into, with the names of the files already in it.
+#[derive(Serialize)]
+struct OutputFolder {
+    path: String,
+    files: Vec<String>,
+}
+
+/// Shows a folder dialog for saving into. Files directly inside the chosen
+/// folder become readable and writable with `read_file` and `write_file`.
+#[tauri::command]
+async fn pick_output_folder(
+    window: WebviewWindow,
+    allowed: State<'_, Allowed>,
+    title: Option<String>,
+) -> Result<Option<OutputFolder>, String> {
+    let (tx, rx) = oneshot::channel();
+    file_dialog(&window, title, None).pick_folder(move |folder| {
+        let _ = tx.send(folder);
+    });
+    let Some(folder) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let folder = picked(folder)?;
+    let files = allowed
+        .allow_out_dir(&folder)
+        .map_err(|e| format!("Could not use {}: {e}", display(&folder)))?;
+    let path = dunce::canonicalize(&folder).map_err(|e| e.to_string())?;
+    Ok(Some(OutputFolder {
+        path: display(&path),
+        files,
+    }))
+}
+
 /// Shows a save dialog. The chosen path becomes writable with `write_file`.
 #[tauri::command]
 async fn pick_save_path(
@@ -414,6 +447,7 @@ pub fn run() {
             reveal_file,
             dump_files,
             pick_open_paths,
+            pick_output_folder,
             pick_save_path,
             selftest_enabled,
             selftest_finish,

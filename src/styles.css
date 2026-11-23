@@ -3082,6 +3082,46 @@ button.avatar {
   min-width: 0;
 }
 
+.dataset-out .folder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.dataset-out .btn.secondary {
+  flex: 1;
+}
+
+.dataset-tally {
+  padding: 0 6px 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dataset-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 4px 8px 6px;
+}
+
+.dataset-actions .btn.primary {
+  flex: 1;
+}
+
+.caserow .mark {
+  display: inline-flex;
+  width: 12px;
+  margin-left: -14px;
+  color: var(--text-3);
+}
+
+.caserow[data-status='done'] .mark {
+  color: var(--ok);
+}
+
 .caselist {
   max-height: 220px;
   overflow-y: auto;
