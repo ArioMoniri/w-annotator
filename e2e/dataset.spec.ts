@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { maskVoxels, skipTour } from './helpers';
+import { skipTour } from './helpers';
 
 const N = 24;
 
@@ -53,6 +53,20 @@ test.afterAll(() => {
 });
 
 const rows = (page: Page) => page.locator('.filerow');
+
+/**
+ * Voxels of `label` (any label when not given) in the mask on screen, or -1
+ * while there is no mask yet: a case's label loads after its image, and a
+ * slow browser can be asked before it is there.
+ */
+const voxels = (page: Page, label?: number) =>
+  page.evaluate((label) => {
+    const mask = window.__w.session.getMask() as { data: Uint8Array } | null;
+    if (!mask) return -1;
+    let n = 0;
+    for (const v of mask.data) if (label === undefined ? v !== 0 : v === label) n++;
+    return n;
+  }, label);
 const dataset = (page: Page) => page.getByRole('region', { name: 'Dataset' });
 const caseRow = (page: Page, name: string) => page.getByRole('option', { name, exact: true });
 
@@ -75,8 +89,8 @@ test('a dataset folder lists its cases by patient and opens the first one with i
   await expect(dataset(page).getByLabel('Case 1 of 3')).toBeVisible();
   // The case's own label is the mask, named after the case.
   await expect(rows(page).nth(1)).toContainText('p1_0001');
-  await expect.poll(() => maskVoxels(page, 1)).toBeGreaterThan(0);
-  expect(await maskVoxels(page, 2)).toBe(0);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  expect(await voxels(page, 2)).toBe(0);
 });
 
 test('the next case opens by click, button or shortcut, and a case without a label gets an empty mask', async ({ page }) => {
@@ -84,12 +98,12 @@ test('the next case opens by click, button or shortcut, and a case without a lab
   await caseRow(page, 'p1_0002').click();
   await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
   // The image shows first; its label follows.
-  await expect.poll(() => maskVoxels(page, 2)).toBeGreaterThan(0);
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
 
   await page.keyboard.press('Alt+ArrowDown');
   await expect(rows(page).nth(0)).toContainText('p2_0001_0000');
   await expect(caseRow(page, 'p2_0001, no label')).toHaveAttribute('aria-selected', 'true');
-  expect(await maskVoxels(page)).toBe(0);
+  await expect.poll(() => voxels(page)).toBe(0);
   // Saving suggests the label name the case would have.
   await expect(page.locator('.filebtn')).toContainText('p2_0001.mha');
 
@@ -105,8 +119,8 @@ test('a case can start from the label of its patient’s first scan', async ({ p
   await caseRow(page, 'p1_0002').click();
   await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
   // The ball of scan 0001's label, under the name of this case.
-  await expect.poll(() => maskVoxels(page, 1)).toBeGreaterThan(0);
-  expect(await maskVoxels(page, 2)).toBe(0);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  expect(await voxels(page, 2)).toBe(0);
   await expect(rows(page).nth(1)).toContainText('p1_0002');
   await expect(page.getByText('Started from the label of p1_0001. Check that it fits this scan.')).toBeVisible();
 
@@ -200,7 +214,7 @@ test('Done and next saves the case into the chosen folder, marks it and opens th
   expect(header).toContain('DimSize = 24 24 24');
 
   // An edit is recorded as a change; the shortcut does the same as the button.
-  await expect.poll(() => maskVoxels(page, 2)).toBeGreaterThan(0);
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
   await page.evaluate(() => window.__w.session.clearSegment(2));
   await page.keyboard.press('Control+Enter');
   await expect(caseRow(page, 'p2_0001, no label')).toHaveAttribute('aria-selected', 'true');
@@ -210,7 +224,7 @@ test('Done and next saves the case into the chosen folder, marks it and opens th
 test('Skip marks a case without saving a mask, asking first about unsaved edits', async ({ page }) => {
   await fakeOutputFolder(page);
   await openFolder(page);
-  await expect.poll(() => maskVoxels(page, 1)).toBeGreaterThan(0);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
   await page.evaluate(() => window.__w.session.clearSegment(1));
   // No folder yet: Skip asks for one first.
   await dataset(page).getByRole('button', { name: 'Skip', exact: true }).click();
@@ -243,8 +257,8 @@ test('a folder with earlier progress picks up where the work stopped', async ({ 
   await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
   await caseRow(page, 'p1_0001, done').click();
   await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
-  await expect.poll(() => maskVoxels(page, 2)).toBeGreaterThan(0);
-  expect(await maskVoxels(page, 1)).toBe(0);
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
+  expect(await voxels(page, 1)).toBe(0);
 
   // Done and next goes on to the next case not yet handled.
   await dataset(page).getByRole('button', { name: 'Done and next' }).click();
@@ -264,7 +278,7 @@ test('moving on with unsaved edits saves into the output folder when there is on
   await openFolder(page);
   await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
   await expect(dataset(page)).toContainText('labels_corrected');
-  await expect.poll(() => maskVoxels(page, 1)).toBeGreaterThan(0);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
   await page.evaluate(() => window.__w.session.clearSegment(1));
   await page.keyboard.press('Alt+ArrowDown');
   await expect(page.getByText('It is saved to labels_corrected and marked done.')).toBeVisible();
