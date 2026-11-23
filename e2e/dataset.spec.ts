@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { skipTour } from './helpers';
 
+// Opening a folder has hung now and then in WebKit on CI, with nothing to show where.
+// On CI a failing test here keeps its trace (test-results/), which is uploaded. Not
+// locally: recording slows the first page of a cold dev server past the time limit.
+test.use({ trace: process.env.CI ? 'retain-on-failure' : 'off' });
+
 const N = 24;
 
 /** A MetaImage file: a header and the voxels after it. */
