@@ -2,7 +2,7 @@ import { Check, ChevronDown, ChevronRight, ChevronUp, Minus, X } from 'lucide-re
 import { useEffect, useRef, useState } from 'react';
 import type { StartFrom } from '../dataset/layout';
 import { emptyProgress, tally } from '../dataset/progress';
-import { chooseOutputFolder, closeDataset, finishCase, openCase, setStartFrom, skipCase, stepCase } from '../session';
+import { chooseOutputFolder, closeDataset, finishCase, openCase, setStartFrom, skipCase, stepCase, zipOutput } from '../session';
 import { useStore } from '../state/store';
 import { useKeyHint } from './common';
 
@@ -11,7 +11,8 @@ const leaf = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.l
 /**
  * The cases of an open dataset folder, by patient. A click opens a case with
  * the mask it starts from; the arrows step through them in order. With a
- * folder to save into, "Done and next" saves the case there and moves on.
+ * folder to save into, "Done and next" saves the case there and moves on,
+ * and "Zip for email…" makes one file of what is saved.
  */
 export function DatasetSection() {
   const ds = useStore((s) => s.dataset);
@@ -82,8 +83,19 @@ export function DatasetSection() {
             )}
           </div>
           {ds.output && (
-            <div className="dataset-tally" aria-live="polite">
-              {counts.done} done · {counts.skipped} skipped · {counts.left} left
+            <div className="dataset-tally">
+              <span aria-live="polite">
+                {counts.done} done · {counts.skipped} skipped · {counts.left} left
+              </span>
+              <button
+                className="btn text"
+                disabled={counts.done + counts.skipped === 0 || busy}
+                data-tip="One file of the saved masks and the progress, to attach to an email"
+                data-tip-side="top"
+                onClick={() => void zipOutput()}
+              >
+                Zip for email…
+              </button>
             </div>
           )}
           <div className="dataset-actions">

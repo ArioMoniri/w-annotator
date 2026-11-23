@@ -46,23 +46,30 @@ export async function stopHosting(): Promise<void> {
   }
 }
 
+export interface SaveFilter {
+  name: string;
+  extensions: string[];
+}
+
+const MASK_FILTERS: SaveFilter[] = [
+  { name: 'NIfTI', extensions: ['nii.gz', 'nii'] },
+  { name: 'MetaImage', extensions: ['mha'] },
+  { name: 'NRRD', extensions: ['nrrd'] },
+  { name: 'DICOM SEG', extensions: ['dcm'] },
+];
+
+export const ZIP_FILTERS: SaveFilter[] = [{ name: 'Zip archive', extensions: ['zip'] }];
+
 /**
  * Ask where to save, then write. `make` gets the chosen file name so the
- * format can follow the extension. Returns the saved name, or null if cancelled.
+ * format can follow the extension. `filters` are the save dialog's file types
+ * (mask formats when not given). Returns the saved name, or null if cancelled.
  */
-export async function saveBytes(suggested: string, make: (name: string) => Uint8Array): Promise<string | null> {
+export async function saveBytes(suggested: string, make: (name: string) => Uint8Array, filters: SaveFilter[] = MASK_FILTERS): Promise<string | null> {
   if (isTauri) {
     const { invoke } = await import('@tauri-apps/api/core');
     // The app only writes to a path the user picked in its own save dialog.
-    const path = await invoke<string | null>('pick_save_path', {
-      defaultName: suggested,
-      filters: [
-        { name: 'NIfTI', extensions: ['nii.gz', 'nii'] },
-        { name: 'MetaImage', extensions: ['mha'] },
-        { name: 'NRRD', extensions: ['nrrd'] },
-        { name: 'DICOM SEG', extensions: ['dcm'] },
-      ],
-    });
+    const path = await invoke<string | null>('pick_save_path', { defaultName: suggested, filters });
     if (!path) return null;
     const name = path.split(/[\\/]/).pop() ?? suggested;
     await invoke('write_file', make(name), { headers: { 'x-file-path': encodeURIComponent(path) } });
