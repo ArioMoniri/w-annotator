@@ -780,6 +780,8 @@ There are no room codes: a room is joined with an invite link (4.6).
 
 `Version 1.4.0 is ready.` · `Restart to update. Your work is saved first.` · `Restart` · `Later` · File menu item: `Restart to update`
 
+Settings › Help, desktop app only, after Report a problem: `Check for updates` (secondary button), with a status beside it in 12px `--text-2`. While it runs the button reads `Checking…` and is disabled. Status: `Checking for updates…` · `Downloading version 1.4.0…` · `You have the latest version.` · `Version 1.4.0 is ready.` (the button becomes `Restart to update`, and the banner shows even after Later) · `Couldn't check for updates. Check your connection and try again.`
+
 ### 6.12 Report a problem
 
 | Element | Copy |

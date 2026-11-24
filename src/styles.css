@@ -2512,6 +2512,17 @@ button.avatar {
   gap: 8px;
 }
 
+.update-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.update-check [role='status'] {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
 .modal.settings .pane p.about {
   margin-top: auto;
   color: var(--text-3);
