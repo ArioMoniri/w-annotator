@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { maskVoxels, skipTour } from './helpers';
+import { skipTour } from './helpers';
 
 const N = 24;
 
@@ -53,6 +53,20 @@ test.afterAll(() => {
 });
 
 const rows = (page: Page) => page.locator('.filerow');
+
+/**
+ * Voxels of `label` (any label when not given) in the mask on screen, or -1
+ * while there is no mask yet: a case's label loads after its image, and a
+ * slow browser can be asked before it is there.
+ */
+const voxels = (page: Page, label?: number) =>
+  page.evaluate((label) => {
+    const mask = window.__w.session.getMask() as { data: Uint8Array } | null;
+    if (!mask) return -1;
+    let n = 0;
+    for (const v of mask.data) if (label === undefined ? v !== 0 : v === label) n++;
+    return n;
+  }, label);
 const dataset = (page: Page) => page.getByRole('region', { name: 'Dataset' });
 const caseRow = (page: Page, name: string) => page.getByRole('option', { name, exact: true });
 
@@ -75,8 +89,8 @@ test('a dataset folder lists its cases by patient and opens the first one with i
   await expect(dataset(page).getByLabel('Case 1 of 3')).toBeVisible();
   // The case's own label is the mask, named after the case.
   await expect(rows(page).nth(1)).toContainText('p1_0001');
-  await expect.poll(() => maskVoxels(page, 1)).toBeGreaterThan(0);
-  expect(await maskVoxels(page, 2)).toBe(0);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  expect(await voxels(page, 2)).toBe(0);
 });
 
 test('the next case opens by click, button or shortcut, and a case without a label gets an empty mask', async ({ page }) => {
@@ -84,12 +98,12 @@ test('the next case opens by click, button or shortcut, and a case without a lab
   await caseRow(page, 'p1_0002').click();
   await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
   // The image shows first; its label follows.
-  await expect.poll(() => maskVoxels(page, 2)).toBeGreaterThan(0);
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
 
   await page.keyboard.press('Alt+ArrowDown');
   await expect(rows(page).nth(0)).toContainText('p2_0001_0000');
   await expect(caseRow(page, 'p2_0001, no label')).toHaveAttribute('aria-selected', 'true');
-  expect(await maskVoxels(page)).toBe(0);
+  await expect.poll(() => voxels(page)).toBe(0);
   // Saving suggests the label name the case would have.
   await expect(page.locator('.filebtn')).toContainText('p2_0001.mha');
 
@@ -105,8 +119,8 @@ test('a case can start from the label of its patient’s first scan', async ({ p
   await caseRow(page, 'p1_0002').click();
   await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
   // The ball of scan 0001's label, under the name of this case.
-  await expect.poll(() => maskVoxels(page, 1)).toBeGreaterThan(0);
-  expect(await maskVoxels(page, 2)).toBe(0);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  expect(await voxels(page, 2)).toBe(0);
   await expect(rows(page).nth(1)).toContainText('p1_0002');
   await expect(page.getByText('Started from the label of p1_0001. Check that it fits this scan.')).toBeVisible();
 
@@ -134,4 +148,142 @@ test('closing the dataset keeps the case on screen', async ({ page }) => {
   await expect(dataset(page)).toHaveCount(0);
   // The case on screen stays open.
   await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
+});
+
+/**
+ * Stands in for the browser's folder picker (File System Access API), which a
+ * test cannot click through. The folder lives in `window.__out`: its name, its
+ * files, and whether the next pick is cancelled.
+ */
+async function fakeOutputFolder(page: Page, name = 'labels_corrected', files: Record<string, number[]> = {}): Promise<void> {
+  await page.addInitScript(
+    ({ name, files }) => {
+      const st = { name, cancel: false, files: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, new Uint8Array(v)])) as Record<string, Uint8Array> };
+      (window as unknown as { __out: typeof st }).__out = st;
+      (window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = async () => {
+        if (st.cancel) throw new DOMException('cancelled', 'AbortError');
+        return {
+          name: st.name,
+          async *values() {
+            for (const n of Object.keys(st.files)) yield { kind: 'file', name: n };
+          },
+          async getFileHandle(n: string, opts?: { create?: boolean }) {
+            if (!(n in st.files) && !opts?.create) throw new DOMException('not found', 'NotFoundError');
+            return {
+              getFile: async () => new File([st.files[n] as BlobPart], n),
+              createWritable: async () => {
+                const parts: BlobPart[] = [];
+                return {
+                  write: async (b: BlobPart) => void parts.push(b),
+                  close: async () => {
+                    st.files[n] = new Uint8Array(await new Blob(parts).arrayBuffer());
+                  },
+                };
+              },
+            };
+          },
+        };
+      };
+    },
+    { name, files },
+  );
+}
+
+const written = (page: Page) => page.evaluate(() => Object.keys((window as unknown as { __out: { files: Record<string, Uint8Array> } }).__out.files).sort());
+const progress = (page: Page) =>
+  page.evaluate(() => JSON.parse(new TextDecoder().decode((window as unknown as { __out: { files: Record<string, Uint8Array> } }).__out.files['w-annotator-progress.json'])) as { cases: Record<string, { status: string; changed?: boolean; start?: string }> });
+
+test('Done and next saves the case into the chosen folder, marks it and opens the next one', async ({ page }) => {
+  await fakeOutputFolder(page);
+  await openFolder(page);
+  await expect(dataset(page).getByRole('button', { name: 'Choose folder…' })).toBeVisible();
+  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(dataset(page)).toContainText('labels_corrected');
+  await expect(dataset(page)).toContainText('0 done · 0 skipped · 3 left');
+
+  await dataset(page).getByRole('button', { name: 'Done and next' }).click();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
+  expect(await written(page)).toEqual(['p1_0001.mha', 'w-annotator-progress.json']);
+  const first = await progress(page);
+  expect(first.cases.p1_0001).toMatchObject({ status: 'done', changed: false, start: 'own' });
+  await expect(caseRow(page, 'p1_0001, done')).toBeVisible();
+  await expect(dataset(page)).toContainText('1 done · 0 skipped · 2 left');
+  // The saved file is a compressed MetaImage on the image's grid.
+  const header = await page.evaluate(() => new TextDecoder('latin1').decode((window as unknown as { __out: { files: Record<string, Uint8Array> } }).__out.files['p1_0001.mha'].slice(0, 400)));
+  expect(header).toContain('CompressedData = True');
+  expect(header).toContain('DimSize = 24 24 24');
+
+  // An edit is recorded as a change; the shortcut does the same as the button.
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
+  await page.evaluate(() => window.__w.session.clearSegment(2));
+  await page.keyboard.press('Control+Enter');
+  await expect(caseRow(page, 'p2_0001, no label')).toHaveAttribute('aria-selected', 'true');
+  expect((await progress(page)).cases.p1_0002).toMatchObject({ status: 'done', changed: true, start: 'own' });
+});
+
+test('Skip marks a case without saving a mask, asking first about unsaved edits', async ({ page }) => {
+  await fakeOutputFolder(page);
+  await openFolder(page);
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  await page.evaluate(() => window.__w.session.clearSegment(1));
+  // No folder yet: Skip asks for one first.
+  await dataset(page).getByRole('button', { name: 'Skip', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Skip p1_0001?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Skip', exact: true }).last().click();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
+  expect(await written(page)).toEqual(['w-annotator-progress.json']);
+  expect((await progress(page)).cases.p1_0001.status).toBe('skipped');
+  await expect(caseRow(page, 'p1_0001, skipped')).toBeVisible();
+});
+
+test('a folder with earlier progress picks up where the work stopped', async ({ page }) => {
+  const earlier = {
+    version: 1,
+    dataset: 'task1',
+    cases: { p1_0001: { status: 'done', at: '2026-11-22T10:00:00.000Z', changed: true, start: 'own' } },
+  };
+  // The mask saved for p1_0001 earlier is a ball of label 2, unlike its original label 1.
+  await fakeOutputFolder(page, 'labels_corrected', {
+    'p1_0001.mha': Array.from(ball(2)),
+    'w-annotator-progress.json': Array.from(Buffer.from(JSON.stringify(earlier))),
+  });
+  await openFolder(page);
+  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(page.getByText('labels_corrected already has 1 done and 0 skipped. They keep their status.')).toBeVisible();
+  await expect(caseRow(page, 'p1_0001, done')).toBeVisible();
+
+  // A done case opens with the mask saved for it.
+  await caseRow(page, 'p1_0002').click();
+  await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
+  await caseRow(page, 'p1_0001, done').click();
+  await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
+  expect(await voxels(page, 1)).toBe(0);
+
+  // Done and next goes on to the next case not yet handled.
+  await dataset(page).getByRole('button', { name: 'Done and next' }).click();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('the dataset’s own labels folder cannot be the output folder', async ({ page }) => {
+  await fakeOutputFolder(page, 'LabelsTr', { 'p1_0001.mha': [1], 'p1_0002.mha': [1] });
+  await openFolder(page);
+  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(page.getByText("LabelsTr holds the dataset's own labels. Choose or make another folder, so the originals stay as they are.")).toBeVisible();
+  await expect(dataset(page).getByRole('button', { name: 'Choose folder…' })).toBeVisible();
+});
+
+test('moving on with unsaved edits saves into the output folder when there is one', async ({ page }) => {
+  await fakeOutputFolder(page);
+  await openFolder(page);
+  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(dataset(page)).toContainText('labels_corrected');
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  await page.evaluate(() => window.__w.session.clearSegment(1));
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(page.getByText('It is saved to labels_corrected and marked done.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
+  expect(await written(page)).toEqual(['p1_0001.mha', 'w-annotator-progress.json']);
+  expect((await progress(page)).cases.p1_0001).toMatchObject({ status: 'done', changed: true });
 });

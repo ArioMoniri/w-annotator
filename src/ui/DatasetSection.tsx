@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ChevronUp, Minus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { StartFrom } from '../dataset/layout';
-import { closeDataset, openCase, setStartFrom, stepCase } from '../session';
+import { emptyProgress, tally } from '../dataset/progress';
+import { chooseOutputFolder, closeDataset, finishCase, openCase, setStartFrom, skipCase, stepCase } from '../session';
 import { useStore } from '../state/store';
 import { useKeyHint } from './common';
 
@@ -9,10 +10,12 @@ const leaf = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.l
 
 /**
  * The cases of an open dataset folder, by patient. A click opens a case with
- * the mask it starts from; the arrows step through them in order.
+ * the mask it starts from; the arrows step through them in order. With a
+ * folder to save into, "Done and next" saves the case there and moves on.
  */
 export function DatasetSection() {
   const ds = useStore((s) => s.dataset);
+  const busy = useStore((s) => !!s.busy);
   const [open, setOpen] = useState(true);
   const list = useRef<HTMLDivElement>(null);
   const key = useKeyHint();
@@ -26,7 +29,8 @@ export function DatasetSection() {
   if (!ds) return null;
   const byId = new Map(ds.cases.map((c) => [c.id, c]));
   const at = ds.current ? ds.cases.findIndex((c) => c.id === ds.current) + 1 : 0;
-  const tip = (label: string, id: 'dataset.previous' | 'dataset.next') => `${label}  ${key(id)}`.trimEnd();
+  const tip = (label: string, id: 'dataset.previous' | 'dataset.next' | 'dataset.done') => `${label}  ${key(id)}`.trimEnd();
+  const counts = tally(ds, { ...emptyProgress(ds.name), cases: ds.progress });
 
   return (
     <section className="files dataset" aria-label="Dataset" data-open={open}>
@@ -60,6 +64,36 @@ export function DatasetSection() {
               <option value="first">First scan’s label</option>
             </select>
           </label>
+          <div className="dataset-start dataset-out">
+            <span>Save to</span>
+            {ds.output ? (
+              <>
+                <span className="folder" title={ds.output}>
+                  {ds.output}
+                </span>
+                <button className="btn text" onClick={() => void chooseOutputFolder()}>
+                  Change…
+                </button>
+              </>
+            ) : (
+              <button className="btn secondary" onClick={() => void chooseOutputFolder()}>
+                Choose folder…
+              </button>
+            )}
+          </div>
+          {ds.output && (
+            <div className="dataset-tally" aria-live="polite">
+              {counts.done} done · {counts.skipped} skipped · {counts.left} left
+            </div>
+          )}
+          <div className="dataset-actions">
+            <button className="btn secondary" disabled={!ds.current || busy} onClick={() => void skipCase()}>
+              Skip
+            </button>
+            <button className="btn primary" disabled={!ds.current || busy} data-tip={tip('Save to the folder and open the next case', 'dataset.done')} data-tip-side="top" onClick={() => void finishCase()}>
+              Done and next
+            </button>
+          </div>
           <div className="caselist" role="listbox" aria-label="Cases" ref={list}>
             {ds.patients.map((p) => (
               <div key={p.id} role="group" aria-label={`Patient ${p.id}`}>
@@ -70,16 +104,22 @@ export function DatasetSection() {
                 )}
                 {p.cases.map((id) => {
                   const c = byId.get(id)!;
+                  const status = ds.progress[id]?.status;
+                  const words = [id, c.label ? '' : 'no label', status ?? ''].filter(Boolean).join(', ');
                   return (
                     <button
                       key={id}
                       className="caserow"
                       role="option"
                       aria-selected={ds.current === id}
-                      aria-label={c.label ? id : `${id}, no label`}
+                      aria-label={words}
+                      data-status={status}
                       title={c.label ? leaf(c.label) : 'No label in the labels folder'}
                       onClick={() => ds.current !== id && void openCase(id)}
                     >
+                      <span className="mark" aria-hidden>
+                        {status === 'done' ? <Check size={12} /> : status === 'skipped' ? <Minus size={12} /> : null}
+                      </span>
                       <span>{c.scan || c.id}</span>
                       {!c.label && <span className="nolabel">no label</span>}
                     </button>
