@@ -303,10 +303,13 @@ export async function maskDump(page: Page): Promise<string> {
 /**
  * Puts this page's connection to the room server under the test's control. `cut()` breaks
  * the connection and refuses new ones, as a network that went away would; `restore()` lets
- * the app through again. Call it before the page joins or starts a room.
+ * the app through again. `restore(ms)` brings back a slow network: on new connections,
+ * everything the room server says reaches the page `ms` late, in order. Call it before the
+ * page joins or starts a room.
  */
-export async function cuttable(page: Page): Promise<{ cut(): Promise<void>; restore(): void }> {
+export async function cuttable(page: Page): Promise<{ cut(): Promise<void>; restore(lag?: number): void }> {
   let offline = false;
+  let lag = 0;
   const live = new Set<{ close(): Promise<void> }>();
   await page.routeWebSocket(/\/v2\/rooms\//, (ws) => {
     if (offline) {
@@ -314,6 +317,8 @@ export async function cuttable(page: Page): Promise<{ cut(): Promise<void>; rest
       return;
     }
     const server = ws.connectToServer();
+    const late = lag;
+    if (late > 0) server.onMessage((m) => setTimeout(() => ws.send(m), late));
     const both = {
       close: async () => {
         await ws.close();
@@ -330,8 +335,9 @@ export async function cuttable(page: Page): Promise<{ cut(): Promise<void>; rest
       live.clear();
       await Promise.all(open.map((c) => c.close()));
     },
-    restore: () => {
+    restore: (ms = 0) => {
       offline = false;
+      lag = ms;
     },
   };
 }

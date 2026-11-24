@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- A view-through-host guest whose connection dropped could leave the room on reconnecting, with "Can't reach the room server", instead of coming back. The app asked the host for pictures on the new connection before signing in again, and the room server took that as a broken sign-in. Nothing is sent now until the app has signed in. A sign-in that a slow network made late is tried again rather than ending the room.
+
 ## [0.1.4] - 2026-11-24
 
 ### Added

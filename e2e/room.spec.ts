@@ -538,6 +538,28 @@ test("a view-through-host guest's view is blanked while the connection to the ho
   await expect.poll(() => maskVoxels(host)).toBeGreaterThan(before);
 });
 
+test('a view-through-host guest comes back over a slow connection instead of leaving the room', async ({ browser }) => {
+  const host = await person(browser);
+  const guest = await person(browser);
+  const wire = await cuttable(guest);
+  await openPhantom(host);
+  const link = await startRoom(host, 'Mina', 'View through my computer');
+  await joinRoom(guest, 'Ario', link);
+  await expect.poll(() => imageValue(guest, [24, 24, 24])).toBeGreaterThan(0);
+
+  await wire.cut();
+  await expect(guest.getByTestId('room-veil')).toHaveText('Offline. Reconnecting…', { timeout: 2000 });
+  // The network comes back slow: the room server's greeting takes over a second to arrive,
+  // while the app goes on asking the host what to show. Nothing may reach the server before
+  // the app has signed in, or the server takes it for a broken sign-in.
+  wire.restore(1500);
+  await reconnectNow(guest);
+  await expect(guest.getByTestId('room-veil')).toHaveCount(0, { timeout: 20_000 });
+  await expect(guest.getByTestId('guest-banner')).toBeVisible();
+  await expect(errorToast(guest)).toHaveCount(0);
+  await expect.poll(() => imageValue(guest, [24, 24, 24]), { timeout: 15_000 }).toBeGreaterThan(0);
+});
+
 test('a view-through-host guest who is offline for a long time stays a member and comes back', async ({ browser }) => {
   const host = await person(browser);
   const guest = await person(browser);
