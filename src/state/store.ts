@@ -106,6 +106,8 @@ interface State {
     auto: Voi;
     mr: MrWindows;
     path?: string;
+    /** Its values are segment labels: most likely a mask opened as the image, which can be used as a mask on its scan. */
+    labels?: boolean;
   } | null;
   /** The preset list the user asked for, when the guess from the values was wrong. Null follows `image.ct`. */
   windowSet: WindowSet | null;

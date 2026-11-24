@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DROP_TEXT, assignRoles, dropHint, labelLook, namedLikeMask, type Candidate } from './roles';
+import { DROP_TEXT, assignRoles, dropHint, labelLook, namedLikeMask, openChoice, sameCase, type Candidate } from './roles';
 
 const image = (name: string): Candidate => ({ name, look: 'image' });
 const labels = (name: string): Candidate => ({ name, look: 'labels' });
@@ -30,6 +30,27 @@ describe('namedLikeMask', () => {
     expect(namedLikeMask('/data/segmentations/ct.nii')).toBe(false);
     expect(namedLikeMask('C:\\masks\\ct.nii')).toBe(false);
   });
+
+  it('knows the label of an nnU-Net image by its name', () => {
+    expect(namedLikeMask('10000_0001.mha', '10000_0001_0000.mha')).toBe(true);
+    expect(namedLikeMask('10000_0001.mha', '10000_0002_0000.mha')).toBe(false);
+    expect(namedLikeMask('10000_0001.mha')).toBe(false);
+  });
+});
+
+describe('sameCase', () => {
+  it('pairs an nnU-Net image with its label, in any format and folder', () => {
+    expect(sameCase('10000_0001_0000.mha', '10000_0001.mha')).toBe(true);
+    expect(sameCase('/data/imagesTr/10000_0001_0000.mha', 'C:\\data\\labelsTr\\10000_0001.nii.gz')).toBe(true);
+    expect(sameCase('BraTS_001_0003.nii.gz', 'brats_001.nii.gz')).toBe(true);
+  });
+
+  it('does not pair other cases, the image with itself, or names without a channel', () => {
+    expect(sameCase('10000_0001_0000.mha', '10000_0002.mha')).toBe(false);
+    expect(sameCase('10000_0001_0000.mha', '10000_0001_0000.mha')).toBe(false);
+    expect(sameCase('ct.mha', 'ct.nii.gz')).toBe(false);
+    expect(sameCase('10000_0001_000.mha', '10000_0001.mha')).toBe(false);
+  });
 });
 
 describe('dropHint', () => {
@@ -56,6 +77,11 @@ describe('dropHint', () => {
     // A folder, or DICOM files: an image series or a segmentation object.
     expect(dropHint(['/scans/series 3'], true)).toBe('add');
     expect(dropHint(['IM0001.dcm', 'IM0002.dcm'], true)).toBe('add');
+  });
+
+  it('says add as mask for the label of the open nnU-Net image', () => {
+    expect(dropHint(['10000_0001.mha'], true, '10000_0001_0000.mha')).toBe('mask');
+    expect(dropHint(['10000_0002.mha'], true, '10000_0001_0000.mha')).toBe('replace');
   });
 
   it('ignores the data file of a header', () => {
@@ -119,7 +145,35 @@ describe('assignRoles', () => {
     expect(assignRoles([labels('seg.nii')], { role: 'image', hasImage: true })).toEqual({ image: 0, masks: [], extra: [] });
   });
 
+  it('pairs an nnU-Net image and label by name', () => {
+    // A label with many segments is a "maybe" by its values; the shared case name settles it.
+    expect(assignRoles([maybe('10000_0001.mha'), image('10000_0001_0000.mha')], { hasImage: false })).toEqual({ image: 1, masks: [0], extra: [] });
+    expect(assignRoles([maybe('10000_0001.mha')], { hasImage: true, imageName: '10000_0001_0000.mha' })).toEqual({ image: null, masks: [0], extra: [] });
+  });
+
   it('opens one image and leaves the others out', () => {
     expect(assignRoles([image('a.nii'), image('b.nii')], { hasImage: false })).toEqual({ image: 0, masks: [], extra: [1] });
+  });
+});
+
+describe('openChoice', () => {
+  it('opens at once when nothing is open', () => {
+    expect(openChoice({ role: 'image', hasImage: false, unsaved: false, look: 'labels' })).toBe('open');
+    expect(openChoice({ hasImage: false, unsaved: false, look: 'image' })).toBe('open');
+  });
+
+  it('replaces at once when asked for by name with nothing unsaved', () => {
+    expect(openChoice({ role: 'image', hasImage: true, unsaved: false, look: 'image' })).toBe('open');
+    expect(openChoice({ role: 'image', hasImage: true, unsaved: false, look: 'maybe' })).toBe('open');
+  });
+
+  it('asks before replacing when dropped or with unsaved edits', () => {
+    expect(openChoice({ hasImage: true, unsaved: false, look: 'image' })).toBe('ask-replace');
+    expect(openChoice({ role: 'image', hasImage: true, unsaved: true, look: 'image' })).toBe('ask-replace');
+  });
+
+  it('offers to add a file of labels as a mask before it replaces the image', () => {
+    expect(openChoice({ role: 'image', hasImage: true, unsaved: false, look: 'labels' })).toBe('ask-mask');
+    expect(openChoice({ role: 'image', hasImage: true, unsaved: true, look: 'labels' })).toBe('ask-mask');
   });
 });

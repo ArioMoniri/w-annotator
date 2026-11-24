@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- "Use as mask on a scan…" in the image's row menu, when the open image holds segment labels: pick the scan it belongs to, and the labels open on it as a mask, saved back to their own file. Opening such a file on its own also says this, with a "Pick scan" button.
+- nnU-Net names pair an image with its label: `10000_0001.mha` is the label of `10000_0001_0000.mha`, in any format or folder. Dragging the label over its image says "Drop to add as mask".
+
 ### Changed
 
 - In "1 large and 3 stacked" the view in the large pane shows its image enlarged to fill the pane, as a maximised view does. It goes back to its size when it leaves the large pane, and a view swapped in grows in its place.
@@ -13,6 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- A mask picked with Open image while an image was open replaced the image at once, shown as a grey picture, and could not be turned back into a mask. A file whose values are segment labels now asks first: "Add as mask", or "Replace image".
 - An image opened while the layout was "1 large and 3 stacked" stayed zoomed in after going back to 2 × 2. It now looks the same whichever layout it was opened in.
 
 ## [0.1.3] - 2026-11-22

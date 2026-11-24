@@ -677,11 +677,13 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Links | Join a room · Open the sample · Settings |
 | Recent heading | Recent |
 | Dragging over (empty) | Drop to open |
-| Dragging over (image open, mask file) | Drop to add as mask |
+| Dragging over (image open, mask file: named like a mask, or the nnU-Net label of the open image) | Drop to add as mask |
 | Dragging over (image open, image file) | Drop to replace image |
 | Dragging over (image open, kind not known: a folder, DICOM, or a browser that hides names) | Drop to add |
 | Replace confirm (nothing unsaved, dropped image) | Replace the current image? · follow_up.mha will open in place of ct.nii. · Add as mask (only when its values could be labels) · Cancel · Replace |
-| Files section | Files · New mask · Edit {name} · Hide / Show · Dim image / Show image at full brightness · Make active · Save… · Show in Finder / Explorer / folder · Close · Close image |
+| Mask confirm (Open image picked a file of segment labels while an image is open) | Add 10000_0001.mha as a mask? · Its values are segment labels. It can also open in place of 10000_0001_0000.mha. (unsaved: Its values are segment labels. Replacing the image instead loses unsaved mask changes.) · Replace image (not in a room) · Cancel · Add as mask |
+| Labels opened as the image | 10000_0001.mha holds segment labels. To edit them, open them on their scan. · Pick scan |
+| Files section | Files · New mask · Edit {name} · Hide / Show · Dim image / Show image at full brightness · Make active · Save… · Use as mask on a scan… (image row, when it holds segment labels) · Show in Finder / Explorer / folder · Close · Close image |
 | Too many masks | Up to 4 masks can be open at once. Close one in Files to add another. |
 | Replace confirm (unsaved) | Replace the current image? · Unsaved mask changes will be lost. · Cancel · Save and replace · Replace |
 | Loading | Opening chest_ct_014.nii.gz… |
