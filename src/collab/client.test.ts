@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { Pace, afterClose, frameIsBound, handshakeMessage, paceLimits, parseRoster, parseWelcome, retryDelay, welcomeFits } from './client';
-import { inviteKeys, inviteProof, publicKey } from './identity';
-import { b64encode } from './protocol';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Pace, RoomClient, afterClose, frameIsBound, handshakeMessage, paceLimits, parseRoster, parseWelcome, retryDelay, welcomeFits } from './client';
+import { inviteKeys, inviteProof, memberId, publicKey } from './identity';
+import { FrameKind, b64encode } from './protocol';
 
 const ROOM = 'K7Q2M9XA4TDP';
 const NONCE = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI';
@@ -57,6 +57,13 @@ describe('afterClose', () => {
   });
   it('stops for good when the room or the membership is gone', () => {
     for (const code of [4001, 4003, 4401, 4403, 4408, 4410, 4426]) expect(afterClose(code, true, true)).toBe('ended');
+  });
+  it('tries again when a slow network made the sign-in late, but not when the sign-in was wrong', () => {
+    expect(afterClose(4400, true, false, 'handshake timed out')).toBe('retry');
+    expect(afterClose(4400, true, true, 'handshake timed out')).toBe('retry');
+    expect(afterClose(4400, true, false, 'bad handshake')).toBe('ended');
+    expect(afterClose(4400, true, false)).toBe('ended');
+    expect(afterClose(4400, false, false, 'handshake timed out')).toBe('ended');
   });
   it('re-opens an unknown room as host, and waits as anyone else', () => {
     expect(afterClose(4404, true, true)).toBe('recreate');
@@ -192,5 +199,107 @@ describe('retryDelay', () => {
     expect(retryDelay(3, () => 1)).toBe(8000);
     expect(retryDelay(20, () => 1)).toBe(30_000);
     expect(retryDelay(20, () => 0)).toBe(15_000);
+  });
+});
+
+/** Just enough of a browser WebSocket to drive a RoomClient by hand. */
+class FakeSocket {
+  static OPEN = 1;
+  static made: FakeSocket[] = [];
+  readyState = 0;
+  binaryType = 'blob';
+  bufferedAmount = 0;
+  sent: (string | Uint8Array)[] = [];
+  onmessage: ((ev: { data: unknown }) => void) | null = null;
+  onclose: ((ev: { code: number; reason: string }) => void) | null = null;
+  constructor(readonly url: string) {
+    FakeSocket.made.push(this);
+  }
+  send(data: string | Uint8Array): void {
+    if (this.readyState !== 1) throw new Error('not open');
+    this.sent.push(data);
+  }
+  close(): void {
+    this.readyState = 3;
+  }
+  /** The server's side: the socket opens, then says something, or goes away. */
+  open(): void {
+    this.readyState = 1;
+  }
+  say(msg: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(msg) });
+  }
+  drop(code: number, reason = ''): void {
+    this.readyState = 3;
+    this.onclose?.({ code, reason });
+  }
+}
+
+describe('RoomClient', () => {
+  const guestSeed = new Uint8Array(32).fill(5);
+  const self = memberId(publicKey(guestSeed));
+  const welcome = {
+    t: 'welcome',
+    self: { id: self, role: 'editor' },
+    room: { id: ROOM, type: 'host-view', state: 'active', proto: 2, epoch: 1, head: 0, session: 's1' },
+    roster: [],
+  };
+  const events = () => ({
+    onStatus: vi.fn(),
+    onWelcome: vi.fn(),
+    onText: vi.fn(),
+    onFrame: vi.fn(),
+    onEnded: vi.fn(),
+    members: () => [],
+  });
+
+  beforeEach(() => {
+    FakeSocket.made = [];
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends nothing on a new connection before it has signed in again', () => {
+    const ev = events();
+    const client = new RoomClient('ws://relay.test', ROOM, guestSeed, { t: 'auth' }, new Uint8Array(32).fill(1), ev, { kind: 'host-view', host: false });
+    client.connect();
+    const first = FakeSocket.made[0];
+    first.open();
+    first.say({ t: 'hello', nonce: NONCE });
+    first.say(welcome);
+    expect(client.open).toBe(true);
+    expect(client.sendFrame(FrameKind.SliceRequest, { t: 'describe', q: 1 })).toBe(true);
+
+    // The connection drops and comes back. The socket is open before the room server has said hello.
+    first.drop(1006);
+    client.reconnectNow();
+    const second = FakeSocket.made[1];
+    second.open();
+    expect(client.open).toBe(false);
+    // The app keeps asking the host what to show; none of it may reach the server yet,
+    // or the server takes it for a broken sign-in and closes with 4400.
+    expect(client.sendFrame(FrameKind.SliceRequest, { t: 'describe', q: 1 })).toBe(false);
+    client.send({ t: 'replay', after: 0 });
+    expect(second.sent).toEqual([]);
+
+    second.say({ t: 'hello', nonce: NONCE });
+    expect(second.sent).toHaveLength(1);
+    expect(JSON.parse(second.sent[0] as string)).toMatchObject({ t: 'auth' });
+    second.say(welcome);
+    expect(client.open).toBe(true);
+    expect(client.sendFrame(FrameKind.SliceRequest, { t: 'describe', q: 1 })).toBe(true);
+    expect(second.sent).toHaveLength(2);
+    expect(ev.onEnded).not.toHaveBeenCalled();
+  });
+
+  it('asks the server nothing before it has signed in', async () => {
+    const client = new RoomClient('ws://relay.test', ROOM, guestSeed, { t: 'auth' }, new Uint8Array(32).fill(1), events(), { kind: 'host-view', host: false });
+    client.connect();
+    const socket = FakeSocket.made[0];
+    socket.open();
+    await expect(client.request({ t: 'invite-list' })).resolves.toEqual({ t: 'error', code: 'offline' });
+    expect(socket.sent).toEqual([]);
   });
 });

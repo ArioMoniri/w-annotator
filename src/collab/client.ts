@@ -48,10 +48,14 @@ export function handshakeMessage(mode: JoinMode, seed: Uint8Array, room: string,
  */
 export const CLOSE_MISFIT = 4999;
 
-/** What to do when the socket closes (§11). */
-export function afterClose(code: number, welcomed: boolean, host: boolean): 'retry' | 'recreate' | 'ended' {
+/**
+ * What to do when the socket closes (§11). A member whose sign-in came too late was on a slow
+ * network, which is no reason to leave the room; a sign-in the server could not read is.
+ */
+export function afterClose(code: number, welcomed: boolean, host: boolean, reason = ''): 'retry' | 'recreate' | 'ended' {
   if (!welcomed) return 'ended';
   if (code === 4404) return host ? 'recreate' : 'retry';
+  if (code === 4400 && reason === 'handshake timed out') return 'retry';
   return [4001, 4003, 4400, 4401, 4403, 4408, 4409, 4410, 4426, CLOSE_MISFIT].includes(code) ? 'ended' : 'retry';
 }
 
@@ -216,6 +220,8 @@ interface Waiting {
 export class RoomClient {
   private ws: WebSocket | null = null;
   private welcomed = false;
+  /** Signed in on the socket that is open now. Until then only the handshake may go (§3). */
+  private signedIn = false;
   private host = false;
   private attempts = 0;
   private stopped = false;
@@ -261,6 +267,7 @@ export class RoomClient {
   connect(): void {
     if (this.stopped) return;
     this.events.onStatus(this.welcomed ? 'offline' : 'connecting');
+    this.signedIn = false;
     let ws: WebSocket;
     try {
       ws = new WebSocket(roomSocketUrl(this.server, this.room));
@@ -300,6 +307,7 @@ export class RoomClient {
         }
         const first = !this.welcomed;
         this.welcomed = true;
+        this.signedIn = true;
         this.host = welcome.self.role === 'host';
         this.kind = welcome.room.type;
         // Neither changes for as long as the room lives.
@@ -321,11 +329,12 @@ export class RoomClient {
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.signedIn = false;
       this.clearOutbox();
       for (const done of this.waiting.values()) done({ t: 'error', code: 'offline' });
       this.waiting.clear();
       if (this.stopped) return;
-      const next = afterClose(ev.code, this.welcomed, this.host);
+      const next = afterClose(ev.code, this.welcomed, this.host, ev.reason);
       if (next === 'ended') {
         this.stopped = true;
         this.events.onEnded(ev.code, ev.reason);
@@ -342,6 +351,7 @@ export class RoomClient {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.ws = null;
+    this.signedIn = false;
     this.clearOutbox();
     ws.close();
     this.events.onEnded(CLOSE_MISFIT, '');
@@ -370,8 +380,13 @@ export class RoomClient {
     this.connect();
   }
 
+  /**
+   * Whether anything may be sent: the socket is open and this device has signed in on it.
+   * The room server takes the first message after `hello` as the sign-in, so a frame sent on
+   * a socket that has just opened again ends the connection with 4400 instead.
+   */
   get open(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN;
+    return this.signedIn && this.ws?.readyState === WebSocket.OPEN;
   }
 
   /** Bytes waiting to go: frames held back by the pace, and what the socket has not sent yet. */
@@ -458,6 +473,7 @@ export class RoomClient {
     this.clearOutbox();
     const ws = this.ws;
     this.ws = null;
+    this.signedIn = false;
     ws?.close();
   }
 }

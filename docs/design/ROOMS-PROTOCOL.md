@@ -42,6 +42,8 @@ client → relay    create | auth | redeem        (one text message, within 10 s
 relay  → client   welcome                        or a close frame with a code from §11
 ```
 
+The relay takes the first message after `hello` as the handshake, whatever it is. A client sends nothing else, text or binary, until `welcome` has arrived on that connection, on every reconnect as on the first; anything else first is closed with 4400 `bad handshake`.
+
 ### 3.1 `hello` (relay → client)
 
 ```json
@@ -375,7 +377,7 @@ When the room closes, the relay erases its members, invites and log. The id answ
 | 4001 | `room full` / `relay full` | 16 members already, or no space for another room | Say so; do not retry automatically |
 | 4002 | `too slow` | The outbound queue (16 MiB or 4096 messages) overflowed | Reconnect with `resume` |
 | 4003 | `signed in elsewhere` | The same key signed in on another connection | Do not reconnect automatically |
-| 4400 | `bad handshake` / `handshake timed out` / `key not usable` | Malformed or late first message | A bug, or regenerate the key |
+| 4400 | `bad handshake` / `handshake timed out` / `key not usable` | Malformed or late first message | `handshake timed out` for a member already welcomed: reconnect, it was a slow network. Otherwise a bug, or regenerate the key |
 | 4401 | `not a member` / `bad signature` | Unknown key or wrong signature | "You are not a member of this room" |
 | 4403 | `removed by host` | | `ROOMS.md` C10 text; never retry |
 | 4404 | `no such room` | | Members: "Waiting for the host to reopen the room." Host: `create` again |
