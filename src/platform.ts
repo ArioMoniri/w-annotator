@@ -2,6 +2,7 @@
 
 import { hostedRoom, type HostedRoom } from './collab/hosting';
 import { getSettings, setSetting } from './state/settings';
+import type { Updater } from './updates';
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -329,31 +330,25 @@ export async function finishSelfTest(report: string): Promise<void> {
   await invoke('selftest_finish', { report });
 }
 
-export interface ReadyUpdate {
-  version: string;
-  install: () => Promise<void>;
-}
-
-/** Looks for a new release and downloads it in the background. */
-export async function findUpdate(): Promise<ReadyUpdate | null> {
-  if (!isTauri) return null;
-  try {
-    const { check } = await import('@tauri-apps/plugin-updater');
-    const update = await check();
-    if (!update) return null;
-    await update.download();
-    return {
-      version: update.version,
-      install: async () => {
-        await update.install();
-        const { relaunch } = await import('@tauri-apps/plugin-process');
-        await relaunch();
+/** The desktop app's updater, which asks GitHub Releases; a browser has none. */
+export const desktopUpdater: Updater | null = isTauri
+  ? {
+      check: async () => {
+        const { check } = await import('@tauri-apps/plugin-updater');
+        const update = await check();
+        if (!update) return null;
+        return {
+          version: update.version,
+          download: () => update.download(),
+          install: async () => {
+            await update.install();
+            const { relaunch } = await import('@tauri-apps/plugin-process');
+            await relaunch();
+          },
+        };
       },
-    };
-  } catch {
-    return null;
-  }
-}
+    }
+  : null;
 
 /**
  * Opens a web page in the user's browser. The desktop app may only open pages

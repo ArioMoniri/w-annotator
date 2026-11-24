@@ -283,6 +283,78 @@ test('Help shows the version and licence, and opens the report dialog', async ({
   await expect(page.getByRole('dialog', { name: 'Report a problem' })).toBeVisible();
 });
 
+/**
+ * Stands in for the desktop app's updater, which a browser does not have. It
+ * finds nothing, fails, or finds 9.9.9, whose download finishes when the test
+ * calls `window.__download()`.
+ */
+async function fakeUpdater(page: Page, finds: 'nothing' | 'offline' | 'release'): Promise<void> {
+  await page.evaluate((finds) => {
+    const w = window as unknown as { __w: { store: { setState: (s: object) => void } }; __download?: () => void; __installed?: boolean };
+    w.__w.store.setState({
+      updater: {
+        check: async () => {
+          if (finds === 'offline') throw new Error('offline');
+          if (finds === 'nothing') return null;
+          return {
+            version: '9.9.9',
+            download: () => new Promise<void>((done) => (w.__download = done)),
+            install: async () => void (w.__installed = true),
+          };
+        },
+      },
+    });
+  }, finds);
+}
+
+async function openHelp(page: Page): Promise<void> {
+  await page.keyboard.press('Control+,');
+  await page.getByRole('tab', { name: 'Help' }).click();
+}
+
+test('in a browser, Help has no update check: the page is always the latest', async ({ page }) => {
+  await launch(page);
+  await openHelp(page);
+  await expect(page.getByText(/version \d+\.\d+\.\d+/)).toBeVisible();
+  await expect(dialog(page).getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
+});
+
+test('Check for updates says when this is the latest version, and when it could not check', async ({ page }) => {
+  await launch(page);
+  await fakeUpdater(page, 'nothing');
+  await openHelp(page);
+  await dialog(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(dialog(page).getByRole('status')).toHaveText('You have the latest version.');
+  await page.screenshot({ path: 'test-results/settings/update-latest.png' });
+
+  await fakeUpdater(page, 'offline');
+  // By keyboard too.
+  await dialog(page).getByRole('button', { name: 'Check for updates' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog(page).getByRole('status')).toHaveText("Couldn't check for updates. Check your connection and try again.");
+  await expect(dialog(page).getByRole('button', { name: 'Check for updates' })).toBeEnabled();
+  await page.screenshot({ path: 'test-results/settings/update-failed.png' });
+});
+
+test('Check for updates downloads a new version, then offers to restart, here and in the banner', async ({ page }) => {
+  await launch(page);
+  await fakeUpdater(page, 'release');
+  await openHelp(page);
+  await dialog(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(dialog(page).getByRole('status')).toHaveText('Downloading version 9.9.9…');
+  // One check at a time.
+  await expect(dialog(page).getByRole('button', { name: 'Checking…' })).toBeDisabled();
+  await page.screenshot({ path: 'test-results/settings/update-downloading.png' });
+
+  await page.evaluate(() => (window as unknown as { __download: () => void }).__download());
+  await expect(dialog(page).getByRole('status')).toHaveText('Version 9.9.9 is ready.');
+  await expect(page.locator('.update')).toContainText('Version 9.9.9 is ready.');
+  await expect(dialog(page).getByRole('button', { name: 'Restart to update' })).toBeEnabled();
+  await page.screenshot({ path: 'test-results/settings/update-ready.png' });
+  await dialog(page).getByRole('button', { name: 'Restart to update' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __installed?: boolean }).__installed)).toBe(true);
+});
+
 test('Help names the sample data, its licence and where it comes from', async ({ page }) => {
   await launch(page);
   await page.keyboard.press('Control+,');

@@ -7,6 +7,7 @@ import type { CaseProgress } from '../dataset/progress';
 import type { PaintOver } from '../mask/paintOver';
 import type { ScissorsAction, ScissorsDepth, ScissorsShape } from '../mask/scissors';
 import type { MrWindows, Voi, WindowSet } from '../viewer/window';
+import type { UpdateStatus, Updater } from '../updates';
 
 export type ToolId =
   | 'crosshair'
@@ -190,6 +191,10 @@ interface State {
   toasts: Toast[];
   update: { version: string; install: () => Promise<void> } | null;
   updateDismissed: boolean;
+  /** The desktop app's updater; null where the app cannot update itself (a browser). */
+  updater: Updater | null;
+  /** What the update check in Settings shows. */
+  updateStatus: UpdateStatus;
 }
 
 export const useStore = create<State>(() => ({
@@ -249,6 +254,8 @@ export const useStore = create<State>(() => ({
   toasts: [],
   update: null,
   updateDismissed: false,
+  updater: null,
+  updateStatus: { kind: 'idle' },
 }));
 
 export const set = useStore.setState;

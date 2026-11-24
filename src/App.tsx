@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { findUpdate, isTauri, onFilesGiven, onNativeDrag, selfTestRequested, startFilesDump } from './platform';
+import { desktopUpdater, isTauri, onFilesGiven, onNativeDrag, selfTestRequested, startFilesDump } from './platform';
 import { stepBrushSize } from './mask/brush';
 import * as session from './session';
 import * as windowing from './windowing';
@@ -30,6 +30,7 @@ import { chooseLayout, currentLayout } from './state/views';
 import { Tour } from './tour/Tour';
 import { startTour } from './tour/state';
 import { shouldShowTour } from './tour/steps';
+import { checkForUpdates } from './updates';
 
 /** Anything that closes itself on Esc: menus, the popovers of a segment row, dialogs. */
 const OVERLAYS = '.menu, [role="menu"], [role="dialog"]';
@@ -264,7 +265,8 @@ export function App() {
     void selfTestRequested().then(async (wanted) => {
       if (wanted) void (await import('./selftest')).run();
     });
-    void findUpdate().then((update) => update && set({ update }));
+    set({ updater: desktopUpdater });
+    void checkForUpdates({ quiet: true });
     if (shouldShowTour(getSettings().tourSeen, location.search)) startTour();
     const warn = (e: BeforeUnloadEvent) => {
       if (session.anyUnsaved()) e.preventDefault();

@@ -6,6 +6,7 @@ import { setDisplayName } from '../session';
 import { NAME_MAX, parseReferenceLines, setSetting, useSettings, type ReferenceLines } from '../state/settings';
 import { get, set, useStore, type SettingsSection } from '../state/store';
 import { startTour } from '../tour/state';
+import { checkForUpdates, type UpdateStatus } from '../updates';
 import { Choice, MOD, Modal, Slider, Switch } from './common';
 import { ShortcutsList } from './Shortcuts';
 import { ThemeControl } from './ThemeControl';
@@ -222,6 +223,7 @@ function Help({ go }: { go: (section: SettingsSection) => void }) {
         <button className="btn secondary" onClick={() => set({ settings: null, report: 'bug' })}>
           Report a problem
         </button>
+        <UpdateCheck />
       </div>
       <p className="about">
         W Annotator, version {__APP_VERSION__}
@@ -234,6 +236,46 @@ function Help({ go }: { go: (section: SettingsSection) => void }) {
         </span>
       </p>
     </>
+  );
+}
+
+function updateText(s: UpdateStatus): string {
+  switch (s.kind) {
+    case 'idle':
+      return '';
+    case 'checking':
+      return 'Checking for updates…';
+    case 'downloading':
+      return `Downloading version ${s.version}…`;
+    case 'latest':
+      return 'You have the latest version.';
+    case 'ready':
+      return `Version ${s.version} is ready.`;
+    case 'failed':
+      return "Couldn't check for updates. Check your connection and try again.";
+  }
+}
+
+/** Looks for a new release now; only in the desktop app, which can update itself. */
+function UpdateCheck() {
+  const updater = useStore((s) => s.updater);
+  const update = useStore((s) => s.update);
+  const status = useStore((s) => s.updateStatus);
+  if (!updater) return null;
+  const busy = status.kind === 'checking' || status.kind === 'downloading';
+  return (
+    <div className="update-check">
+      {update ? (
+        <button className="btn secondary" onClick={() => void update.install()}>
+          Restart to update
+        </button>
+      ) : (
+        <button className="btn secondary" disabled={busy} onClick={() => void checkForUpdates()}>
+          {busy ? 'Checking…' : 'Check for updates'}
+        </button>
+      )}
+      <span role="status">{updateText(status)}</span>
+    </div>
   );
 }
 
