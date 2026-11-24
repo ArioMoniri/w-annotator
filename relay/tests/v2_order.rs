@@ -119,7 +119,7 @@ async fn an_edit_is_acked_to_its_sender_and_stamped_for_everyone_else() {
         assert_eq!(
             header,
             Header {
-                version: 2,
+                version: 3,
                 kind: PATCH,
                 flags: 0,
                 from: a.id,
@@ -183,11 +183,11 @@ async fn unordered_frames_get_no_sequence_number_and_no_ack() {
         host.text("error").await,
         json!({ "t": "error", "code": "offline", "kind": SYNC_SLAB, "cid": 4, "to": 123_456 })
     );
-    // Only the host delivers keys in a shared-copy room.
+    // Keys travel between any two members of a shared-copy room (protocol 3).
     host.send_frame(KEY, a.id, 5, b"wrapped").await;
     assert_eq!(a.frame().await.0.kind, KEY);
-    a.send_frame(KEY, b.id, 6, b"forged").await;
-    assert_eq!(a.text("error").await["code"], "forbidden");
+    a.send_frame(KEY, b.id, 6, b"passed on").await;
+    assert_eq!(b.frame().await.0.from, a.id);
     // Slice frames belong to the other room type.
     a.send_frame(SLICE_REQUEST, host.id, 1, b"z=3").await;
     assert_eq!(a.text("error").await["code"], "wrong-room-type");

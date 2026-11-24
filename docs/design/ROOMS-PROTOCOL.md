@@ -1,8 +1,10 @@
-# Rooms protocol v2 — wire spec
+# Rooms protocol, version 3 — wire spec
 
 What a client sends to and gets from the relay (`relay/`), precisely enough to build a client without reading the Rust. The design and its reasons are in `ROOMS.md`; this file is the contract. Every rule here has a test in `relay/tests/v2_*.rs`, and those tests build their messages from this text, not from the relay's code.
 
-Status: phase 1, relay and app. The relay never decrypts or inspects a payload; what is inside one is the app's layer, written down in §18.
+Status: relay and app. The relay never decrypts or inspects a payload; what is inside one is the app's layer, written down in §18 and §19.
+
+**Version 3** (app 0.1.4) changes how payloads are sealed and who is believed about the members of a room (§19). An app on protocol 2 (0.1.2, 0.1.3) cannot read or make a version 3 frame, so the two cannot share a room: the relay closes the older app with 4426 and `Update W Annotator to join this room` (§3.7). The path stays `/v2/rooms/`, and the handshake strings of §3.2 and the invite derivations of §9.1 keep their `w-rooms/2` prefix, so the vectors of §16 still hold. Everything new uses `w-rooms/3`.
 
 ## 1. Conventions
 
@@ -45,14 +47,14 @@ relay  → client   welcome                        or a close frame with a code 
 ### 3.1 `hello` (relay → client)
 
 ```json
-{"t":"hello","proto":[2,2],"nonce":"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+{"t":"hello","proto":[3,3],"nonce":"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
  "limits":{"maxMessage":2097152,"maxControl":16384,"maxMembers":16,"messagesPerSec":200,
            "bytesPerSec":20971520,"queueBytes":16777216,"logFrames":2048,"logBytes":8388608}}
 ```
 
 | Field | Meaning |
 |---|---|
-| `proto` | `[min, max]` protocol versions this relay speaks. Today `[2,2]` |
+| `proto` | `[min, max]` protocol versions this relay speaks. Today `[3,3]` |
 | `nonce` | base64 of 32 random bytes, new for every connection. It is signed in the next message |
 | `limits` | The relay's limits (§13), so a client can pace itself |
 
@@ -69,16 +71,16 @@ w-rooms/2 <op> <ROOMID> <nonce>
 ### 3.3 `create` (client → relay) — make a room and become its host
 
 ```json
-{"t":"create","proto":2,"app":"0.9.0","type":"shared","key":"<base64 32>","xkey":"<base64 32>","sig":"<base64 64>"}
+{"t":"create","proto":3,"app":"0.9.0","type":"shared","key":"<base64 32>","xkey":"<base64 32>","sig":"<base64 64>"}
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `proto` | yes | `2` |
+| `proto` | yes | `3` |
 | `app` | no | App version; ignored by the relay |
 | `type` | yes | `"shared"` (shared copy) or `"host-view"` (view through host). Fixed for the life of the room |
 | `key`, `sig` | yes | §3.2 with op `create` |
-| `xkey` | no | The member's X25519 public key, base64 of 32 bytes. Stored and shown in the roster; the relay does nothing else with it |
+| `xkey` | no for the relay, **always sent by the app** | The member's X25519 public key (§19.1), base64 of 32 bytes. Stored and shown in the roster; the relay does nothing else with it. The host reads a newcomer's request to be let in with it (§19.4) |
 | `members` | no | Up to 15 `{ "key", "xkey"?, "role": "editor"｜"viewer" }`. Only for a host re-registering a room after the relay lost its state (`ROOMS.md` C3): those keys are members again without invites |
 
 The room id is chosen by the client (path). Use at least 12 random characters. `create` fails with 4409 if the id is in use or was deleted or closed in the last 30 days, and 4001 `relay full` if the relay holds its maximum number of rooms.
@@ -86,7 +88,7 @@ The room id is chosen by the client (path). Use at least 12 random characters. `
 ### 3.4 `auth` (client → relay) — sign in as an existing member
 
 ```json
-{"t":"auth","proto":2,"key":"<base64 32>","sig":"<base64 64>","resume":41}
+{"t":"auth","proto":3,"key":"<base64 32>","sig":"<base64 64>","resume":41}
 ```
 
 | Field | Required | Meaning |
@@ -97,7 +99,7 @@ The room id is chosen by the client (path). Use at least 12 random characters. `
 ### 3.5 `redeem` (client → relay) — become a member through an invite
 
 ```json
-{"t":"redeem","proto":2,"invite":"o7XlWLz18---2w9iH1Eibg","key":"<base64 32>","xkey":"<base64 32>",
+{"t":"redeem","proto":3,"invite":"o7XlWLz18---2w9iH1Eibg","key":"<base64 32>","xkey":"<base64 32>",
  "proof":"<base64 32>","sig":"<base64 64>"}
 ```
 
@@ -115,7 +117,7 @@ If `key` is already a member, `redeem` behaves like `auth`: no proof is checked 
 ```json
 {"t":"welcome",
  "self":{"id":630768347,"role":"editor"},
- "room":{"id":"K7Q2M9XA4TDP","type":"shared","state":"active","proto":2,"epoch":1,
+ "room":{"id":"K7Q2M9XA4TDP","type":"shared","state":"active","proto":3,"epoch":1,
          "head":41,"logFloor":0,"session":"q83vEjRWeJA"},
  "roster":[{"id":1802201963,"key":"<base64>","xkey":null,"role":"host","online":true},
            {"id":630768347,"key":"<base64>","xkey":"<base64>","role":"editor","online":true}],
@@ -128,19 +130,19 @@ If `key` is already a member, `redeem` behaves like `auth`: no proof is checked 
 | `self.role` | `host`, `editor` or `viewer` |
 | `room.type` | `shared` or `host-view` |
 | `room.state` | `active` (host connected) or `host-away` (§10) |
-| `room.proto` | The protocol the room is pinned to: `2` |
-| `room.epoch` | Key epoch every frame must carry. `1` in phase 1 |
+| `room.proto` | The protocol the room is pinned to: `3` |
+| `room.epoch` | The key epoch the relay takes frames for. `1` in a new room; the host raises it with `rekey` (§7) |
 | `room.head` | Sequence number of the last ordered edit; `0` if none |
 | `room.logFloor` | Replay is possible after any `seq ≥ logFloor` (§6) |
 | `room.session` | Random per room record. If it differs from the one the client remembers, the relay lost the room and it was made again: sequence numbers restarted, use the two-way comparison in `ROOMS.md` C6 |
 | `roster` | Every member, sorted by id, with `online` |
-| `invite` | Only in the answer to a `redeem` that created the membership: the wrapped room key |
+| `invite` | Only in the answer to a `redeem` that created the membership: what the host registered with the invite (§19.2) |
 
 `welcome` is always the first message after the handshake. `replay-begin` or a replay error follows at once if `resume` was sent.
 
 ### 3.7 Version rule
 
-`proto` in the handshake must be `2`. Lower closes with 4426 and the reason `Update W Annotator to join this room`; higher closes with 4426 and `The host is on an older version`. Show the reason text as is. There is no partial join.
+`proto` in the handshake must be `3`. Lower closes with 4426 and the reason `Update W Annotator to join this room`; higher closes with 4426 and `The host is on an older version`. Show the reason text as is. There is no partial join, and no room in which an older app is carried along under the old single room key: everyone in a room needs 0.1.4 or later, and so does the relay (a 0.1.4 app that reaches an older relay is closed with 4426 `The host is on an older version`).
 
 ## 4. Identity
 
@@ -155,20 +157,20 @@ If `key` is already a member, `redeem` behaves like `auth`: no proof is checked 
 
 | Offset | Size | Field | Client sets | Relay forwards |
 |---|---|---|---|---|
-| 0 | 1 | `version` | `2` | unchanged |
+| 0 | 1 | `version` | `3` | unchanged |
 | 1 | 1 | `kind` | §5.2 | unchanged |
 | 2 | 2 | `flags` | anything; reserved for the client | unchanged |
 | 4 | 4 | `from` | anything (ignored) | **the sender's member id** |
 | 8 | 4 | `to` | `0` = everyone else, or a member id | the member it was delivered for, `0` for a broadcast |
 | 12 | 8 | `seq` | the client's own id for this frame (`cid`) | ordered frames: **the room sequence number**. Others: unchanged |
-| 20 | 4 | `epoch` | `room.epoch` | unchanged |
+| 20 | 4 | `epoch` | A frame for everyone: the epoch of the room key it is sealed under. A frame for one member: `room.epoch` as last heard (§19.3) | unchanged |
 | 24 | … | payload | opaque (ciphertext) | unchanged |
 
 Example. A member with id 630768347 (`0x2598C2DB`) sends a patch with `cid` 7 and the payload `68 69`:
 
 ```
-client → relay   02 01 00 00  00 00 00 00  00 00 00 00  07 00 00 00 00 00 00 00  01 00 00 00  68 69
-relay  → others  02 01 00 00  db c2 98 25  00 00 00 00  29 00 00 00 00 00 00 00  01 00 00 00  68 69
+client → relay   03 01 00 00  00 00 00 00  00 00 00 00  07 00 00 00 00 00 00 00  01 00 00 00  68 69
+relay  → others  03 01 00 00  db c2 98 25  00 00 00 00  29 00 00 00 00 00 00 00  01 00 00 00  68 69
 relay  → sender  {"t":"ack","cid":7,"seq":41}
 ```
 
@@ -185,7 +187,7 @@ A frame may be at most `limits.maxMessage` bytes (2 MiB) including the header. A
 | 5 | presence | unordered, **droppable** | Cursor. The relay drops it for a recipient whose queue is more than half full |
 | 6 | slice-request | view-through-host | Guest asks the host for a slice |
 | 7 | slice | view-through-host | Host's answer: one windowed 8-bit slice |
-| 8 | key | targeted | Key delivery |
+| 8 | key | targeted | Asking to be let in, asking for keys, handing keys over (§19.4) |
 | 9 | sync-request | file | A member asks another for slabs (`sync-req` in `ROOMS.md` C6) |
 
 Kind 9 is new relative to the kind list in `ROOMS.md` C8; see the decisions there.
@@ -198,7 +200,7 @@ Kind 9 is new relative to the kind list in `ROOMS.md` C8; see the decisions ther
 | 3, 4, 9 | yes | yes | yes | required, else `needs-recipient` | that member |
 | 5 | yes | yes | yes | `0` or a member | everyone else, or that member |
 | 6, 7 | refused `wrong-room-type` | | | | |
-| 8 | yes | refused `forbidden` | refused `forbidden` | required | that member |
+| 8 | yes | yes | yes | required, else `needs-recipient` | that member |
 
 **View-through-host room** (star: the host talks to guests, a guest only ever to the host)
 
@@ -260,6 +262,7 @@ Text messages after `welcome`, at most `limits.maxControl` (16 KiB) each; a long
 | `invite-revoke` | host | `id` | `{"t":"ok","re":"invite-revoke"}` | `not-found` |
 | `invite-list` | host | — | `{"t":"invites","list":[{…}]}` sorted by expiry | — |
 | `member-remove` | host | `member`, `revokeInvites`? | `{"t":"ok","re":"member-remove"}`; `roster` to everyone left; the removed member is closed with 4403 | `bad-message`, `not-found`, `forbidden` (the host itself) |
+| `rekey` | host | `epoch`: a whole number above `room.epoch`, below 2^32 | `{"t":"ok","re":"rekey"}`; `{"t":"epoch","epoch":n}` to everyone, the host included. Frames under another epoch are refused with `bad-epoch` from then on | `bad-message` |
 | `member-role` | host | `member`, `role`: `editor`｜`viewer` | `{"t":"ok","re":"member-role"}`; `roster` to everyone | `bad-message`, `not-found`, `forbidden` (the host's own role) |
 | `room-delete` | host | — | everyone, the host included, is closed with 4410 `room deleted` | — |
 | `room-close` | host, view-through-host only | — | everyone is closed with 4410 `room closed` | `wrong-room-type` |
@@ -275,6 +278,7 @@ Text messages after `welcome`, at most `limits.maxControl` (16 KiB) each; a long
 | `presence` | a member connected or disconnected | `{"t":"presence","member":630768347,"online":false}` |
 | `roster` | the member list or a role changed (redeem, remove, role, lapse) | `{"t":"roster","members":[…]}`, entries as in `welcome.roster` |
 | `room-state` | the host came or went | `{"t":"room-state","state":"host-away"}` |
+| `epoch` | the host moved the room to a new key epoch (`rekey`) | `{"t":"epoch","epoch":2}` |
 | `ack` | the sender's ordered frame was accepted | `{"t":"ack","cid":7,"seq":41}` |
 | `replay-begin`, `replay-end` | §6 | |
 | `invite-added`, `invites`, `ok`, `pong` | answers, §7 | |
@@ -299,7 +303,7 @@ http://192.168.1.20:8787/j/K7Q2M9XA4TDP#AAECAwQFBgcICQoLDA0ODw
 |---|---|---|---|
 | invite id | `w-rooms/2 invite id` | 16 bytes → 22 base64 characters | relay, in `invite-add` and `redeem` |
 | `authKey` | `w-rooms/2 invite auth` | 32 bytes | relay, in `invite-add` only; the redeemer keys the proof with it |
-| wrap key | `w-rooms/2 invite wrap` | 32 bytes | nobody; wraps the room key client-side |
+| wrap key | `w-rooms/2 invite wrap` | 32 bytes | nobody; seals what the invite tells the newcomer about the host (§19.2) |
 
 The relay only needs the id and `authKey` to be what the host registered; the derivation is a convention between clients. It is fixed here so that the host's app and the guest's app agree.
 
@@ -394,8 +398,8 @@ A member whose connection the relay stops hearing from is closed without a code 
 | `bad-message` | Text that is not a JSON object with `"t"`, or a request with a missing or invalid field |
 | `too-large` | Control message over 16 KiB |
 | `bad-frame` | Binary message shorter than the 24-byte header |
-| `bad-version` | Header version byte is not 2 |
-| `bad-epoch` | Header epoch is not `room.epoch` |
+| `bad-version` | Header version byte is not 3 |
+| `bad-epoch` | Header epoch is not `room.epoch`. The app sends an edit refused this way again once it holds the new key (§19.5) |
 | `forbidden` | The role or the room type does not allow this (§5.2, §7) |
 | `wrong-room-type` | Slice frames in a shared-copy room; `room-close` in one |
 | `needs-recipient` | A kind that must name one member was sent with `to` = 0 |
@@ -467,32 +471,32 @@ signing input                 w-rooms/2 auth K7Q2M9XA4TDP AgICAgICAgICAgICAgICAg
 signature                     RA6G6hqKeo4SjyGYi2a-HgiEhanc_D8SKC80umU9m0jJD2E46pzO7s8g-dLWlRrVU65LYnMXsHFcHOIqR-TbDQ
 ```
 
-Header bytes for `version 2, kind 1, flags 0x0102, from 0x0A0B0C0D, to 7, seq 0x1122334455667788, epoch 1`:
+Header bytes for `version 3, kind 1, flags 0x0102, from 0x0A0B0C0D, to 7, seq 0x1122334455667788, epoch 1`:
 
 ```
-02 01 02 01 0d 0c 0b 0a 07 00 00 00 88 77 66 55 44 33 22 11 01 00 00 00
+03 01 02 01 0d 0c 0b 0a 07 00 00 00 88 77 66 55 44 33 22 11 01 00 00 00
 ```
 
 ## 17. What the relay does not do
 
-- **Encrypt or decrypt.** Payloads, names and segment names are the client's to protect (`ROOMS.md` C7, task 1.10). Bind room id, epoch and frame kind as associated data, and repeat the sender and the recipient inside the payload (§18.1), since the relay could otherwise re-label a frame.
-- **Vouch for what it says about the room.** `room.type`, `self.role` and `self.id` in `welcome` are the relay's word. A client must hold on to what it knows itself (§18.6).
+- **Encrypt or decrypt.** Payloads, names and segment names are the client's to protect (§19).
+- **Vouch for what it says about the room.** `room.type`, `self.role` and `self.id` in `welcome` are the relay's word, and so is the roster: who is in the room, and with which keys, is what the host signed (§19.4). A client must hold on to what it knows itself (§18.6).
+- **Keep to the order it gave.** It can give two members different edits under one number, or leave one out. Members find that out between themselves (§19.6).
 - **Deduplicate ops.** See §5.3.
 - **Store anything on disk**, or keep a payload beyond the replay log.
 - **Choose a snapshot source, pace slabs or resume transfers.** Kinds 3, 4 and 9 are delivered to the member named in `to`; the rest is the client's protocol inside the payload (`ROOMS.md` C6, task 1.6).
 - **Rate-limit slices by content.** It counts slice requests per guest; "viewed 212 of 300 slices" is the host app's count.
-- **Let editors invite** ("can invite", task 2.5) or **rotate keys** (task 2.3). `epoch` is always 1 in phase 1.
+- **Let editors invite** ("can invite", task 2.5). **Make or see keys:** `rekey` only tells the relay which epoch to take frames for.
 
 ## 18. Inside a payload (the app's layer)
 
 Everything here is invisible to the relay. It is what `src/collab/` sends; a second client must do the same to share a room with the app. `e2e-desktop/roombot.mjs` is such a client.
 
-### 18.1 Encryption
+### 18.1 The plaintext of a payload
 
-- A room has one 32-byte **room key**, made by the host. In `invite-add`, `wrappedKey` is base64 of `nonce ‖ AES-256-GCM(wrap key, room key)` with the 12-byte nonce in front and the associated data `w-rooms/2 room key`; the wrap key is the one of §9.1.
-- Every frame payload is `nonce (12 random bytes) ‖ AES-256-GCM ciphertext and tag`, keyed with the room key, with the associated data `w-rooms/2 <ROOMID> <epoch> <kind>` (decimal numbers, single spaces). A frame that does not open is ignored, but an ordered one still takes its place in the order.
+- How a payload is sealed, and with which key, is §19.3. A frame that does not open is ignored, but an ordered one still takes its place in the order.
 - The plaintext is `u32 n` (little-endian), then `n` bytes of UTF-8 JSON (an object, called *meta* below), then raw bytes (*body*).
-- Every meta carries `"f"`: the sender's member id, and, in a frame for one member, `"d"`: that member's id. The relay writes `from` and `to` in the clear header and could write anything; a receiver drops a frame whose `f` is not the header's `from`, or whose `d` is neither 0 nor its own id, exactly as it drops one that does not open. Apps up to 0.1.2 send neither field, and a frame without them is taken as before.
+- Every meta carries `"f"`: the sender's member id, and, in a frame for one member, `"d"`: that member's id. A receiver drops a frame whose `f` is not the header's `from`, or whose `d` is not its own id (for a frame to everyone: is neither absent nor 0), exactly as it drops one that does not open. Both are required: the keys of §19.3 already tie a frame to its sender and recipient, and this states the same inside.
 
 ### 18.2 Edits (kinds 1 and 2)
 
@@ -502,7 +506,7 @@ Everything here is invisible to the relay. It is what `src/collab/` sends; a sec
 | 2 seg-op | `{"c": <cid>, "op": "set", "seg": {"index": 1–255, "name", "color": "#rrggbb", "locked"}}` or `{"c", "op": "del", "index"}` | — |
 | 2 seg-op, view-through-host, host only | `{"c", "op": "window"}`: the host changed its window; guests fetch their planes again | — |
 
-Every edit also carries `"s"`: a tag the sender made at random for this visit to the room (at most 24 characters), under which `c` only goes up. A receiver keeps, for each sender and tag, the highest `c` it has applied, and leaves out an edit that is not above it: the relay sending an old edit again under a new sequence number. The edit still takes its place in the order. Everyone leaves out the same edits, so masks agree. In a view-through-host room the host applies the same rule to what guests send it. An edit without `s` (an app up to 0.1.2) is not checked.
+Every edit also carries `"h"`: the sender's place in the chain over the room's edits (§19.6), and `"s"`: a tag the sender made at random for this visit to the room (at most 24 characters), under which `c` only goes up. A receiver keeps, for each sender and tag, the highest `c` it has applied, and leaves out an edit that is not above it: the relay sending an old edit again under a new sequence number. The edit still takes its place in the order. Everyone leaves out the same edits, so masks agree. In a view-through-host room the host applies the same rule to what guests send it. The app always sends `s`.
 
 `c` is the same number as the header's `seq` on the way in. A client recognises its own edit in a replay by `from` = itself and `c`. In a view-through-host room the host re-sends a guest's edit as its own ordered frame with `"o": [<guest id>, <guest cid>]` added, which tells that guest its edit has its place.
 
@@ -510,14 +514,15 @@ A client applies ordered edits in sequence, then puts its own not yet numbered e
 
 ### 18.3 Presence (kind 5)
 
-`{"t": "hi", "name": "<at most 24 characters>"}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. The host of either kind of room adds `"kind": "shared"|"host-view"`: what it made, to set against what the relay says (§18.6). A receiver removes control characters and invisible direction and joining marks from names before showing them. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second.
+`{"t": "hi", "name": "<at most 24 characters>"}` after `welcome` and whenever someone new appears; in a view-through-host room the host adds `"names": [[<member id>, "<name>"], …]` so guests learn each other's names. The host of either kind of room adds `"kind": "shared"|"host-view"`: what it made, to set against what the relay says (§18.6). A receiver removes control characters and invisible direction and joining marks from names before showing them. `{"t": "cursor", "vp": "axial"|"sagittal"|"coronal"|null, "w": [x, y, z], "r": <brush radius, mm>}` at most about 16 times a second, and less often in a room of more than four other people (every one is signed and checked). `{"t": "head", "h": <claim>}` a moment after the room's edits go quiet (§19.6). A presence frame for everyone is taken only under the newest epoch the receiver holds a key for. A member answers the first `hi` it hears from someone with a `hi` for that member alone, since what was said before they were let in they could not read.
 
 ### 18.4 Joining and coming back in a shared-copy room (kinds 9, 3, 4)
 
 ```
 asker  → member   9  {"rid", "image": true|false, "fp": "<fingerprint of the open image>"|null, "flow": 1, "skip": [z0, …]}
 member → asker    3  {"rid", "t": "begin", "head", "dims": [x,y,z], "slabs", "segments": [...],
-                      "image": {"dims","spacing","origin","direction","dtype"} | null, "flow": 1, "seen": [...]}
+                      "image": {"dims","spacing","origin","direction","dtype"} | null, "flow": 1, "seen": [...],
+                      "chain": <claim>, "ep": <epoch>}
 member → asker    4  {"rid", "z0", "part", "parts"} + part of gzip(image slices z0 … z0+15)     (only when asked for)
 member → asker    3  {"rid", "t": "slab", "z0", "part", "parts"} + part of gzip(mask slices z0 … z0+15)
 asker  → member   9  {"rid", "t": "ack", "n": <packed bytes received so far>}                   (only after "flow": 1 in begin)
@@ -530,6 +535,7 @@ Instead of `begin` a member may answer `{"rid","t":"no"}` (not ready, or already
 - **Pacing by the receiver.** An asker that sends `"flow": 1` reports what has arrived. A member that understands it says `"flow": 1` in `begin` and then keeps at most 4 MiB sent and not yet reported; it gives up on a receiver that reports nothing for 20 s. An asker sends `ack` only after such a `begin`: an older member would read it as a new request. Without `flow` the member sends at its own pace, as before.
 - **Picking up after a cut.** `skip` lists the first slices of the image slabs the asker still holds from a transfer that was interrupted; the member leaves those out. The mask is always sent whole, since it may have changed. An older member ignores `skip` and sends everything.
 - `seen` is the member's list of `[sender id, tag, highest c]` (§18.2), so the asker refuses the same repeated edits as everyone else.
+- `chain` is the member's place in the chain over the room's edits at `head`, and `ep` the newest key epoch among the edits in the mask (§19.5, §19.6). The asker starts from both.
 - A member runs one transfer per asker (a new request replaces the earlier one) and sends to at most two askers at once.
 
 What the asker checks before it takes anything: `dims` are three whole numbers from 1 to 65535 and match the open image, if any; `head` is not above the highest sequence number the relay has shown it; there is one `begin`; each slab starts on a multiple of 16 inside the volume, is collected to at most its raw size plus 0.1 % and 1024 bytes, and unpacks to exactly its raw size (unpacking stops the moment more comes out); and at `end` every slab of the volume is there. If any of this fails the asker turns to the next member.
@@ -538,14 +544,14 @@ What the asker checks before it takes anything: `dims` are three whole numbers f
 
 ```
 guest → host   6  {"t": "describe", "q"}
-host  → guest  7  {"t": "room", "dims", "spacing", "origin", "direction", "segments": [...], "head", "seen": [...], "q"}
+host  → guest  7  {"t": "room", "dims", "spacing", "origin", "direction", "segments": [...], "head", "seen": [...], "chain", "ep", "q"}
 guest → host   6  {"axis": 0|1|2, "index": <plane along that axis>, "q"}
 host  → guest  7  {"t": "slice", "axis", "index", "q"} + gzip(8-bit picture of the plane ‖ its labels)
 ```
 
 The picture is the plane mapped through the host's current window to 0–255 and clipped. Plane order: axis 2 is `x` within `y`; axis 1 is `x` within `z`; axis 0 is `y` within `z`. The host answers at most 30 requests at once and 600 a minute per guest, and sends nothing a guest did not ask for. The app asks for the plane each view shows and the one on each side: a view is drawn from a thin slab around its plane, and a missing neighbour would darken it.
 
-`q` is a random number the guest makes for each question; the host sends it back. A guest drops an answer whose `q` is not the one it is waiting for, so an old answer (one the relay kept, or one made before the host changed its window) cannot stand in for a new one. An answer without `q` (an older host) is taken as before. A plane is unpacked only up to the size it must have.
+`q` is a random number the guest makes for each question; the host sends it back. A guest drops an answer whose `q` is not the one it is waiting for, so an old answer (one the relay kept, or one made before the host changed its window) cannot stand in for a new one. A plane is unpacked only up to the size it must have.
 
 ### 18.6 What a client holds on to
 
@@ -555,6 +561,146 @@ The relay says what kind a room is and what role a member has, in `welcome`. Nei
 |---|---|
 | made the room (`create`) | its kind, and that it is the host |
 | comes back to a room it remembers | that the room is a shared copy, and whether it is the host |
-| joins with a link for the first time | that it is not the host; the kind only from the first `welcome`, and then from the host's `hi` (§18.3) |
+| joins with a link for the first time | that it is not the host; the kind from what the host sealed into the invite (§19.2), and again from the host's `hi` (§18.3) |
 
 After the first `welcome` the kind and "host or not" are fixed for as long as the client stays in the room. A `welcome` that disagrees with what the client knows, or whose `self.id` is not the id of the client's own key, is not followed: the client leaves the room and says "The room server sent something that does not fit this room, so you left it." The same when the host's `hi` names another kind than `welcome` did. Without this, a relay could tell the host of a view-through-host room that the room is a shared copy, and the host would send the image to whoever asked.
+
+## 19. Keys (the app's layer, version 3)
+
+Up to protocol 2 a room had one key and everyone in it held the same one. From version 3 nobody does. The relay sees none of what follows except the `xkey` fields, the frame headers and the `rekey` request.
+
+### 19.1 A member's keys
+
+A member keeps one 32-byte seed per room. From it:
+
+| Key | How | Used for |
+|---|---|---|
+| Ed25519 signing key | the seed is the private key (§4) | signing in; signing frames for everyone; the host signs the list of members |
+| X25519 key agreement key | private key = HKDF-SHA256(seed, empty salt, info `w-rooms/3 x25519`, 32 bytes) | pair keys |
+| **Pair key** of members A and B | HKDF-SHA256(X25519(a, B), empty salt, info `w-rooms/3 pair <ROOMID> <lo> <hi>`, 32 bytes), where `<lo>` and `<hi>` are the two X25519 public keys in base64, the bytewise smaller first | every frame from one of them to the other |
+
+A shared secret of all zeros (a public key of small order) is refused.
+
+### 19.2 What an invite carries
+
+`wrappedKey` in `invite-add` (§9.2) is base64 of `nonce ‖ AES-256-GCM(wrap key, JSON)` with the associated data `w-rooms/3 invite`, the wrap key being the one of §9.1 and the JSON `{"k": <host's Ed25519 public key>, "x": <host's X25519 public key>, "kind": "shared"|"host-view"}`. It holds **no room key**: an invite that is never used, or is used by the wrong person, gives nothing away, and a new room key (§19.5) needs no change to open invites.
+
+The link's secret gives one more key, next to those of §9.1:
+
+| Value | `info` | Length | Goes to |
+|---|---|---|---|
+| bind key | `w-rooms/3 invite bind` | 32 bytes | nobody; the host keeps it for each invite it made |
+
+A newcomer whose `welcome` names another kind of room than the invite does leaves (§18.6).
+
+### 19.3 Sealing a frame
+
+| Frame | Key | Associated data | Payload |
+|---|---|---|---|
+| For one member (`to` ≠ 0) | the pair key of sender and recipient | `w-rooms/3 one <ROOMID> <kind> <from> <to>` | `nonce (12) ‖ AES-256-GCM` |
+| For everyone (`to` = 0) | the room key of epoch `e`, the newest the sender holds | `w-rooms/3 all <ROOMID> <e> <kind> <from>` | `nonce (12) ‖ AES-256-GCM ‖ signature (64)` |
+
+Numbers are decimal, separated by single spaces. The signature is the sender's Ed25519 signature over the UTF-8 bytes `w-rooms/3 frame <ROOMID> <e> <kind> <from> ` (with the trailing space) followed by SHA-256 of `nonce ‖ ciphertext and tag`.
+
+- The header's `epoch` is `e` for a frame to everyone. A frame for one member is sealed the same under any epoch and names the epoch the relay takes frames for, as last heard in `welcome` or `epoch`.
+- A receiver opens a frame for one member only if it is the recipient and the sender is a member now by the host's list (§19.4), or the host. So a frame the host sends one guest (image and mask slabs, a slice picture, keys) cannot be read by another guest who is shown it, and nobody who was removed can talk to anyone.
+- A receiver opens a frame for everyone only if it holds the room key of that epoch, the sender is on the host's list, the epoch is not later than the one the sender left in, and the signature holds. Holding the room key is therefore not enough to pass as another member.
+- A frame for everyone that cannot be checked **yet** (a later epoch than the receiver has a key for, or a sender the receiver's copy of the list does not name) is not dropped. The receiver asks for keys (§19.4); an edit keeps its place and the edits after it wait, and when the keys are there the receiver asks the relay to replay from where it stopped. A sender the host's own newest list does not name is nobody: the frame counts as one that does not open.
+- A guest of a view-through-host room sends everything to the host, under their pair key. The host's edits and greetings to all guests go under the room key.
+
+### 19.4 Who is in the room
+
+The relay's roster says who is connected and where to send. Who **is** a member, and with which keys, is a list the host signs:
+
+```json
+{"e": 2, "n": 5, "m": [{"k": "<Ed25519, base64>", "x": "<X25519, base64>", "since": 1},
+                       {"k": "…", "x": "…", "since": 1, "until": 1}], "sig": "<base64 64>"}
+```
+
+`e` is the key epoch, `n` goes up with every change, `since` is the epoch a person came in at, `until` the last epoch of someone who was removed (kept, up to 64 of them, so their earlier edits can still be checked in a replay). `sig` is the host's signature over
+
+```
+w-rooms/3 roster <ROOMID> <e> <n> <k>,<x>,<since>,<until or 0> <k>,<x>,<since>,<until or 0> …
+```
+
+A list is taken only if the host's key signs it (the key from the invite, §19.2), it names the receiver as a member now, and its `(e, n)` is not below the one held; an equal one must be the same list.
+
+Key frames (kind 8), each for one member under the pair key:
+
+| meta | From → to | Meaning |
+|---|---|---|
+| `{"t":"join","inv":<invite id>,"k","x","mac"}` | newcomer → host | Asks to be let in. `mac` is base64 of HMAC-SHA256(bind key, `w-rooms/3 join <ROOMID> <k> <x> <host's k>`) |
+| `{"t":"keys","r":<signed list>,"k":{"<epoch>":<room key, base64>,…}}` | host or member → member | The list and the room keys from the recipient's `since` on |
+| `{"t":"need"}` | member → host or member | Asks for `keys` |
+
+**First contact.** The newcomer knows the host's keys from the invite, so its `join` is sealed for the host alone. The host knows the newcomer's keys only from the relay's roster, and believes them when `join` opens under them and its `mac` holds: only a holder of the link can make that `mac`, and it names both of the newcomer's keys and the host's. A relay that puts its own key in the roster in place of the newcomer's gets a `join` it cannot make. The host then adds the newcomer to the list, sends `keys` to everyone else who is connected, and to the newcomer last, so the others know the newcomer before it can send. A newcomer repeats `join` every 1.5 s until it has keys. A host that is not connected lets nobody in: someone who redeems an invite meanwhile waits ("Waiting for the host to let you in…").
+
+The host keeps its own count for each invite and lets in no more people than the invite was made for, whatever the relay's count says. It forgets the bind key of an invite it revoked, and of the invite a removed person came in through, so neither lets anyone in again.
+
+**Trust at first contact rests on the invite link.** Whoever holds the link is who the host lets in. The relay never holds it.
+
+**Away during a change.** A member who was offline when someone came in or a new room key was made lacks the newer list or key. It notices by a frame it cannot check or an epoch above its own (on signing in: `room.epoch` above the newest key it holds, in which case it merges and sends nothing until it has the key), and sends `need` to the host, or, with the host away, to the other members in turn. Any member answers `need`, and only for someone its own copy of the host's list names as a member now. That is safe whoever answers: the list is the host's, signed; a person who was removed is on no list that goes with the new key, so no honest member hands it to them, whatever the relay says about who is in the room; and a wrong room key from a dishonest member does no lasting harm: a key from the host is never replaced, a key from anyone else is replaced by the host's when it arrives, and an edit that is signed by a member but does not open under a key that did not come from the host waits for the host's key instead of being left out.
+
+### 19.5 A new key when someone is removed
+
+After `member-remove` is answered, the host: marks the person `until` the current epoch, makes a new random room key for epoch `e + 1`, signs the new list, sends `keys` to every member who is connected, and then sends `rekey` (§7). In the app this is one function, `rekeyRoom(removed)` in `src/session.ts`; a change of role does not need it.
+
+- The removed person never receives the new key, from anyone (§19.4). What is sent after the change they cannot read, even when handed every frame.
+- Between `member-remove` and a member's receipt of the new key, that member still seals under the old one. With an honest relay the removed person is already disconnected; with a dishonest one this short stretch is readable by them.
+- A member whose frame is refused with `bad-epoch` got the new key a moment late; the app sends the edit again.
+- An edit sealed under an epoch older than the newest epoch among the edits before it in the room's order is left out, by everyone alike: it was made by someone removed and given a place afterwards.
+- A host that opens a room again on a relay that lost it (§10) sends `rekey` to bring the relay to its epoch.
+- Deleting or closing a room leaves nobody to hand a key to. Each device forgets the room's keys when it learns the room is gone (4410), when it is removed (4403), and when the person chooses "Forget this room".
+
+### 19.6 Noticing a relay that does not keep to its order
+
+Every member keeps a running hash over the ordered frames it has taken, whether or not they opened:
+
+```
+C(0)   = SHA-256("w-rooms/3 chain <ROOMID> <room.session>")
+C(seq) = SHA-256(C(seq − 1) ‖ u64 seq ‖ u32 from ‖ D)          little-endian
+D      = SHA-256(SHA-256(nonce ‖ ciphertext and tag) ‖ signature)   of the frame with that number
+```
+
+For a frame too short to hold a signature, `D` is SHA-256 of the payload. A sender counts its own edit when the `ack` arrives, with the `D` of what it sent.
+
+A **claim** is `[<room.session>, <seq>, <C(seq) in base64>]`. Every edit carries the sender's newest claim as `"h"` (§18.2), and a member sends `{"t":"head","h":<claim>}` as a presence frame 1.5 s after the last edit it took. Claims travel sealed and signed like everything else, so the relay cannot make or change one, and cannot deliver an edit without its claim.
+
+A receiver sets a claim against its own chain at that number: equal is good; a number it has not reached is kept until it gets there; a number it no longer remembers (it keeps 4096), or a claim from another `room.session`, is skipped. **Unequal means the two members were given different frames up to that number**: the relay dropped one for somebody and closed the gap, swapped two, changed one, or sent an extra one. The member then says "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room.", sends its own claim once more so the others find the same, applies nothing further from the room and sends no more edits. What is on its screen stays.
+
+What legitimately moves a member along the order, and how the chain follows:
+
+| Event | Chain |
+|---|---|
+| A gap filled by replay; a replay after reconnecting | Frames are counted when they take their place, each once, so nothing changes |
+| A catch-up that was cut and starts again from its base | Back to the value remembered for that number |
+| The mask taken from another member (joining, too far behind, merge after a relay restart) | The sender's claim at `head` (`chain` in §18.4 and §18.5). If that member was itself shown something else, the difference shows against everyone else |
+| The relay lost the room and the host made it again (`room.session` changed) | The host starts at `C(0)` of the new session; the others take the place of whoever sends them the mask |
+
+What this does not catch: a relay that keeps two groups of members wholly apart, so that no frame at all passes between them, looks like the others being idle. Delay and refusal to deliver look like a bad connection. A member can raise the alarm falsely by sending a wrong claim.
+
+## 20. Test vectors, version 3
+
+Checked by `src/collab/keys.test.ts` and `src/collab/chain.test.ts`.
+
+```
+room                                  K7Q2M9XA4TDP
+member A: seed 32 × 0x09
+  Ed25519 public key                  _RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg
+  X25519 public key                   w_ZXEnbUpQFQdwJ6rvcTyOcXZQHYuvw-UVcyt-rqZEI
+host H: seed 32 × 0x01
+  Ed25519 public key                  iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w
+  X25519 public key                   iLDjidUdznNB2nRvmABihpWZwOr16B9PlW6CZuIUymE
+pair key of A and H                   yziOmQjPlxNTr5sJx4ykJXqzLYccJprYylI4M0znPVM
+
+invite secret (hex)                   000102030405060708090a0b0c0d0e0f
+bind key                              GpscGgrpFBwc4cEw9l2K2ST8am0_YLrxVig_txsD2aI
+join mac of A for host H              kufRLQLU_4xf4V5xy3ozeANpFMYEWMBH_quFOBOza9g
+
+list input, e 2, n 3, H since 1, A since 1 until 1
+  w-rooms/3 roster K7Q2M9XA4TDP 2 3 iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w,iLDjidUdznNB2nRvmABihpWZwOr16B9PlW6CZuIUymE,1,0 _RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg,w_ZXEnbUpQFQdwJ6rvcTyOcXZQHYuvw-UVcyt-rqZEI,1,1
+
+chain, room.session q83vEjRWeJA
+  C(0)                                89a-tCtc62C2Wr6sl-dfvlHdDZxUqhygIkUUcGRa_ag
+  C(1), from 630768347, D 32 × 0x01   CTMiUtAjuzctj7wDel1S76GeYZ68oHIEV3xPLdvR2jw
+```

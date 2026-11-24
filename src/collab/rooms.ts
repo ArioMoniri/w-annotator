@@ -1,6 +1,6 @@
 /**
  * "My rooms": the shared-copy rooms this device is a member of, so a person can come
- * back to one later. Each entry holds the member key made for that room and the room
+ * back to one later. Each entry holds the member key made for that room and the room's
  * key. View-through-host rooms are never written here: they last one session and
  * leave nothing on a guest's device.
  */
@@ -14,7 +14,7 @@ export interface SavedRoom {
   role: Role;
   /** The member's private key for this room, base64. */
   seed: string;
-  /** The room key, base64. */
+  /** The room's keys as `RoomKeys.dump` writes them (`keys.ts`). Up to 0.1.3: the one room key; such a room is not reopened. */
   key: string;
   /** The host's name when last seen, to tell rooms apart. Null for a room hosted here. */
   host: string | null;

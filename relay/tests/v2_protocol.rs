@@ -15,7 +15,7 @@ async fn hello_announces_the_protocol_range_a_fresh_nonce_and_the_limits() {
     let relay = TestRelay::start().await;
     let (_a, hello_a) = relay.open("HELLO123").await;
     let (_b, hello_b) = relay.open("HELLO123").await;
-    assert_eq!(hello_a["proto"], json!([2, 2]));
+    assert_eq!(hello_a["proto"], json!([3, 3]));
     let nonce = hello_a["nonce"].as_str().unwrap();
     assert_eq!(nonce.len(), 43, "32 bytes of unpadded base64url");
     assert_ne!(hello_a["nonce"], hello_b["nonce"]);
@@ -44,7 +44,7 @@ async fn create_answers_with_a_welcome_that_describes_the_room_and_the_host() {
     assert_eq!(w["room"]["id"], "MADE0001");
     assert_eq!(w["room"]["type"], "shared");
     assert_eq!(w["room"]["state"], "active");
-    assert_eq!(w["room"]["proto"], 2);
+    assert_eq!(w["room"]["proto"], 3);
     assert_eq!(w["room"]["epoch"], 1);
     assert_eq!(w["room"]["head"], 0);
     assert_eq!(w["room"]["logFloor"], 0);
@@ -65,8 +65,8 @@ async fn a_wrong_protocol_number_is_closed_with_4426_and_the_text_to_show() {
     relay.create("VERSION1", "shared").await;
     let me = Identity::new();
     for (proto, text) in [
-        (1, "Update W Annotator to join this room"),
-        (3, "The host is on an older version"),
+        (2, "Update W Annotator to join this room"),
+        (4, "The host is on an older version"),
     ] {
         let closed = relay
             .handshake("VERSION1", &me, |nonce| {
@@ -95,9 +95,9 @@ async fn malformed_handshakes_are_closed_with_4400() {
         "not json",
         "[1,2,3]",
         r#"{"t":"auth"}"#,
-        r#"{"t":"nope","proto":2}"#,
-        r#"{"t":"auth","proto":2,"key":"short","sig":"short"}"#,
-        r#"{"t":"create","proto":2,"type":"shared"}"#,
+        r#"{"t":"nope","proto":3}"#,
+        r#"{"t":"auth","proto":3,"key":"short","sig":"short"}"#,
+        r#"{"t":"create","proto":3,"type":"shared"}"#,
         long.as_str(),
     ];
     for text in texts {
@@ -195,7 +195,7 @@ async fn frames_keep_flags_and_payload_and_get_the_sender_stamped() {
     let guest = &mut members[0];
 
     let sent = Header {
-        version: 2,
+        version: 3,
         kind: PRESENCE,
         flags: 0xBEEF,
         from: 0xDEAD_BEEF, // a forged sender is overwritten
@@ -257,7 +257,7 @@ async fn malformed_frames_get_an_error_and_never_take_the_room_down() {
         );
     }
     // Wrong versions, including v1's layout (a little-endian target id first).
-    for version in [0u8, 1, 3, 200] {
+    for version in [0u8, 1, 2, 200] {
         let mut frame = good.clone();
         frame[0] = version;
         guest.send_raw(frame).await;

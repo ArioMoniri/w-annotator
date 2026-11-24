@@ -4,7 +4,7 @@ Room relay for W Annotator. It lets the people in a room reach each other, decid
 
 It speaks two protocols on one port:
 
-- **v2** at `/v2/rooms/<ID>`: rooms with a host, member keys, roles, invite links, ordered edits and the view-through-host rules. The wire format is `docs/design/ROOMS-PROTOCOL.md`; the design is `docs/design/ROOMS.md`.
+- **v2** at `/v2/rooms/<ID>`, protocol version 3 since 0.1.4: rooms with a host, member keys, roles, invite links, ordered edits, key epochs and the view-through-host rules. Apps from 0.1.4 on need a relay from 0.1.4 on, and the other way round; a mismatch is closed with code 4426 and a text that says which side to update. The wire format is `docs/design/ROOMS-PROTOCOL.md`; the design is `docs/design/ROOMS.md`.
 - **v1** at `/r/<CODE>?name=<name>`: the original relay, for apps from before rooms had kinds and expiring links. Off unless started with `--v1`; otherwise `/r/…` answers HTTP 426 so an old app tells its user to update. See the end of this file.
 
 ## Run it

@@ -259,7 +259,7 @@ async fn a_wrong_proof_is_refused_and_five_of_them_lock_the_invite() {
     let eve = Identity::new();
     let closed = relay
         .handshake("INVITE05", &eve, |nonce| {
-            json!({ "t": "redeem", "proto": 2, "invite": link.id, "key": eve.key(),
+            json!({ "t": "redeem", "proto": 3, "invite": link.id, "key": eve.key(),
                     "proof": link.proof("INVITE05", nonce, &ben.key()),
                     "sig": eve.sign("redeem", "INVITE05", nonce) })
         })

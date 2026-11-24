@@ -301,6 +301,94 @@ test('a shared-copy guest keeps working offline and is merged on return', async 
   await expect(guest.getByTestId('merge-review')).toHaveCount(0);
 });
 
+test('someone who joins while the host is offline waits to be let in, and can leave instead', async ({ browser }) => {
+  const host = await person(browser);
+  const ario = await person(browser);
+  const ben = await person(browser);
+  const link_ = await cuttable(host);
+  await openPhantom(host);
+  const first = await startRoom(host, 'Mina');
+  const second = await anotherLink(host);
+  await link_.cut();
+
+  // The room server still knows the room and takes the links. Only the host can hand over its keys.
+  const waiting = 'Waiting for the host to let you in…';
+  await ario.goto('/');
+  await submitJoin(ario, 'Ario', first);
+  await expect(ario.locator('.busy')).toHaveText(waiting);
+  await ben.goto('/');
+  await submitJoin(ben, 'Ben', second);
+  await expect(ben.locator('.busy')).toHaveText(waiting);
+  // Nothing of the room has reached either of them.
+  expect(await ario.evaluate(() => window.__w.store.getState().image)).toBeNull();
+
+  // Ben gives up.
+  await ben.getByTestId('room-pill').click();
+  await ben.getByRole('menuitem', { name: 'Leave room' }).or(ben.getByRole('button', { name: 'Leave room' })).click();
+  await expect(ben.getByTestId('room-pill')).toHaveCount(0);
+  await expect(ben.locator('.busy')).toHaveCount(0);
+
+  // The host comes back, lets Ario in, and the image and the mask follow.
+  link_.restore();
+  await reconnectNow(host);
+  await expect(ario.locator('.segrow')).toHaveCount(2, { timeout: 30_000 });
+  await expect(ario.locator('.busy')).toHaveCount(0);
+  await expect(host.locator('.avatar')).toHaveCount(1);
+  expect(await maskDump(ario)).toBe(await maskDump(host));
+});
+
+test('someone who was offline when another person was removed gets the new key on return, and work flows both ways', async ({ browser }) => {
+  const host = await person(browser);
+  const ario = await person(browser);
+  const ben = await person(browser);
+  const link_ = await cuttable(ario);
+  await openPhantom(host);
+  await joinRoom(ario, 'Ario', await startRoom(host, 'Mina'));
+  await joinRoom(ben, 'Ben', await anotherLink(host));
+  await expect(host.locator('.avatar')).toHaveCount(2);
+  await expect(ario.locator('.segrow')).toHaveCount(2);
+  const start = await maskVoxels(host);
+
+  // Ario loses the connection and paints on.
+  await link_.cut();
+  await expect(ario.getByTestId('sync')).toHaveText('Offline · changes merge when you reconnect');
+  await ario.keyboard.press('b');
+  await drag(ario, 'axial', [-60, 40], [-20, 70]);
+  const arioAdded = (await maskVoxels(ario)) - start;
+  expect(arioAdded).toBeGreaterThan(0);
+
+  // Meanwhile the host removes Ben, which gives the room a new key, and paints under it.
+  await host.getByTestId('room-pill').click();
+  await host.getByRole('button', { name: 'Remove Ben' }).click();
+  await host.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(errorToast(ben)).toHaveText(/Mina removed you from this room/, { timeout: 5000 });
+  await host.keyboard.press('2');
+  await host.keyboard.press('b');
+  await drag(host, 'axial', [-60, -80], [-20, -70]);
+  const hostAdded = (await maskVoxels(host)) - start;
+  expect(hostAdded).toBeGreaterThan(0);
+
+  // Ario comes back holding only the old key. The host hands over the new one; then the merge runs as ever.
+  link_.restore();
+  await reconnectNow(ario);
+  await expect(ario.locator('.toast').filter({ hasText: 'Merged your offline work' })).toBeVisible({ timeout: 30_000 });
+  await expect(ario.getByTestId('sync')).toContainText('Synced');
+  await expect.poll(() => maskVoxels(host)).toBe(start + arioAdded + hostAdded);
+  expect(await maskDump(ario)).toBe(await maskDump(host));
+
+  // And edits go on in both directions under the new key, with no alarm about the room server.
+  await drag(host, 'axial', [30, -20], [70, -10]);
+  await expect.poll(async () => (await maskDump(ario)) === (await maskDump(host))).toBe(true);
+  await ario.keyboard.press('b');
+  await drag(ario, 'axial', [40, 50], [70, 60]);
+  await expect.poll(async () => (await maskDump(ario)) === (await maskDump(host))).toBe(true);
+  await host.waitForTimeout(2000);
+  await expect(errorToast(ario)).toHaveCount(0);
+  await expect(errorToast(host)).toHaveCount(0);
+  // Ben has what he had, and nothing since.
+  expect(await maskVoxels(ben)).toBe(start);
+});
+
 test("after offline work on the same voxels the room's version stays and mine is kept for review", async ({ browser }) => {
   const host = await person(browser);
   const guest = await person(browser);

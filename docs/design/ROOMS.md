@@ -154,7 +154,7 @@ Choice: **A for the standalone relay** — default retention 30 days after last 
 - Shared copy: one 256-bit room key per epoch, delivered through the invite (C4). View-through-host: pairwise host↔guest keys, relay forces star routing (guest frames reach only the host).
 - Every payload: compress, then AES-256-GCM (WebCrypto) with a random 96-bit nonce; room id, epoch and frame kind as associated data. One encrypt queue per socket keeps order. Cost on a 100 MB snapshot is well under a second; gzip dominates.
 - Rotation on removal (phase 2, shared copy): host creates the next-epoch key, sends it to each remaining member wrapped to their X25519 key, re-wraps open invites; the relay rejects older epochs. Stored snapshot is re-uploaded under the new key at the next compaction.
-- Accepted residual risks: a member colluding with the relay can read what others send and impersonate another member (shared symmetric key), and so can a removed member who can still see the traffic, since the key is not changed on removal; the relay can drop, delay and reorder frames; a leaked, still-valid link gives full access until used, expired or revoked.
+- Residual risks up to 0.1.3, closed in 0.1.4 (protocol 3, see "Keys, the order of edits and the content security policy" at the end): one shared key let a member who works with the relay read what others were sent and pass as another member, and let a removed member go on reading; the relay could drop and reorder edits unnoticed. Still accepted: the relay can delay or refuse to deliver; a leaked, still-valid link gives access until used, expired or revoked.
 - What the relay cannot do, since the review in `docs/reviews/rooms-security.md` (it could in 0.1.2, whatever this section said): repeat an edit (each edit carries its sender's visit tag and a number that only goes up, and is taken once), re-label a frame's sender or recipient (both are repeated inside the encrypted part), or change what kind of room a client believes it is in (`ROOMS-PROTOCOL.md` §18.6).
 
 ### C8. Protocol v2
@@ -325,14 +325,14 @@ What the app does, task by task. Where it differs from the text above, this tabl
 |---|---|---|
 | 1.0 | Playwright helpers that cut and restore one page's connection (`e2e/helpers.ts`, `cuttable`) | They work in the browser, not through the relay's fault hooks, so they close a connection cleanly; a broken connection of the host is covered by the relay's own tests |
 | 1.1 | `src/collab/protocol.ts`: header, links, close-code texts; the v1 client is gone | — |
-| 1.2 | `identity.ts` (per-room Ed25519 key, member id), `client.ts` (sign-in, endless jittered reconnect, re-open after a relay restart) | Role `viewer` and "can invite" have no control in the app. No X25519 key |
+| 1.2 | `identity.ts` (per-room Ed25519 key, member id), `client.ts` (sign-in, endless jittered reconnect, re-open after a relay restart) | Role `viewer` and "can invite" have no control in the app. X25519 key since 0.1.4 (`keys.ts`) |
 | 1.3 | Invite links made, listed and switched off by the host; single use, 24 h | No expiry or use-count options, no label |
 | 1.4 | Kind of room at creation; people list with Remove; Delete room / End room; "Rooms you have joined" | No role change. The people list is in the room menu, not a separate panel. Remove has no "also revoke unused links" |
 | 1.5 | `oplog.ts`: relay order, ack, rebase of unconfirmed edits, gap replay; per-segment ops; the whole-mask digest is gone | Segments are keyed by label value, not a random id; no renumbering on a same-value add; no per-slice checksum safety net |
 | 1.6 | `transfer.ts`: 16-slice slabs, parts of at most 1 MiB, paced; host first, next member after 5 s; 2 GB limit | Same-image check by the autosave fingerprint; a cut transfer starts again instead of resuming |
 | 1.7 | Offline work, endless reconnect with "Reconnect now", three-way merge (`src/mask/merge.ts`), summary, "Use mine" / "Keep the room's" | Conflicts are decided all at once, with no per-slice panel and no outline; no 7-day pre-merge copy; segment conflicts are last-writer-wins |
 | 1.9 | `hostview.ts`: host answers plane requests with 8-bit windowed planes and labels, counts planes per guest, rate-limits; guest holds no file, cannot save, gets no recovery copy, is blanked while the host is unreachable and wiped when the room ends | Lossless gzip instead of WebP in a worker; no cache cap; 3D view not disabled; the host's window, re-fetched when it changes; a guest is shown no measurements |
-| 1.10 | `crypto.ts`: AES-256-GCM, room key wrapped in the invite, names inside encrypted frames | One room key for both kinds; no pairwise keys |
+| 1.10 | `crypto.ts`: AES-256-GCM, names inside encrypted frames | Up to 0.1.3: one room key for both kinds, wrapped in the invite. Since 0.1.4: pair keys and a room key per epoch (`keys.ts`), nothing secret in the invite |
 | 1.11 | No recovery copy for a view-through-host guest; Settings shows autosave as off in that room | The shared-copy recovery copy does not carry the room id and base, so after an app restart a return is merged two-way |
 | 1.12 | The embedded relay speaks v2 with the embedded limits; links carry the LAN address; with no network address it listens on this computer only | **Not verified** on macOS, Windows or Linux desktop builds: `ws://` from the webview, address picker, binding one address, firewall text and a CSP are not done |
 
@@ -349,3 +349,20 @@ What the app does, task by task. Where it differs from the text above, this tabl
 | Relay | Time limit on a new connection's request; a replay that does not fit is `replay-too-old`; file frames to a full member are `busy`; pings count |
 
 Open risk: anyone who can reach a relay can create rooms up to its cap, and an abandoned room lives 30 days. Until phase 2 adds an admin token, keep a relay private or keep `--max-rooms` low (`relay/README.md`).
+
+### Keys, the order of edits and the content security policy (0.1.4, protocol 3)
+
+The three limits the review of 2026-11-22 left as accepted (A1, A2, A6 in `docs/reviews/rooms-security.md`) are closed. The wire contract is `ROOMS-PROTOCOL.md` §19; the reasons are in `docs/process/DECISIONS.md` (2026-11-22, "keys").
+
+| Topic | Now | Why this and not something else |
+|---|---|---|
+| Frames for one member (image and mask slabs, slice pictures, keys, requests) | Sealed under a key only the two members can make: X25519 between their per-room keys, in both kinds of room and between any two members, not only host and guest | In a shared-copy room any member may be asked for the mask, so pair keys only with the host would leave those transfers under the room key |
+| Frames for everyone (edits, names, cursors) | Sealed under the room key of the current epoch **and signed** by the sender (Ed25519) | A symmetric key that everyone holds cannot say who sent a frame. A tag per recipient would be cheaper but cannot be checked by someone who joins a moment later and gets the edit from the relay's log, and edits must be judged the same by everyone. Measured cost in `docs/reviews/rooms-scale.md` |
+| Who is in the room | The host signs the list of members and their keys; the relay's roster only says who is connected | Otherwise the relay could name its own key as a member's and be handed the room key |
+| First contact | The invite carries the host's public keys and the kind of room, sealed for the link's holder, and no room key. The newcomer proves to the host that it holds the link and which keys are its own; the host then hands it the room key under their pair key | The relay never has the link, so it cannot put itself between the two. The price: nobody can come in while the host is offline |
+| Removal (task 2.3) | The host makes a new room key and hands it to the people who stay. Frames carry the epoch; the relay refuses older ones once the host says `rekey` | A removed person, even one handed every frame, reads nothing sent after |
+| Away during a change | Keys from the host, or with the host away from any member who stayed | What is passed on is the host's signed list and the keys under it, and only to someone that list names |
+| Order of edits | Each member keeps a hash chain over the edits it took and says where it stands with every edit; members who were shown different edits find out and stop | The relay must order edits and so can always misorder them; it can no longer do so unseen |
+| Keys on the device (A5) | Still in the app's local storage; removed when the room is deleted, the member is removed, or the person forgets the room | Tauri's own secret store (Stronghold) needs a password the app would have to keep next to it and is a large dependency; there is no first-party plugin for the system keychain |
+| Content security policy (A6, task 1.12) | Set in `tauri.conf.json`; see `docs/reviews/rooms-security.md` | |
+| Old apps | Protocol 3. A 0.1.2 or 0.1.3 app is told to update; rooms saved by them cannot be reopened | The old scheme and the new cannot share a room without everyone falling back to the one shared key |

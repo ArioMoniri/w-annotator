@@ -16,6 +16,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Everyone in a room needs 0.1.4 or later**, and so does the room server. An older app that tries to join is told "Update W Annotator to join this room". Rooms kept by 0.1.3 or earlier cannot be reopened: start a new room.
+- Rooms no longer share one key. What one person is sent alone (the image and the mask on joining, slice pictures in a view-through-host room) can be read by that person only, and every edit, name and cursor is signed by whoever sent it, so nobody in a room can pass as someone else.
+- Removing someone changes the room's key. A removed person cannot read anything sent afterwards, even on a network or a room server that still shows them the traffic.
+- The host's app lets each person in itself, with proof that they hold the invite link. Nobody can join while the host is offline; they see "Waiting for the host to let you in…".
+- If the room server leaves an edit out for someone, swaps edits, or shows people different edits, the apps notice and say "This room's server delivered different edits to different people. Your copy is kept. Leave and start a new room." Nothing more is taken from that room; your work stays.
+- The desktop app has a content security policy: scripts only from the app, and no connections except to room servers.
+- A room's keys are removed from the device when the room is deleted, when you are removed from it, and when you forget the room.
+- `docs/design/ROOMS-PROTOCOL.md` describes protocol 3, with test vectors; `docs/reviews/rooms-security.md` and `SECURITY.md` say what is closed and what is left.
 - In "1 large and 3 stacked" the view in the large pane shows its image enlarged to fill the pane, as a maximised view does. It goes back to its size when it leaves the large pane, and a view swapped in grows in its place.
 - The Pancreas preset is now W 350, L 40: a soft-tissue window of the kind published pancreas CT studies use (W 350, L 40 as reported for Radiology 2010, doi:10.1148/radiol.10091819; W 400, L 40 in Cancer Imaging 2023, doi:10.1186/s40644-023-00637-9). There is no dedicated standard pancreas window. The earlier narrow window (W 150, L 65) stays as "Pancreas, narrow", for low-attenuation lesions on a contrast-enhanced scan.
 
