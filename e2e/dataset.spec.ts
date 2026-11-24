@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { errors, expect, test, type FileChooser, type Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,6 +61,19 @@ test.afterAll(() => {
 const rows = (page: Page) => page.locator('.filerow');
 
 /**
+ * Hands a folder to the picker. In WebKit, Playwright's folder upload now and
+ * then never returns: it waits for the input's `input` event but starts
+ * listening without waiting for the listener to be in place, so an early event
+ * is missed (playwright-core 1.63, `_setInputFiles`). The wait is cut short
+ * here; the checks after it then show whether the app got the folder.
+ */
+async function setFolder(chooser: FileChooser, path: string): Promise<void> {
+  await chooser.setFiles(path, { timeout: 10_000 }).catch((err: unknown) => {
+    if (!(err instanceof errors.TimeoutError)) throw err;
+  });
+}
+
+/**
  * Voxels of `label` (any label when not given) in the mask on screen, or -1
  * while there is no mask yet: a case's label loads after its image, and a
  * slow browser can be asked before it is there.
@@ -82,7 +95,7 @@ async function openFolder(page: Page): Promise<void> {
   await page.waitForFunction(() => '__w' in window);
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open a dataset folder' }).click();
-  await (await chooser).setFiles(folder);
+  await setFolder(await chooser, folder);
   await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
 }
 
@@ -143,7 +156,7 @@ test('a folder that is not an nnU-Net dataset says so and opens nothing', async 
   await page.waitForFunction(() => '__w' in window);
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open a dataset folder' }).click();
-  await (await chooser).setFiles(join(folder, 'LabelsTr'));
+  await setFolder(await chooser, join(folder, 'LabelsTr'));
   await expect(page.getByText('No images named like nnU-Net cases (case_0000.nii.gz) were found in this folder.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Drop an image and a mask' })).toBeVisible();
 });
