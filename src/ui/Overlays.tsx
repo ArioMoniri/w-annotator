@@ -53,8 +53,12 @@ export function ConfirmDialog() {
   const confirm = useStore((s) => s.confirm);
   if (!confirm) return null;
   const close = () => set({ confirm: null });
+  const dismiss = () => {
+    close();
+    confirm.cancel?.run();
+  };
   return (
-    <Modal title={confirm.title} onClose={close}>
+    <Modal title={confirm.title} onClose={dismiss}>
       <h2>{confirm.title}</h2>
       <p>{confirm.body}</p>
       <div className="footer">
@@ -69,8 +73,8 @@ export function ConfirmDialog() {
             {confirm.other.label}
           </button>
         )}
-        <button className="btn secondary lg" onClick={close}>
-          Cancel
+        <button className="btn secondary lg" onClick={dismiss}>
+          {confirm.cancel?.label ?? 'Cancel'}
         </button>
         <button
           className={`btn lg ${confirm.danger ? 'danger' : 'primary'}`}

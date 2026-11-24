@@ -266,6 +266,8 @@ export function App() {
       if (wanted) void (await import('./selftest')).run();
     });
     set({ updater: desktopUpdater });
+    // A reload (F5) comes back to the dataset that was open.
+    void session.resumeAfterReload();
     void checkForUpdates({ quiet: true });
     if (shouldShowTour(getSettings().tourSeen, location.search)) startTour();
     const warn = (e: BeforeUnloadEvent) => {

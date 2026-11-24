@@ -87,6 +87,8 @@ export interface ConfirmRequest {
   danger?: boolean;
   /** A third, quieter choice shown before Cancel. */
   other?: { label: string; run: () => void };
+  /** Cancel's own words and what it does, also on Esc; by default it only closes. */
+  cancel?: { label: string; run: () => void };
   run: () => void;
 }
 
