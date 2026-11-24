@@ -21,6 +21,7 @@ import {
   type RefineOp,
 } from '../session';
 import { Slider, useDismiss, useKeyHint } from './common';
+import { DatasetSection } from './DatasetSection';
 import { FilesSection } from './FilesSection';
 
 /** Operations that ask for one number first. */
@@ -400,6 +401,7 @@ export function SegmentsPanel() {
 
   return (
     <aside className="panel" aria-label="Segments" data-tour="segments">
+      <DatasetSection />
       <FilesSection />
       <header>
         <span>Segments</span>

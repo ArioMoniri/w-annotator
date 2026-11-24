@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Role, RoomKind, SegmentInfo } from '../collab/protocol';
 import type { SegmentStats } from '../mask/ops';
 import type { MaskRow } from '../mask/collection';
+import type { Dataset, StartFrom } from '../dataset/layout';
 import type { PaintOver } from '../mask/paintOver';
 import type { ScissorsAction, ScissorsDepth, ScissorsShape } from '../mask/scissors';
 import type { MrWindows, Voi, WindowSet } from '../viewer/window';
@@ -111,6 +112,8 @@ interface State {
   } | null;
   /** The preset list the user asked for, when the guess from the values was wrong. Null follows `image.ct`. */
   windowSet: WindowSet | null;
+  /** A dataset folder being worked through, case by case. `current` is the case on screen, if any. */
+  dataset: (Dataset & { current: string | null; start: StartFrom }) | null;
   /** Name, unsaved state and segments below are those of the active mask. */
   maskName: string | null;
   dirty: boolean;
@@ -188,6 +191,7 @@ interface State {
 export const useStore = create<State>(() => ({
   image: null,
   windowSet: null,
+  dataset: null,
   maskName: null,
   dirty: false,
   masks: [],

@@ -14,6 +14,8 @@ import {
   type InputFile,
 } from './io';
 import type { ScalarArray, VolumeData } from './io/types';
+import { caseAfter, readLayout, startLabel, type StartFrom } from './dataset/layout';
+import type { FolderFile } from './platform';
 import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
 import { brushRadius, cleanBrushSize, minBrushSize } from './mask/brush';
@@ -354,6 +356,133 @@ export async function imageToMask(files: InputFile[]): Promise<void> {
   }
 }
 
+/* ───────────────────────── dataset folder ───────────────────────── */
+
+/** The files of the open dataset folder, by path. Read one case at a time. */
+let datasetFiles = new Map<string, FolderFile>();
+
+const leafOf = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+
+/** Asks to save the active mask first when it has unsaved edits, then runs `go`. */
+function afterSaving(go: () => void): void {
+  if (!anyUnsaved()) {
+    go();
+    return;
+  }
+  set({
+    confirm: {
+      title: `Save changes to ${defaultMaskName()}?`,
+      body: 'Your mask edits have not been saved to a file.',
+      confirm: 'Save',
+      run: () => void saveMask().then(() => !get().dirty && go()),
+      other: {
+        label: "Don't save",
+        run: () => {
+          emit('discarded');
+          go();
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Opens a dataset folder in the nnU-Net layout (`dataset/layout.ts`) and its
+ * first case. Nothing is read until a case is opened.
+ */
+export async function openDataset(files: FolderFile[]): Promise<void> {
+  if (isGuestView() || room) {
+    toast('info', 'Leave the room to open a dataset folder.');
+    return;
+  }
+  const layout = readLayout(files.map((f) => f.path));
+  if ('error' in layout) {
+    toast('error', layout.error);
+    return;
+  }
+  afterSaving(() => {
+    datasetFiles = new Map(files.map((f) => [f.path, f]));
+    for (const f of files) appLog.noteName(leafOf(f.path));
+    const start = get().dataset?.start ?? 'own';
+    set({ dataset: { ...layout, current: null, start } });
+    void openCase(layout.cases[0].id, true);
+  });
+}
+
+async function readFolderFile(path: string): Promise<InputFile> {
+  const file = datasetFiles.get(path);
+  if (!file) throw new Error(`missing ${path}`);
+  return { name: leafOf(path), bytes: await file.read(), ...(file.onDisk ? { path } : {}) };
+}
+
+/**
+ * Opens one case of the dataset: its image, and as the mask the label it starts
+ * from (its own, or its patient's first one). The mask is named after the case,
+ * so saving suggests the case's own label name. `asked` skips the unsaved check.
+ */
+export async function openCase(id: string, asked = false): Promise<void> {
+  const ds = get().dataset;
+  const c = ds?.cases.find((x) => x.id === id);
+  if (!ds || !c) return;
+  if (!asked) {
+    afterSaving(() => void openCase(id, true));
+    return;
+  }
+  const imageName = leafOf(c.image);
+  try {
+    set({ busy: `Opening ${c.id}…` });
+    await nextFrame();
+    const file = await readFolderFile(c.image);
+    const vol = { ...(await readVolumeAsync([file])), name: imageName };
+    for (const warning of vol.warnings ?? []) toast('warning', warning);
+    await loadImage(vol, file.path);
+    // nnU-Net wants every label in one format; the images' own extension is the natural one.
+    const maskName = c.id + imageName.slice(baseName(imageName).length);
+    const from = startLabel(ds, c, ds.start);
+    if (from) {
+      const label = await readFolderFile(from);
+      const lab = await readVolumeAsync([label]);
+      const added = await loadMask({ ...lab, name: maskName });
+      // A label taken from another scan is new for this case until it is saved.
+      if (added && from !== c.label) {
+        set({ dirty: true });
+        toast('info', `Started from the label of ${baseName(leafOf(from))}. Check that it fits this scan.`);
+      }
+    } else {
+      set({ maskName });
+      if (masks.active) masks.active.name = maskName;
+      syncRows();
+    }
+    if (c.channels > 1) toast('info', `${c.id} has ${c.channels} channels. The first one is shown.`);
+    set({ dataset: { ...get().dataset!, current: c.id } });
+    emit('opened');
+  } catch (err) {
+    toast('error', describeError(err, imageName));
+  } finally {
+    set({ busy: null });
+  }
+}
+
+/** Opens the case after (1) or before (-1) the one on screen. */
+export function stepCase(step: 1 | -1): void {
+  const ds = get().dataset;
+  if (!ds) return;
+  const next = caseAfter(ds, ds.current, step);
+  if (next) void openCase(next);
+  else toast('info', step === 1 ? 'This is the last case.' : 'This is the first case.');
+}
+
+/** Where new cases start from. The case on screen keeps its mask. */
+export function setStartFrom(start: StartFrom): void {
+  const ds = get().dataset;
+  if (ds) set({ dataset: { ...ds, start } });
+}
+
+export function closeDataset(): void {
+  datasetFiles = new Map();
+  set({ dataset: null });
+}
+
 async function guarded(fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
@@ -405,6 +534,8 @@ async function loadImage(vol: VolumeData, path?: string): Promise<void> {
       labels: labelLook(renderable.data) === 'labels',
     },
     windowSet: null,
+    // No case of the dataset is on screen until `openCase` says which one this is.
+    dataset: get().dataset && { ...get().dataset!, current: null },
     voi,
     hover: null,
     maximized: null,
@@ -681,7 +812,9 @@ function dropImage(): void {
   history.clear();
   masks.clear();
   engine.unmountViewports();
-  set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false, masks: [], activeMask: null, imageDimmed: false });
+  // Closing the image ends work on its dataset too.
+  datasetFiles = new Map();
+  set({ image: null, maskName: null, dirty: false, segments: [], activeSegment: 0, canUndo: false, canRedo: false, hover: null, slices: {}, stats: {}, measurementsOpen: false, masks: [], activeMask: null, imageDimmed: false, dataset: null });
   emit('closed');
 }
 

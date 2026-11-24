@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Open a dataset folder (File menu and start screen) for working through an nnU-Net dataset case by case: images `<case>_0000.ext` in folders such as `imagesTr` and `imagesTr_unlabeled`, labels `<case>.ext` in `labelsTr`. A Dataset section above Files lists the cases by patient (`<patient>_<scan>`); a click, the arrows or Alt+↓ / Alt+↑ open the next case with its label as the mask. "Start from: First scan’s label" starts each case from the label of the patient’s first scan instead, marked unsaved. Files are read one case at a time, and the masks are named after their case, so saving suggests `<case>.ext` and never writes over the folder by itself.
+
 - "Use as mask on a scan…" in the image's row menu, when the open image holds segment labels: pick the scan it belongs to, and the labels open on it as a mask, saved back to their own file. Opening such a file on its own also says this, with a "Pick scan" button.
 - nnU-Net names pair an image with its label: `10000_0001.mha` is the label of `10000_0001_0000.mha`, in any format or folder. Dragging the label over its image says "Drop to add as mask".
 

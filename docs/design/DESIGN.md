@@ -674,7 +674,7 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Body | MHA, NIfTI, NRRD or a DICOM folder. The mask is optional. |
 | Buttons | Open image · Open mask |
 | Open mask disabled tooltip | Open an image first. |
-| Links | Join a room · Open the sample · Settings |
+| Links | Open a dataset folder · Join a room · Open the sample · Settings |
 | Recent heading | Recent |
 | Dragging over (empty) | Drop to open |
 | Dragging over (image open, mask file: named like a mask, or the nnU-Net label of the open image) | Drop to add as mask |
@@ -684,6 +684,8 @@ Disabled edit tool tooltip: `Add a segment to start editing.`
 | Mask confirm (Open image picked a file of segment labels while an image is open) | Add 10000_0001.mha as a mask? · Its values are segment labels. It can also open in place of 10000_0001_0000.mha. (unsaved: Its values are segment labels. Replacing the image instead loses unsaved mask changes.) · Replace image (not in a room) · Cancel · Add as mask |
 | Labels opened as the image | 10000_0001.mha holds segment labels. To edit them, open them on their scan. · Pick scan |
 | Files section | Files · New mask · Edit {name} · Hide / Show · Dim image / Show image at full brightness · Make active · Save… · Use as mask on a scan… (image row, when it holds segment labels) · Show in Finder / Explorer / folder · Close · Close image |
+| Dataset section (above Files, while a dataset folder is open) | Dataset · {n} / {total} · {folder name} · Previous case / Next case (Alt+↑ / Alt+↓) · Close dataset · Start from: This scan’s label / First scan’s label · patient ids, each with its scan numbers · {case}, no label |
+| Dataset messages | No images named like nnU-Net cases (case_0000.nii.gz) were found in this folder. · Started from the label of 10000_0001. Check that it fits this scan. · {case} has 4 channels. The first one is shown. · This is the first case. · This is the last case. · Leave the room to open a dataset folder. |
 | Too many masks | Up to 4 masks can be open at once. Close one in Files to add another. |
 | Replace confirm (unsaved) | Replace the current image? · Unsaved mask changes will be lost. · Cancel · Save and replace · Replace |
 | Loading | Opening chest_ct_014.nii.gz… |

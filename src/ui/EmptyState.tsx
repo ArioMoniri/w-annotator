@@ -1,7 +1,7 @@
 import { Layers } from 'lucide-react';
 import { openSample } from '../session';
 import { set } from '../state/store';
-import { pickDicomFolder, pickImage } from './files';
+import { pickDatasetFolder, pickDicomFolder, pickImage } from './files';
 import { RecoveryWaiting } from './RecoveryBar';
 import { ThemeControl } from './ThemeControl';
 
@@ -23,6 +23,9 @@ export function EmptyState({ dragging }: { dragging: boolean }) {
         </div>
       </div>
       <div className="links">
+        <button className="btn text" onClick={pickDatasetFolder}>
+          Open a dataset folder
+        </button>
         <button className="btn text" data-tour="join" onClick={() => set({ roomModal: 'join' })}>
           Join a room
         </button>

@@ -10,7 +10,7 @@ import { closeImage, createInvite, endRoom, leaveRoom, listInvites, reconnectRoo
 import { copyText } from '../platform';
 import { jumpTo } from '../viewer/engine';
 import { useDismiss, useKeyHint } from './common';
-import { pickDicomFolder, pickImage, pickMask } from './files';
+import { pickDatasetFolder, pickDicomFolder, pickImage, pickMask } from './files';
 import { ThemeControl } from './ThemeControl';
 
 function FileMenu() {
@@ -51,6 +51,9 @@ function FileMenu() {
           </button>
           <button className="item" role="menuitem" onClick={run(pickMask)}>
             Open mask… {key('file.openMask') && <kbd>{key('file.openMask')}</kbd>}
+          </button>
+          <button className="item" role="menuitem" onClick={run(pickDatasetFolder)}>
+            Open dataset folder…
           </button>
           <hr />
           <button className="item" role="menuitem" onClick={run(() => void saveMask())}>
