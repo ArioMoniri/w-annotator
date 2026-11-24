@@ -88,17 +88,40 @@ impl Allowed {
     /// the names of the files already there, sorted.
     pub fn allow_out_dir(&self, path: &Path) -> io::Result<Vec<String>> {
         let full = dunce::canonicalize(path)?;
-        let mut names = Vec::new();
-        for entry in fs::read_dir(&full)? {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.starts_with('.') && entry.file_type()?.is_file() {
-                names.push(name);
-            }
-        }
-        names.sort();
+        let names = visible_files(&full)?;
         self.0.lock().unwrap().out_dirs.insert(full);
         Ok(names)
+    }
+
+    /// Lists again, without a dialog, a folder picked during this run, or one
+    /// inside it: for the web side coming back after a reload. Nothing new
+    /// becomes readable.
+    pub fn reopen_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+        let full = dunce::canonicalize(path)?;
+        if !self
+            .0
+            .lock()
+            .unwrap()
+            .dirs
+            .iter()
+            .any(|dir| full.starts_with(dir))
+        {
+            return Err(denied());
+        }
+        let mut files = Vec::new();
+        walk(&full, &mut files)?;
+        files.sort();
+        Ok(files)
+    }
+
+    /// Lists again, without a dialog, a folder picked to save into during this
+    /// run. Nothing new becomes writable.
+    pub fn reopen_out_dir(&self, path: &Path) -> io::Result<Vec<String>> {
+        let full = dunce::canonicalize(path)?;
+        if !self.0.lock().unwrap().out_dirs.contains(&full) {
+            return Err(denied());
+        }
+        visible_files(&full)
     }
 
     /// Records paths the system handed over: files dropped on the window, opened
@@ -172,6 +195,20 @@ impl Allowed {
             Err(denied())
         }
     }
+}
+
+/// The names of the files directly inside a folder, not hidden, sorted.
+fn visible_files(dir: &Path) -> io::Result<Vec<String>> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with('.') && entry.file_type()?.is_file() {
+            names.push(name);
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// Directly inside a folder picked to save into, and not hidden.
@@ -404,6 +441,57 @@ mod tests {
         assert!(allowed.check_read(&new).is_ok());
         write_atomic(&allowed.check_write(&new).unwrap(), b"new").unwrap();
         assert_eq!(fs::read(&new).unwrap(), b"new");
+    }
+
+    #[test]
+    fn a_folder_picked_in_this_run_can_be_listed_again_without_a_dialog() {
+        let tmp = TempDir::new("reopen");
+        let ds = tmp.0.join("t1");
+        fs::create_dir_all(ds.join("ImagesTr")).unwrap();
+        fs::write(ds.join("ImagesTr").join("a_0000.mha"), b"a").unwrap();
+        fs::write(ds.join("dataset.json"), b"{}").unwrap();
+        fs::create_dir(tmp.0.join("other")).unwrap();
+
+        let allowed = Allowed::default();
+        // Nothing is reopened that was not picked.
+        assert!(allowed.reopen_dir(&ds).is_err());
+        let picked = allowed.allow_dir(&ds).unwrap();
+        // A file added since is listed too.
+        fs::write(ds.join("ImagesTr").join("b_0000.mha"), b"b").unwrap();
+        let again = allowed.reopen_dir(&ds).unwrap();
+        assert_eq!(again.len(), picked.len() + 1);
+        assert!(allowed
+            .check_read(&ds.join("ImagesTr").join("b_0000.mha"))
+            .is_ok());
+        // A folder inside the picked one is fine; one above or beside it is not.
+        assert_eq!(allowed.reopen_dir(&ds.join("ImagesTr")).unwrap().len(), 2);
+        assert!(allowed.reopen_dir(&tmp.0).is_err());
+        assert!(allowed.reopen_dir(&tmp.0.join("other")).is_err());
+        assert!(allowed
+            .reopen_dir(&ds.join("ImagesTr").join("..").join(".."))
+            .is_err());
+    }
+
+    #[test]
+    fn an_output_folder_picked_in_this_run_can_be_reopened_without_a_dialog() {
+        let tmp = TempDir::new("reopenout");
+        let out = tmp.0.join("q");
+        fs::create_dir(&out).unwrap();
+        fs::create_dir(out.join("sub")).unwrap();
+        let allowed = Allowed::default();
+        assert!(allowed.reopen_out_dir(&out).is_err());
+        allowed.allow_out_dir(&out).unwrap();
+        fs::write(out.join("p1_0001.mha"), b"m").unwrap();
+        assert_eq!(
+            allowed.reopen_out_dir(&out).unwrap(),
+            vec!["p1_0001.mha".to_string()]
+        );
+        // Only that folder: not one inside it, and a read-only dataset folder is not one.
+        assert!(allowed.reopen_out_dir(&out.join("sub")).is_err());
+        let ds = tmp.0.join("t1");
+        fs::create_dir(&ds).unwrap();
+        allowed.allow_dir(&ds).unwrap();
+        assert!(allowed.reopen_out_dir(&ds).is_err());
     }
 
     #[test]

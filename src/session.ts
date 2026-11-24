@@ -17,6 +17,7 @@ import type { ScalarArray, VolumeData } from './io/types';
 import { caseAfter, maskName as caseMaskName, readLayout, startLabel, type StartFrom } from './dataset/layout';
 import { bundleMasks, bundleName, fitsEmail, packBundle, sizeText, type BundleFile } from './dataset/bundle';
 import { PROGRESS_FILE, emptyProgress, nextToDo, parseProgress, serialiseProgress, tally, type CaseProgress } from './dataset/progress';
+import { commonFolder, outputFor, rememberOutputFor, resumeDataset, saveResume } from './dataset/resume';
 import type { FolderFile, OutputFolder } from './platform';
 import { hexToRgb } from './viewer/geometry';
 import { History } from './mask/history';
@@ -401,7 +402,7 @@ function afterSaving(go: () => void): void {
  * Opens a dataset folder in the nnU-Net layout (`dataset/layout.ts`) and its
  * first case. Nothing is read until a case is opened.
  */
-export async function openDataset(files: FolderFile[]): Promise<void> {
+export async function openDataset(files: FolderFile[], resume?: ResumeAt): Promise<void> {
   if (isGuestView() || room) {
     toast('info', 'Leave the room to open a dataset folder.');
     return;
@@ -414,10 +415,73 @@ export async function openDataset(files: FolderFile[]): Promise<void> {
   afterSaving(() => {
     datasetFiles = new Map(files.map((f) => [f.path, f]));
     outputFolder = null;
+    outputPath = null;
+    datasetRoot = files.every((f) => f.onDisk) ? commonFolder(files.map((f) => f.path)) : null;
     for (const f of files) appLog.noteName(leafOf(f.path));
-    const start = get().dataset?.start ?? 'own';
+    const start = resume?.start ?? get().dataset?.start ?? 'own';
     set({ dataset: { ...layout, current: null, start, output: null, progress: {} } });
-    void openCase(layout.cases[0].id, true);
+    persist();
+    void startDataset(resume);
+  });
+}
+
+/** Where to come back to after a reload: the Save to folder, reopened, and the case. */
+interface ResumeAt {
+  output: OutputFolder | null;
+  case: string | null;
+  start: StartFrom;
+}
+
+/** The dataset folder and the Save to folder on this computer (desktop app), for coming back after a reload. */
+let datasetRoot: string | null = null;
+let outputPath: string | null = null;
+
+/** Remembers the open dataset for this window, so a reload comes back to it. */
+function persist(): void {
+  const ds = get().dataset;
+  saveResume(ds ? { name: ds.name, root: datasetRoot, output: outputPath, case: ds.current, start: ds.start } : null);
+}
+
+/**
+ * Asks where the masks go before the first case opens, so cases done earlier
+ * show as done and open with their saved masks; then opens the case to work
+ * on. After a reload it takes the Save to folder and case it had.
+ */
+async function startDataset(resume?: ResumeAt): Promise<void> {
+  if (resume) {
+    if (resume.output) await takeOutputFolder(resume.output, { quiet: true });
+  } else await askForOutputFolder();
+  const ds = get().dataset;
+  if (!ds) return;
+  const known = resume?.case && ds.cases.some((c) => c.id === resume.case) ? resume.case : null;
+  const id = known ?? nextToDo(ds, { ...emptyProgress(ds.name), cases: ds.progress }, null) ?? ds.cases[0].id;
+  await openCase(id, true);
+}
+
+function askForOutputFolder(): Promise<void> {
+  if (!platform.canPickOutputFolder()) return Promise.resolve();
+  // The desktop app can show its folder dialog at once; a browser needs a click first.
+  if (platform.isTauri) return chooseOutputFolder({ title: 'Choose where to save the masks, or Cancel to only look' }).then(() => undefined);
+  return new Promise((done) =>
+    set({
+      confirm: {
+        title: 'Where should the masks go?',
+        body: 'Choose the folder for the corrected masks. To carry on earlier work, pick the folder you used then.',
+        confirm: 'Choose folder…',
+        run: () => void chooseOutputFolder().finally(done),
+        cancel: { label: 'Only look', run: done },
+      },
+    }),
+  );
+}
+
+/** After a reload, opens the dataset that was open, if the app can; otherwise says to open it again. */
+export function resumeAfterReload(): Promise<void> {
+  return resumeDataset({
+    reopenFolder: platform.reopenFolderFiles,
+    reopenOutput: platform.reopenOutputFolder,
+    open: (files, r) => openDataset(files, r),
+    say: (text) => toast('info', text),
   });
 }
 
@@ -474,6 +538,7 @@ export async function openCase(id: string, asked = false): Promise<void> {
     caseStart = mask ? { data: (mask.data as Uint8Array).slice(), from: saved ? ds.progress[c.id]?.start : start } : null;
     if (c.channels > 1) toast('info', `${c.id} has ${c.channels} channels. The first one is shown.`);
     set({ dataset: { ...get().dataset!, current: c.id } });
+    persist();
     emit('opened');
   } catch (err) {
     toast('error', describeError(err, imageName));
@@ -487,7 +552,7 @@ export async function openCase(id: string, asked = false): Promise<void> {
  * holds a progress file, the cases marked there keep their status. True when
  * a folder was picked.
  */
-export async function chooseOutputFolder(): Promise<boolean> {
+export async function chooseOutputFolder({ title = 'Choose where to save the masks' }: { title?: string } = {}): Promise<boolean> {
   const ds = get().dataset;
   if (!ds) return false;
   if (!platform.canPickOutputFolder()) {
@@ -496,12 +561,19 @@ export async function chooseOutputFolder(): Promise<boolean> {
   }
   let picked: OutputFolder | null;
   try {
-    picked = await platform.pickOutputFolder('Choose where to save the masks');
+    // The dialog opens in the folder used last time for this dataset.
+    picked = await platform.pickOutputFolder(title, outputPath ?? (datasetRoot ? outputFor(datasetRoot) : null));
   } catch (err) {
     toast('error', err instanceof Error ? err.message : String(err));
     return false;
   }
-  if (!picked) return false;
+  return picked ? takeOutputFolder(picked) : false;
+}
+
+/** Uses a folder to save into: refuses the dataset's own labels folder, and keeps the statuses already in it. */
+async function takeOutputFolder(picked: OutputFolder, { quiet = false }: { quiet?: boolean } = {}): Promise<boolean> {
+  const ds = get().dataset;
+  if (!ds) return false;
   // The dataset's own labels folder (same name, same label files): the originals would be written over.
   const labelDirs = new Set(ds.cases.flatMap((c) => (c.label ? [leafOf(c.label.slice(0, -leafOf(c.label).length - 1)).toLowerCase()] : [])));
   const labelFiles = new Set(ds.cases.flatMap((c) => (c.label ? [leafOf(c.label)] : [])));
@@ -513,9 +585,12 @@ export async function chooseOutputFolder(): Promise<boolean> {
   const bytes = picked.files.includes(PROGRESS_FILE) ? await picked.read(PROGRESS_FILE) : null;
   const known = bytes ? parseProgress(new TextDecoder().decode(bytes)).cases : {};
   outputFolder = picked;
+  outputPath = picked.path ?? null;
+  if (datasetRoot && outputPath) rememberOutputFor(datasetRoot, outputPath);
   set({ dataset: { ...get().dataset!, output: picked.name, progress: known } });
+  persist();
   const { done, skipped } = tally(ds, { ...emptyProgress(ds.name), cases: known });
-  if (done + skipped > 0) toast('info', `${picked.name} already has ${done} done and ${skipped} skipped. They keep their status.`);
+  if (!quiet && done + skipped > 0) toast('info', `${picked.name} already has ${done} done and ${skipped} skipped. They keep their status.`);
   return true;
 }
 
@@ -655,17 +730,46 @@ export function stepCase(step: 1 | -1): void {
   else toast('info', step === 1 ? 'This is the last case.' : 'This is the first case.');
 }
 
-/** Where new cases start from. The case on screen keeps its mask. */
+/**
+ * Where cases start from. The case on screen opens again from it, asking first
+ * about edits; one already done keeps the mask saved for it.
+ */
 export function setStartFrom(start: StartFrom): void {
   const ds = get().dataset;
-  if (ds) set({ dataset: { ...ds, start } });
+  if (!ds || ds.start === start) return;
+  const id = ds.current;
+  const apply = () => {
+    set({ dataset: { ...get().dataset!, start } });
+    persist();
+  };
+  if (!id || (ds.progress[id]?.status === 'done' && outputFolder)) {
+    apply();
+    return;
+  }
+  const reopen = () => {
+    apply();
+    void openCase(id, true);
+  };
+  // A mask as it was when the case opened has nothing to lose, even one started from another scan.
+  if (unchangedSinceOpened()) reopen();
+  else afterSaving(reopen);
+}
+
+function unchangedSinceOpened(): boolean {
+  if (!mask || !caseStart) return false;
+  flushEdits();
+  const data = mask.data as Uint8Array;
+  return caseStart.data.length === data.length && caseStart.data.every((v, i) => v === data[i]);
 }
 
 export function closeDataset(): void {
   datasetFiles = new Map();
   outputFolder = null;
+  outputPath = null;
+  datasetRoot = null;
   caseStart = null;
   set({ dataset: null });
+  persist();
 }
 
 async function guarded(fn: () => Promise<void>): Promise<void> {

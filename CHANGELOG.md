@@ -6,9 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Opening a dataset folder now asks where the masks go before the first case opens (in the desktop app the folder dialog opens in the folder used last time for that dataset). Cases done earlier show ✓ at once and open with their saved masks, and the first case still to do opens. Cancel, or "Only look" in a browser, opens the dataset without a folder to save into.
+- Changing "Start from" opens the case on screen again from that label, asking first if it was edited. A case marked done keeps its saved mask.
+
 ### Fixed
 
 - A view-through-host guest whose connection dropped could leave the room on reconnecting, with "Can't reach the room server", instead of coming back. The app asked the host for pictures on the new connection before signing in again, and the room server took that as a broken sign-in. Nothing is sent now until the app has signed in. A sign-in that a slow network made late is tried again rather than ending the room.
+- A reload (F5) lost the open dataset. The desktop app now comes back to the same dataset, Save to folder and case; a browser says to open the dataset folder again.
 
 ## [0.1.4] - 2026-11-24
 

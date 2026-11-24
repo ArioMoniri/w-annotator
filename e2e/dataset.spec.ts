@@ -89,14 +89,31 @@ const voxels = (page: Page, label?: number) =>
 const dataset = (page: Page) => page.getByRole('region', { name: 'Dataset' });
 const caseRow = (page: Page, name: string) => page.getByRole('option', { name, exact: true });
 
-async function openFolder(page: Page): Promise<void> {
+/** Opens the app and hands it the test dataset, without answering what it asks next. */
+async function pickTestFolder(page: Page): Promise<void> {
   await skipTour(page);
   await page.goto('/');
   await page.waitForFunction(() => '__w' in window);
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open a dataset folder' }).click();
   await setFolder(await chooser, folder);
-  await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
+}
+
+const askWhere = (page: Page) => page.getByRole('dialog', { name: 'Where should the masks go?' });
+
+/**
+ * Opens the test dataset. A browser that can save into a folder then asks where
+ * the masks go, and `then` answers ('look' by default); one that cannot (WebKit
+ * without the fake picker) asks nothing. `first` is the image of the case that opens.
+ */
+async function openFolder(page: Page, { then = 'look', first = 'p1_0001_0000' }: { then?: 'look' | 'choose'; first?: string } = {}): Promise<void> {
+  await pickTestFolder(page);
+  if (await page.evaluate(() => 'showDirectoryPicker' in window)) {
+    await askWhere(page)
+      .getByRole('button', { name: then === 'choose' ? 'Choose folder…' : 'Only look' })
+      .click();
+  }
+  await expect(rows(page).nth(0)).toContainText(first);
 }
 
 test('a dataset folder lists its cases by patient and opens the first one with its label', async ({ page }) => {
@@ -212,6 +229,54 @@ const written = (page: Page) => page.evaluate(() => Object.keys((window as unkno
 const progress = (page: Page) =>
   page.evaluate(() => JSON.parse(new TextDecoder().decode((window as unknown as { __out: { files: Record<string, Uint8Array> } }).__out.files['w-annotator-progress.json'])) as { cases: Record<string, { status: string; changed?: boolean; start?: string }> });
 
+test('opening a dataset asks where the masks go, and Esc only looks', async ({ page }) => {
+  await fakeOutputFolder(page);
+  await pickTestFolder(page);
+  await expect(askWhere(page)).toContainText('Choose the folder for the corrected masks. To carry on earlier work, pick the folder you used then.');
+  // Nothing opens behind the question.
+  await expect(rows(page)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
+  await expect(dataset(page).getByRole('button', { name: 'Choose folder…' })).toBeVisible();
+  expect(await written(page)).toEqual([]);
+});
+
+test('changing Start from opens the case on screen again from that label, asking first about edits', async ({ page }) => {
+  await openFolder(page);
+  await caseRow(page, 'p1_0002').click();
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
+  const start = dataset(page).getByLabel('Start from');
+
+  await start.selectOption({ label: 'First scan’s label' });
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  expect(await voxels(page, 2)).toBe(0);
+  await expect(page.getByText('Started from the label of p1_0001. Check that it fits this scan.')).toBeVisible();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
+
+  // Not changed since it opened: back to its own label without asking.
+  await start.selectOption({ label: 'This scan’s label' });
+  await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
+  await expect(page.getByRole('heading', { name: /^Save changes/ })).toHaveCount(0);
+
+  // After an edit it asks first; Cancel keeps the case and the choice as they were.
+  await page.evaluate(() => window.__w.session.clearSegment(2));
+  await start.selectOption({ label: 'First scan’s label' });
+  await expect(page.getByRole('heading', { name: 'Save changes to p1_0002.mha?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(start).toHaveValue('own');
+  expect(await voxels(page)).toBe(0);
+  await start.selectOption({ label: 'First scan’s label' });
+  await page.getByRole('button', { name: "Don't save" }).click();
+  await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
+  await expect(start).toHaveValue('first');
+});
+
+test('after a reload, a browser says to open the dataset folder again', async ({ page }) => {
+  await openFolder(page);
+  await page.reload();
+  await expect(page.getByText('Open the dataset folder again to carry on with task1.')).toBeVisible();
+});
+
 test('Done and next saves the case into the chosen folder, marks it and opens the next one', async ({ page }) => {
   await fakeOutputFolder(page);
   await openFolder(page);
@@ -266,14 +331,13 @@ test('a folder with earlier progress picks up where the work stopped', async ({ 
     'p1_0001.mha': Array.from(ball(2)),
     'w-annotator-progress.json': Array.from(Buffer.from(JSON.stringify(earlier))),
   });
-  await openFolder(page);
-  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  // Chosen as the dataset opens: the done case is marked at once, and the first case still to do opens.
+  await openFolder(page, { then: 'choose', first: 'p1_0002_0000' });
   await expect(page.getByText('labels_corrected already has 1 done and 0 skipped. They keep their status.')).toBeVisible();
   await expect(caseRow(page, 'p1_0001, done')).toBeVisible();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
 
   // A done case opens with the mask saved for it.
-  await caseRow(page, 'p1_0002').click();
-  await expect(rows(page).nth(0)).toContainText('p1_0002_0000');
   await caseRow(page, 'p1_0001, done').click();
   await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
   await expect.poll(() => voxels(page, 2)).toBeGreaterThan(0);
@@ -286,16 +350,14 @@ test('a folder with earlier progress picks up where the work stopped', async ({ 
 
 test('the dataset’s own labels folder cannot be the output folder', async ({ page }) => {
   await fakeOutputFolder(page, 'LabelsTr', { 'p1_0001.mha': [1], 'p1_0002.mha': [1] });
-  await openFolder(page);
-  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await openFolder(page, { then: 'choose' });
   await expect(page.getByText("LabelsTr holds the dataset's own labels. Choose or make another folder, so the originals stay as they are.")).toBeVisible();
   await expect(dataset(page).getByRole('button', { name: 'Choose folder…' })).toBeVisible();
 });
 
 test('moving on with unsaved edits saves into the output folder when there is one', async ({ page }) => {
   await fakeOutputFolder(page);
-  await openFolder(page);
-  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await openFolder(page, { then: 'choose' });
   await expect(dataset(page)).toContainText('labels_corrected');
   await expect.poll(() => voxels(page, 1)).toBeGreaterThan(0);
   await page.evaluate(() => window.__w.session.clearSegment(1));
@@ -317,8 +379,7 @@ async function zipNow(page: Page): Promise<{ name: string; files: Record<string,
 
 test('the output folder zips into one file for email: the masks of done cases and the progress', async ({ page }) => {
   await fakeOutputFolder(page);
-  await openFolder(page);
-  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await openFolder(page, { then: 'choose' });
   // Nothing done or skipped yet: nothing to send.
   await expect(dataset(page).getByRole('button', { name: 'Zip for email…' })).toBeDisabled();
 
@@ -352,8 +413,7 @@ test('a case marked done whose mask is not in the folder is left out of the zip,
     'p1_0001.mha': Array.from(ball(1)),
     'w-annotator-progress.json': Array.from(Buffer.from(JSON.stringify(earlier))),
   });
-  await openFolder(page);
-  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await openFolder(page, { then: 'choose', first: 'p2_0001_0000' });
   await expect(caseRow(page, 'p1_0002, done')).toBeVisible();
 
   const zip = await zipNow(page);

@@ -323,9 +323,15 @@ async fn pick_output_folder(
     window: WebviewWindow,
     allowed: State<'_, Allowed>,
     title: Option<String>,
+    start_in: Option<String>,
 ) -> Result<Option<OutputFolder>, String> {
     let (tx, rx) = oneshot::channel();
-    file_dialog(&window, title, None).pick_folder(move |folder| {
+    let mut dialog = file_dialog(&window, title, None);
+    // Only a folder that is there: the dialog then opens in it.
+    if let Some(dir) = start_in.map(PathBuf::from).filter(|d| d.is_dir()) {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog.pick_folder(move |folder| {
         let _ = tx.send(folder);
     });
     let Some(folder) = rx.await.map_err(|e| e.to_string())? else {
@@ -340,6 +346,29 @@ async fn pick_output_folder(
         path: display(&path),
         files,
     }))
+}
+
+/// Lists again a folder picked in a dialog during this run (or one inside it),
+/// for the web side coming back after a reload. Refused for any other folder.
+#[tauri::command]
+fn reopen_folder(allowed: State<'_, Allowed>, path: String) -> Result<Vec<String>, String> {
+    let files = allowed
+        .reopen_dir(Path::new(&path))
+        .map_err(|e| e.to_string())?;
+    Ok(files.iter().map(|p| display(p)).collect())
+}
+
+/// Lists again a folder picked to save into during this run. Refused for any other folder.
+#[tauri::command]
+fn reopen_output_folder(allowed: State<'_, Allowed>, path: String) -> Result<OutputFolder, String> {
+    let files = allowed
+        .reopen_out_dir(Path::new(&path))
+        .map_err(|e| e.to_string())?;
+    let path = dunce::canonicalize(&path).map_err(|e| e.to_string())?;
+    Ok(OutputFolder {
+        path: display(&path),
+        files,
+    })
 }
 
 /// Shows a save dialog. The chosen path becomes writable with `write_file`.
@@ -449,6 +478,8 @@ pub fn run() {
             pick_open_paths,
             pick_output_folder,
             pick_save_path,
+            reopen_folder,
+            reopen_output_folder,
             selftest_enabled,
             selftest_finish,
             recovery_write,

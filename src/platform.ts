@@ -111,18 +111,42 @@ export interface FolderFile {
 export async function pickFolderFiles(title: string): Promise<FolderFile[] | null> {
   const { invoke } = await import('@tauri-apps/api/core');
   const paths = await invoke<string[]>('pick_open_paths', { directory: true, title });
-  if (paths.length === 0) return null;
+  return paths.length === 0 ? null : diskFiles(paths);
+}
+
+function diskFiles(paths: string[]): FolderFile[] {
   return paths.map((path) => ({
     path,
     onDisk: true,
-    read: async () => new Uint8Array(await invoke<ArrayBuffer>('read_file', { path })),
+    read: async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return new Uint8Array(await invoke<ArrayBuffer>('read_file', { path }));
+    },
   }));
+}
+
+/**
+ * Desktop app: lists again a folder picked earlier in this run, without a
+ * dialog, for coming back after a reload. Null anywhere else, or when the app
+ * refuses it.
+ */
+export async function reopenFolderFiles(path: string): Promise<FolderFile[] | null> {
+  if (!isTauri) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const paths = await invoke<string[]>('reopen_folder', { path });
+    return paths.length === 0 ? null : diskFiles(paths);
+  } catch {
+    return null;
+  }
 }
 
 /** A folder the user picked to save into. Only files directly inside it are read or written. */
 export interface OutputFolder {
   /** The folder's name, to show. */
   name: string;
+  /** Where it is on this computer; the desktop app only. */
+  path?: string;
   /** Names of the files that were in it when it was picked. */
   files: string[];
   /** A file's bytes, or null when it is not there. */
@@ -141,6 +165,40 @@ interface DirHandle {
 }
 type DirPicker = (opts: { id?: string; mode: 'readwrite' }) => Promise<DirHandle>;
 
+/** A folder on this computer that the desktop app may save into. */
+function diskFolder(picked: { path: string; files: string[] }): OutputFolder {
+  const sep = picked.path.includes('\\') ? '\\' : '/';
+  const full = (name: string) => `${picked.path}${picked.path.endsWith(sep) ? '' : sep}${name}`;
+  return {
+    name: leaf(picked.path),
+    path: picked.path,
+    files: picked.files,
+    read: async (name) => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return new Uint8Array(await invoke<ArrayBuffer>('read_file', { path: full(name) }));
+      } catch {
+        return null;
+      }
+    },
+    write: async (name, bytes) => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('write_file', bytes, { headers: { 'x-file-path': encodeURIComponent(full(name)) } });
+    },
+  };
+}
+
+/** Desktop app: opens again, without a dialog, a folder picked to save into earlier in this run. */
+export async function reopenOutputFolder(path: string): Promise<OutputFolder | null> {
+  if (!isTauri) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return diskFolder(await invoke<{ path: string; files: string[] }>('reopen_output_folder', { path }));
+  } catch {
+    return null;
+  }
+}
+
 /** True when this app can save into a folder: the desktop app, or a browser with folder access. */
 export const canPickOutputFolder = (): boolean => isTauri || typeof (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker === 'function';
 
@@ -148,27 +206,11 @@ export const canPickOutputFolder = (): boolean => isTauri || typeof (window as u
  * Asks for a folder to save into. Null when cancelled. The desktop app makes
  * files directly inside it writable; a browser asks the person to allow edits.
  */
-export async function pickOutputFolder(title: string): Promise<OutputFolder | null> {
+export async function pickOutputFolder(title: string, startIn?: string | null): Promise<OutputFolder | null> {
   if (isTauri) {
     const { invoke } = await import('@tauri-apps/api/core');
-    const picked = await invoke<{ path: string; files: string[] } | null>('pick_output_folder', { title });
-    if (!picked) return null;
-    const sep = picked.path.includes('\\') ? '\\' : '/';
-    const full = (name: string) => `${picked.path}${picked.path.endsWith(sep) ? '' : sep}${name}`;
-    return {
-      name: leaf(picked.path),
-      files: picked.files,
-      read: async (name) => {
-        try {
-          return new Uint8Array(await invoke<ArrayBuffer>('read_file', { path: full(name) }));
-        } catch {
-          return null;
-        }
-      },
-      write: async (name, bytes) => {
-        await invoke('write_file', bytes, { headers: { 'x-file-path': encodeURIComponent(full(name)) } });
-      },
-    };
+    const picked = await invoke<{ path: string; files: string[] } | null>('pick_output_folder', { title, startIn: startIn ?? null });
+    return picked && diskFolder(picked);
   }
   const picker = (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker;
   if (!picker) return null;
