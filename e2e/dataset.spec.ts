@@ -1,8 +1,14 @@
-import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { errors, expect, test, type FileChooser, type Page } from '@playwright/test';
+import { unzipSync } from 'fflate';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { skipTour } from './helpers';
+
+// Opening a folder has hung now and then in WebKit on CI, with nothing to show where.
+// On CI a failing test here keeps its trace (test-results/), which is uploaded. Not
+// locally: recording slows the first page of a cold dev server past the time limit.
+test.use({ trace: process.env.CI ? 'retain-on-failure' : 'off' });
 
 const N = 24;
 
@@ -55,6 +61,19 @@ test.afterAll(() => {
 const rows = (page: Page) => page.locator('.filerow');
 
 /**
+ * Hands a folder to the picker. In WebKit, Playwright's folder upload now and
+ * then never returns: it waits for the input's `input` event but starts
+ * listening without waiting for the listener to be in place, so an early event
+ * is missed (playwright-core 1.63, `_setInputFiles`). The wait is cut short
+ * here; the checks after it then show whether the app got the folder.
+ */
+async function setFolder(chooser: FileChooser, path: string): Promise<void> {
+  await chooser.setFiles(path, { timeout: 10_000 }).catch((err: unknown) => {
+    if (!(err instanceof errors.TimeoutError)) throw err;
+  });
+}
+
+/**
  * Voxels of `label` (any label when not given) in the mask on screen, or -1
  * while there is no mask yet: a case's label loads after its image, and a
  * slow browser can be asked before it is there.
@@ -76,7 +95,7 @@ async function openFolder(page: Page): Promise<void> {
   await page.waitForFunction(() => '__w' in window);
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open a dataset folder' }).click();
-  await (await chooser).setFiles(folder);
+  await setFolder(await chooser, folder);
   await expect(rows(page).nth(0)).toContainText('p1_0001_0000');
 }
 
@@ -137,7 +156,7 @@ test('a folder that is not an nnU-Net dataset says so and opens nothing', async 
   await page.waitForFunction(() => '__w' in window);
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open a dataset folder' }).click();
-  await (await chooser).setFiles(join(folder, 'LabelsTr'));
+  await setFolder(await chooser, join(folder, 'LabelsTr'));
   await expect(page.getByText('No images named like nnU-Net cases (case_0000.nii.gz) were found in this folder.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Drop an image and a mask' })).toBeVisible();
 });
@@ -286,4 +305,58 @@ test('moving on with unsaved edits saves into the output folder when there is on
   await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
   expect(await written(page)).toEqual(['p1_0001.mha', 'w-annotator-progress.json']);
   expect((await progress(page)).cases.p1_0001).toMatchObject({ status: 'done', changed: true });
+});
+
+const outFile = (page: Page, name: string) =>
+  page.evaluate((n) => Array.from((window as unknown as { __out: { files: Record<string, Uint8Array> } }).__out.files[n]), name);
+
+async function zipNow(page: Page): Promise<{ name: string; files: Record<string, Uint8Array> }> {
+  const [download] = await Promise.all([page.waitForEvent('download'), dataset(page).getByRole('button', { name: 'Zip for email…' }).click()]);
+  return { name: download.suggestedFilename(), files: unzipSync(new Uint8Array(readFileSync((await download.path())!))) };
+}
+
+test('the output folder zips into one file for email: the masks of done cases and the progress', async ({ page }) => {
+  await fakeOutputFolder(page);
+  await openFolder(page);
+  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  // Nothing done or skipped yet: nothing to send.
+  await expect(dataset(page).getByRole('button', { name: 'Zip for email…' })).toBeDisabled();
+
+  await dataset(page).getByRole('button', { name: 'Done and next' }).click();
+  await expect(caseRow(page, 'p1_0002')).toHaveAttribute('aria-selected', 'true');
+  await dataset(page).getByRole('button', { name: 'Skip', exact: true }).click();
+  await expect(caseRow(page, 'p2_0001, no label')).toHaveAttribute('aria-selected', 'true');
+
+  const zip = await zipNow(page);
+  expect(zip.name).toMatch(/^labels_corrected-\d{4}-\d{2}-\d{2}\.zip$/);
+  expect(Object.keys(zip.files).sort()).toEqual(['labels_corrected/p1_0001.mha', 'labels_corrected/w-annotator-progress.json']);
+  expect(Array.from(zip.files['labels_corrected/p1_0001.mha'])).toEqual(await outFile(page, 'p1_0001.mha'));
+  const sent = JSON.parse(new TextDecoder().decode(zip.files['labels_corrected/w-annotator-progress.json'])) as { cases: Record<string, { status: string }> };
+  expect(sent.cases.p1_0001.status).toBe('done');
+  expect(sent.cases.p1_0002.status).toBe('skipped');
+  await expect(page.getByText(/^Saved labels_corrected-[\d-]+\.zip: 1 mask, \d+ KB\. Attach it to an email\.$/)).toBeVisible();
+  // The output folder itself is left as it was.
+  expect(await written(page)).toEqual(['p1_0001.mha', 'w-annotator-progress.json']);
+});
+
+test('a case marked done whose mask is not in the folder is left out of the zip, and said so', async ({ page }) => {
+  const earlier = {
+    version: 1,
+    dataset: 'task1',
+    cases: {
+      p1_0001: { status: 'done', at: '2026-11-22T10:00:00.000Z', changed: false, start: 'own' },
+      p1_0002: { status: 'done', at: '2026-11-22T10:05:00.000Z', changed: true, start: 'own' },
+    },
+  };
+  await fakeOutputFolder(page, 'labels_corrected', {
+    'p1_0001.mha': Array.from(ball(1)),
+    'w-annotator-progress.json': Array.from(Buffer.from(JSON.stringify(earlier))),
+  });
+  await openFolder(page);
+  await dataset(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(caseRow(page, 'p1_0002, done')).toBeVisible();
+
+  const zip = await zipNow(page);
+  expect(Object.keys(zip.files).sort()).toEqual(['labels_corrected/p1_0001.mha', 'labels_corrected/w-annotator-progress.json']);
+  await expect(page.getByText(/1 case marked done has no mask in labels_corrected and is left out: p1_0002\./)).toBeVisible();
 });

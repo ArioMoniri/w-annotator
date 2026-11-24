@@ -14,7 +14,8 @@ import {
   type InputFile,
 } from './io';
 import type { ScalarArray, VolumeData } from './io/types';
-import { caseAfter, readLayout, startLabel, type StartFrom } from './dataset/layout';
+import { caseAfter, maskName as caseMaskName, readLayout, startLabel, type StartFrom } from './dataset/layout';
+import { bundleMasks, bundleName, fitsEmail, packBundle, sizeText, type BundleFile } from './dataset/bundle';
 import { PROGRESS_FILE, emptyProgress, nextToDo, parseProgress, serialiseProgress, tally, type CaseProgress } from './dataset/progress';
 import type { FolderFile, OutputFolder } from './platform';
 import { hexToRgb } from './viewer/geometry';
@@ -447,7 +448,7 @@ export async function openCase(id: string, asked = false): Promise<void> {
     const vol = { ...(await readVolumeAsync([file])), name: imageName };
     for (const warning of vol.warnings ?? []) toast('warning', warning);
     await loadImage(vol, file.path);
-    const maskName = caseMaskName(c.id, imageName);
+    const maskName = caseMaskName(c);
     // A case already done opens with the mask saved for it, to look over again.
     const saved = ds.progress[c.id]?.status === 'done' && outputFolder ? await outputFolder.read(maskName) : null;
     const from = saved ? null : startLabel(ds, c, ds.start);
@@ -479,11 +480,6 @@ export async function openCase(id: string, asked = false): Promise<void> {
   } finally {
     set({ busy: null });
   }
-}
-
-/** nnU-Net wants every label in one format; the images' own extension is the natural one. */
-function caseMaskName(id: string, imageName: string): string {
-  return id + imageName.slice(baseName(imageName).length);
 }
 
 /**
@@ -537,7 +533,7 @@ async function saveCase(): Promise<boolean> {
   cancelFillPreview(PREVIEW_CANCELLED);
   flushEdits();
   const c = ds.cases.find((x) => x.id === ds.current)!;
-  const name = caseMaskName(c.id, leafOf(c.image));
+  const name = caseMaskName(c);
   const labels: Record<number, string> = {};
   const colors: Record<number, [number, number, number]> = {};
   for (const seg of get().segments) {
@@ -565,7 +561,7 @@ function openNextToDo(): void {
   const ds = get().dataset!;
   const next = nextToDo(ds, { ...emptyProgress(ds.name), cases: ds.progress }, ds.current);
   if (next) void openCase(next, true);
-  else toast('success', `Every case is done or skipped. The masks are in ${ds.output}.`);
+  else toast('success', `Every case is done or skipped. The masks are in ${ds.output}.`, { label: 'Zip for email', run: () => void zipOutput() });
 }
 
 /** "Done and next": saves the case into the output folder, marks it done and opens the next one to do. */
@@ -601,6 +597,53 @@ export async function skipCase(asked = false): Promise<void> {
   set({ dataset: { ...get().dataset!, progress: cases }, dirty: false });
   emit('discarded');
   openNextToDo();
+}
+
+/**
+ * Zips the output folder's masks of done cases and its progress file into one
+ * file to attach to an email, saved where the person says. The app does not
+ * send it. The output folder itself is not changed.
+ */
+export async function zipOutput(): Promise<void> {
+  const ds = get().dataset;
+  if (!ds?.output || !outputFolder) return;
+  afterSaving(() => void guarded(() => zipNow()));
+}
+
+async function zipNow(): Promise<void> {
+  const ds = get().dataset;
+  const folder = outputFolder;
+  if (!ds?.output || !folder) return;
+  set({ busy: 'Zipping the masks…' });
+  let zip: Uint8Array;
+  const missing: string[] = [];
+  let count = 0;
+  try {
+    await nextFrame();
+    const files: BundleFile[] = [];
+    for (const name of bundleMasks(ds, ds.progress)) {
+      const bytes = await folder.read(name);
+      if (bytes) files.push({ name, bytes });
+      else missing.push(baseName(name));
+    }
+    count = files.length;
+    const progress = (await folder.read(PROGRESS_FILE)) ?? new TextEncoder().encode(serialiseProgress({ ...emptyProgress(ds.name), cases: ds.progress }));
+    files.push({ name: PROGRESS_FILE, bytes: progress });
+    zip = packBundle(ds.output, files);
+  } finally {
+    set({ busy: null });
+  }
+  const saved = await platform.saveBytes(bundleName(ds.output, new Date()), () => zip, platform.ZIP_FILTERS);
+  if (!saved) return;
+  const words = [`Saved ${saved}: ${count} ${count === 1 ? 'mask' : 'masks'}, ${sizeText(zip.length)}.`];
+  if (missing.length > 0) {
+    const cases = missing.length === 1 ? '1 case marked done has' : `${missing.length} cases marked done have`;
+    const named = missing.length > 5 ? `${missing.slice(0, 5).join(', ')} and ${missing.length - 5} more` : missing.join(', ');
+    words.push(`${cases} no mask in ${ds.output} and ${missing.length === 1 ? 'is' : 'are'} left out: ${named}.`);
+  }
+  words.push(fitsEmail(zip.length) ? 'Attach it to an email.' : 'That is more than most email services accept. Share it through a file link instead.');
+  const path = platform.lastSavedPath();
+  toast(missing.length > 0 || !fitsEmail(zip.length) ? 'warning' : 'success', words.join(' '), path ? { label: platform.REVEAL_LABEL, run: () => void platform.revealFile(path) } : undefined);
 }
 
 /** Opens the case after (1) or before (-1) the one on screen. */

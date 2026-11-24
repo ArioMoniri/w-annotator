@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { caseAfter, readLayout, startLabel, type Dataset } from './layout';
+import { caseAfter, maskName, readLayout, startLabel, type Dataset } from './layout';
 
 /** The PANTHER task 1 layout: scan 0001 labelled by hand, later scans in a second image folder. */
 const panther = [
@@ -126,5 +126,13 @@ describe('caseAfter', () => {
 
   it('starts at the first case when none is open', () => {
     expect(caseAfter(ds, null, 1)).toBe('10000_0001');
+  });
+});
+
+describe('maskName', () => {
+  it("is the case name with its image's extension, whatever the label folder holds", () => {
+    const ds = read(panther);
+    expect(maskName(ds.cases.find((c) => c.id === '10000_0002')!)).toBe('10000_0002.mha');
+    expect(maskName(read(['imagesTr/a_0001_0000.nii.gz']).cases[0])).toBe('a_0001.nii.gz');
   });
 });

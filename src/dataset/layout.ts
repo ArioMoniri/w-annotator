@@ -118,3 +118,9 @@ export function caseAfter(ds: Dataset, id: string | null, step: 1 | -1): string 
   const at = ds.cases.findIndex((c) => c.id === id);
   return ds.cases[at + step]?.id ?? null;
 }
+
+/** The name a case's mask is saved under: the case name with its image's extension, as nnU-Net wants one format. */
+export function maskName(c: DatasetCase): string {
+  const image = parts(c.image).pop()!;
+  return c.id + image.slice(baseName(image).length);
+}
