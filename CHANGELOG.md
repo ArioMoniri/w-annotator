@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-24
+
 ### Changed
 
 - Opening a dataset folder now asks where the masks go before the first case opens (in the desktop app the folder dialog opens in the folder used last time for that dataset). Cases done earlier show ✓ at once and open with their saved masks, and the first case still to do opens. Cancel, or "Only look" in a browser, opens the dataset without a folder to save into.
@@ -222,7 +224,8 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...v0.1.2

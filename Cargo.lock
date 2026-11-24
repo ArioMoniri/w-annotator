@@ -5101,7 +5101,7 @@ dependencies = [
 
 [[package]]
 name = "w-annotator"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "dunce",
  "if-addrs",
