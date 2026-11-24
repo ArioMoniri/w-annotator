@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-24
+
 ### Added
 
 - "Check for updates" in Settings › Help looks for a new version now, instead of waiting for the next start. It says when this is the latest version, shows the download, and then offers "Restart to update" there and in the banner. If it cannot check, it says so. Desktop app only; the web version is always the latest.
@@ -210,7 +212,8 @@ First release.
 - The threshold strip overflowed in narrow windows, and the segment menu was clipped by the list.
 - The close confirmation had no Save button.
 
-[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ArioMoniri/w-annotator/compare/v0.1.0...v0.1.1
