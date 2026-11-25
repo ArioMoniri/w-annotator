@@ -68,14 +68,20 @@ export async function maskVoxels(page: Page, label?: number): Promise<number> {
   }, label);
 }
 
-export async function drag(page: Page, view: string, from: [number, number], to: [number, number]): Promise<void> {
+export async function drag(
+  page: Page,
+  view: string,
+  from: [number, number],
+  to: [number, number],
+  button: 'left' | 'right' = 'left',
+): Promise<void> {
   const box = (await page.locator(`[data-view="${view}"]`).boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   await page.mouse.move(cx + from[0], cy + from[1]);
-  await page.mouse.down();
+  await page.mouse.down({ button });
   await page.mouse.move(cx + to[0], cy + to[1], { steps: 8 });
-  await page.mouse.up();
+  await page.mouse.up({ button });
   await page.waitForTimeout(400);
 }
 
