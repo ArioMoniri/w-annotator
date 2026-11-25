@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { formatVoxels } from '../src/mask/ops';
-import { copiedText, drag, maskVoxels, openPhantom, tab } from './helpers';
+import { choose, copiedText, drag, maskVoxels, openPhantom, tab } from './helpers';
 
 const dump = (page: Page) =>
   page.evaluate(() => Array.from(window.__w.session.getMask().data as Uint8Array).join(''));
@@ -258,7 +258,8 @@ test('paint over "Empty only" leaves the neighbouring segment alone', async ({ p
   // Segment 2 is centred one slice below the middle; its outline still crosses the middle slice.
   const [x, y] = await axialOffset(page, 17, 27);
   await page.keyboard.press('b');
-  await page.getByRole('group', { name: 'Paint over' }).getByRole('button', { name: 'Empty only' }).click();
+  // Buttons where the strip has room, one list where it has not (the chip grows with the choice).
+  await choose(page, 'Paint over', 'Empty only');
   await drag(page, 'axial', [x - 60, y], [x + 60, y]);
   expect(await maskVoxels(page, 2)).toBe(two);
   const painted = await maskVoxels(page, 1);
@@ -270,7 +271,7 @@ test('paint over "Empty only" leaves the neighbouring segment alone', async ({ p
   expect(await maskVoxels(page, 2)).toBe(two);
 
   // The same stroke with the default setting does paint over it.
-  await page.getByRole('group', { name: 'Paint over' }).getByRole('button', { name: 'Everything' }).click();
+  await choose(page, 'Paint over', 'Everything');
   await drag(page, 'axial', [x - 60, y], [x + 60, y]);
   expect(await maskVoxels(page, 2)).toBeLessThan(two);
   expect(await maskVoxels(page, 1)).toBeGreaterThan(painted);

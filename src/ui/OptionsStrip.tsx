@@ -261,7 +261,7 @@ export function OptionsStrip() {
           <SizeField />
           <ShapeField list={asList(2)} />
           <PaintOverField list={asList(3)} />
-          <span className="hint">Shift-drag erases.</span>
+          <span className="hint">Right-drag erases.</span>
           <button
             className="btn secondary"
             data-tour="interpolate"

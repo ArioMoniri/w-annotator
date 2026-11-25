@@ -2254,11 +2254,14 @@ button.avatar {
   font-size: 12px;
 }
 
-/* The brush strip gives up its extras step by step so every control stays in view. */
+/* The brush strip gives up its extras step by step so every control stays in view.
+   Its size slider is never one of them; it gets shorter. */
 @media (max-width: 1439px) {
-  .strip[data-strip='brush'] input[aria-label='Brush size'],
   .strip[data-strip='brush'] .hint {
     display: none;
+  }
+  .strip[data-strip='brush'] input[aria-label='Brush size'] {
+    width: 64px;
   }
   .strip[data-strip='brush'] .chip {
     max-width: 140px;
@@ -2325,6 +2328,12 @@ button.avatar {
 .strip[data-compact='3'] input[type='range'],
 .strip[data-compact='3'] .dual {
   display: none;
+}
+
+/* Except the brush's size slider, which stays, shorter. */
+.strip[data-strip='brush'][data-compact='3'] input[aria-label='Brush size'] {
+  display: inline-block;
+  width: 64px;
 }
 
 .strip[data-compact='3'] .chip span:last-child {
@@ -2547,14 +2556,6 @@ button.avatar {
   }
   .shortcuts {
     grid-template-columns: 1fr;
-  }
-}
-
-/* In a narrow window the brush strip keeps the number field and drops the slider,
-   as the threshold strip does, so "Fill between slices" is not cut off. */
-@media (max-width: 1279px) {
-  .strip[data-strip='brush'] input[aria-label='Brush size'] {
-    display: none;
   }
 }
 

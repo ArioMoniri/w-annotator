@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- With the brush or the threshold brush, right-drag erases, as Shift-drag does. With every other tool right-drag still sets the window.
+- The brush size slider stays in the brush strip at every window width; it was hidden below 1440 wide, leaving only the number.
+
 ## [0.1.5] - 2026-11-24
 
 ### Changed

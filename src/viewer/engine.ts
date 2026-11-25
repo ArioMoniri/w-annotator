@@ -310,7 +310,8 @@ const PRIMARY_TOOLS = [
 ];
 
 /**
- * Makes one tool the left-button tool. Pan and window stay on their own buttons.
+ * Makes one tool the left-button tool. Pan and window stay on their own buttons, except
+ * that with a brush the right button erases.
  * Nothing is bound to the wheel: src/ui/gestureInput.ts handles wheel, trackpad and pinch.
  */
 export function setTool(tool: ToolId, o: ToolOptions): void {
@@ -318,6 +319,8 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
   if (!group || !imageLoaded) return;
   const name = toolNameFor(tool, o);
   const primary = { mouseButton: MouseBindings.Primary };
+  const secondary = { mouseButton: MouseBindings.Secondary };
+  const brushing = tool === 'brush' || tool === 'threshold';
 
   for (const t of PRIMARY_TOOLS) {
     if (t === name) continue;
@@ -340,9 +343,8 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
     bindings: [{ mouseButton: MouseBindings.Auxiliary }, ...(name === PanTool.toolName ? [primary] : [])],
   });
   if (name === ZoomTool.toolName) group.setToolActive(ZoomTool.toolName, { bindings: [primary] });
-  group.setToolActive(WindowLevelTool.toolName, {
-    bindings: [{ mouseButton: MouseBindings.Secondary }, ...(name === WindowLevelTool.toolName ? [primary] : [])],
-  });
+  const windowBindings = [...(brushing ? [] : [secondary]), ...(name === WindowLevelTool.toolName ? [primary] : [])];
+  if (windowBindings.length > 0) group.setToolActive(WindowLevelTool.toolName, { bindings: windowBindings });
 
   if (PRIMARY_TOOLS.includes(name)) {
     if (tool === 'scissors') {
@@ -350,10 +352,11 @@ export function setTool(tool: ToolId, o: ToolOptions): void {
     }
     group.setToolActive(name, { bindings: [primary] });
   }
-  // Holding Shift turns the brush into an eraser of the same size and shape.
-  if (tool === 'brush' || tool === 'threshold') {
+  // Holding Shift, or dragging with the right button, turns the brush into an eraser of
+  // the same size and shape.
+  if (brushing) {
     group.setToolActive(o.brushShape === 'sphere' ? BRUSH.eraseSphere : BRUSH.eraseCircle, {
-      bindings: [{ mouseButton: MouseBindings.Primary, modifierKey: KeyboardBindings.Shift }],
+      bindings: [{ mouseButton: MouseBindings.Primary, modifierKey: KeyboardBindings.Shift }, secondary],
     });
   }
   eng().render();

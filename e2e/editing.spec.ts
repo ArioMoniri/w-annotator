@@ -36,6 +36,46 @@ test('holding Shift still erases after a lost key release', async ({ page }) => 
   await page.keyboard.up('q');
 });
 
+test('with a brush, right-drag erases and leaves the window as it is; other tools keep right-drag for the window', async ({ page }) => {
+  const voi = () => page.evaluate(() => JSON.stringify(window.__w.store.getState().voi));
+  await openPhantom(page);
+  for (const key of ['b', 't']) {
+    await page.keyboard.press(key);
+    await page.keyboard.press('b');
+    await drag(page, 'axial', [-60, 40], [-20, 40]);
+    await page.keyboard.press(key);
+    const painted = await maskVoxels(page, 1);
+    const window = await voi();
+    await drag(page, 'axial', [-60, 40], [-20, 40], 'right');
+    expect(await maskVoxels(page, 1), `right-drag with ${key}`).toBeLessThan(painted);
+    expect(await voi(), `right-drag with ${key}`).toBe(window);
+  }
+  // No menu of the browser's own comes up over the image.
+  await expect(page.getByRole('menu')).toHaveCount(0);
+
+  for (const key of ['c', 'e']) {
+    await page.keyboard.press(key);
+    const mask = await maskVoxels(page);
+    const window = await voi();
+    await drag(page, 'axial', [-60, 40], [-20, 0], 'right');
+    expect(await voi(), `right-drag with ${key}`).not.toBe(window);
+    expect(await maskVoxels(page), `right-drag with ${key}`).toBe(mask);
+  }
+});
+
+test('the brush strip keeps its size slider at every window width', async ({ page }) => {
+  await openPhantom(page);
+  await page.keyboard.press('b');
+  for (const width of [1920, 1366, 1280, 1024]) {
+    await page.setViewportSize({ width, height: width >= 1280 ? 800 : 640 });
+    const slider = page.locator('.strip').getByRole('slider', { name: 'Brush size', exact: true });
+    await expect(slider, `${width} wide`).toBeVisible();
+    await slider.fill('20');
+    expect(await page.evaluate(() => window.__w.store.getState().brushSize), `${width} wide`).toBe(20);
+    await slider.fill('6');
+  }
+});
+
 test('an enlarged view fills the whole view area and can be painted on, whichever view it is', async ({ page }) => {
   await openPhantom(page);
   const grid = (await page.locator('.views').boundingBox())!;
